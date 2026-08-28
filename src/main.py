@@ -24,6 +24,13 @@ def main():
     # Initialisation de la DB
     init_db()
     
+    # Publication initiale des routes sur Tailscale
+    try:
+        from services.network_config import publish_tailscale_routes
+        publish_tailscale_routes()
+    except Exception as e:
+        logging.error(f"Erreur publication routes initiale : {e}")
+    
     # Démarrage du tracker de localisation en arrière-plan
     tracker_thread = threading.Thread(target=start_tracker, kwargs={'interval': 60}, daemon=True)
     tracker_thread.start()

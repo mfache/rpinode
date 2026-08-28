@@ -260,6 +260,36 @@ document.addEventListener("DOMContentLoaded", () => {
                         }
                         if (tsIp) window.lastTsIp = tsIp;
                     }
+
+                    // Traitement spécial pour le scanner IP
+                    if (key === 'ipscan_running') {
+                        const btn = document.getElementById('btn-start-scan');
+                        const status = document.getElementById('scan-status');
+                        
+                        if (btn && status) {
+                            const isRunning = (value === true || value === "true");
+                            const wasRunning = status.classList.contains('running');
+                            
+                            btn.disabled = isRunning;
+                            status.textContent = isRunning ? 'Scan en cours...' : 'Prêt';
+                            status.className = `status-badge ${isRunning ? 'running' : 'idle'}`;
+                            
+                            // Si le scan vient de se terminer, on rafraîchit la page pour voir les résultats
+                            if (wasRunning && !isRunning && window.location.pathname.includes('/scan/ip')) {
+                                setTimeout(() => window.location.reload(), 500);
+                            }
+                        }
+                    }
+                    if (key === 'ipscan_mtime') {
+                        // Si le fichier de résultats a changé pendant qu'on regarde la page de scan, on rafraîchit
+                        if (window.location.pathname.includes('/scan/ip')) {
+                            if (window.lastIpscanMtime && window.lastIpscanMtime !== value) {
+                                console.log("Mise à jour des résultats de scan détectée");
+                                window.location.reload();
+                            }
+                            window.lastIpscanMtime = value;
+                        }
+                    }
                 } catch (innerError) {
                     console.error(`Erreur lors de la mise à jour de la clé ${key}:`, innerError);
                 }

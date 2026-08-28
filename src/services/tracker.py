@@ -12,72 +12,41 @@ logger = logging.getLogger(__name__)
 def check_and_update_site():
     """
     Vérifie l'antenne actuelle et met à jour le chantier si nécessaire.
+    Synchronise également les données globales (annotations, templates) avec le serveur.
     """
     gsm = get_gsm_info()
-    if not gsm.get("mcc") or not gsm.get("enodeb"):
-        logger.debug("Tracker: Pas d'infos GSM complètes.")
-        return
-
-    mcc, mnc, enodeb = gsm["mcc"], gsm["mnc"], gsm["enodeb"]
     
-    # 1. Tenter une résolution locale d'abord (plus rapide)
-    with get_db_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute(
-            """
-            SELECT s.name, s.external_id, s.is_provisional
-            FROM sites s
-            JOIN site_antennas sa ON s.id = sa.site_id
-            JOIN antennas a ON sa.antenna_id = a.id
-            WHERE a.mcc = ? AND a.mnc = ? AND a.enodeb = ?
-            ORDER BY sa.linked_at DESC
-            LIMIT 1
-            """,
-            (mcc, mnc, enodeb)
-        )
-        row = cursor.fetchone()
-        
-        if row:
-            site_name = row["name"]
-            external_id = row["external_id"]
-            is_prov = row["is_provisional"]
-            current_site = get_current_site_name()
-            
-            if site_name != current_site:
-                logger.info(f"Changement d'antenne détecté ({enodeb}). Passage automatique sur le chantier : {site_name}")
-                if label_current_location(site_name, is_provisional=is_prov, external_id=external_id):
-                    # Récupérer l'id local pour appliquer les profils réseau
-                    cursor.execute("SELECT id FROM sites WHERE name = ?", (site_name,))
-                    site_row = cursor.fetchone()
-                    if site_row:
-                        apply_site_network_profiles(site_row["id"])
-            return
-
-    # 2. Si inconnu localement, interroger le serveur maître (Fleet)
+    # 1. Synchronisation systématique avec le serveur maître si enregistré
+    # Même sans GSM, cela permet de tirer les annotations et de pousser les découvertes IP.
     if fleet.is_registered():
-        logger.info(f"Antenne {enodeb} inconnue localement, interrogation du serveur maître...")
+        logger.debug("Interrogation périodique du serveur maître (Fleet)...")
         sync_data = fleet.sync_location(gsm)
-        if sync_data and sync_data.get("chantier"):
+        
+        # Si on a des infos GSM et que le serveur reconnaît un chantier, on traite
+        if sync_data and sync_data.get("chantier") and gsm.get("enodeb"):
             chantier_distant = sync_data["chantier"]
             dist_name = chantier_distant.get("ref")
             dist_id = str(chantier_distant.get("id"))
-            logger.info(f"Le serveur maître reconnaît l'antenne sur le chantier : {dist_name}")
             
             if label_current_location(dist_name, is_provisional=False, external_id=dist_id):
-                # Récupérer l'id local créé ou mis à jour
                 with get_db_connection() as conn:
                     cursor = conn.cursor()
                     cursor.execute("SELECT id FROM sites WHERE external_id = ?", (dist_id,))
                     row = cursor.fetchone()
                     if row:
                         local_site_id = row["id"]
-                        # Enregistrer les profils réseau reçus si présents
                         if "net_profiles" in sync_data:
                             from services.network_config import save_site_network_profiles
                             save_site_network_profiles(local_site_id, sync_data["net_profiles"])
-                        
                         apply_site_network_profiles(local_site_id)
             return
+
+    if not gsm.get("mcc") or not gsm.get("enodeb"):
+        return
+
+    mcc, mnc, enodeb = gsm["mcc"], gsm["mnc"], gsm["enodeb"]
+    
+    # 2. Résolution locale
 
     # 3. Toujours inconnu : création d'un site temporaire
     temp_name = f"TEMP-{mcc}-{mnc}-{enodeb}"

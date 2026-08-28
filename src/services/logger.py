@@ -2,11 +2,19 @@ import time
 import logging
 import random
 import threading
+import subprocess
+import json
+import os
+import sys
 from core.database import get_db_connection
+from core.paths import DATA_DIR
 from services.presence import get_current_site_name, is_current_site_provisional
 from services.fleet import fleet
 
 logger = logging.getLogger(__name__)
+
+# Fichier optionnel pour forcer des points BACnet spécifiques (compatibilité ancien système)
+BACNET_POINTS_FILE = DATA_DIR / "bacnet_points.json"
 
 def start_data_logger(interval=60):
     """
@@ -35,53 +43,126 @@ def run_logging_cycle():
         cursor = conn.cursor()
         
         # Récupérer l'ID du site
-        cursor.execute("SELECT id, external_id FROM sites WHERE name = ?", (site_name,))
-        site_row = cursor.fetchone()
-        if not site_row:
+        try:
+            cursor.execute("SELECT id, external_id FROM sites WHERE name = ?", (site_name,))
+            site_row = cursor.fetchone()
+            if not site_row:
+                return
+            
+            site_id = site_row["id"]
+            external_site_id = site_row["external_id"] or str(site_id)
+        except Exception as e:
+            logger.error(f"Erreur accès base de données sites : {e}")
             return
-        
-        site_id = site_row["id"]
-        external_site_id = site_row["external_id"] or str(site_id)
         
         timestamp = int(time.time())
         
-        # 1. Modbus
-        cursor.execute(
-            """
-            SELECT d.*, t.registers_json 
-            FROM modbus_devices d
-            JOIN modbus_templates t ON d.template_id = t.id
-            WHERE d.site_id = ?
-            """,
-            (site_id,)
-        )
-        for dev in cursor.fetchall():
-            registers = json_loads(dev["registers_json"])
-            for reg in registers:
-                value = simulate_value(reg["name"])
-                record_trend(cursor, site_id, "modbus", timestamp, dev["address"], str(reg["reg"]), value)
+        # 1. Modbus (Simulation pour le moment)
+        try:
+            cursor.execute(
+                """
+                SELECT d.*, t.registers_json 
+                FROM modbus_devices d
+                JOIN modbus_templates t ON d.template_id = t.id
+                WHERE d.site_id = ?
+                """,
+                (site_id,)
+            )
+            for dev in cursor.fetchall():
+                registers = json_loads(dev["registers_json"])
+                for reg in registers:
+                    value = simulate_value(reg["name"])
+                    record_trend(cursor, site_id, "modbus", timestamp, dev["address"], str(reg["reg"]), value)
+        except Exception as e:
+            logger.error(f"Erreur cycle Modbus : {e}")
 
-        # 2. BACnet
-        cursor.execute(
-            """
-            SELECT d.*, t.objects_json 
-            FROM bacnet_devices d
-            JOIN bacnet_templates t ON d.template_id = t.id
-            WHERE d.site_id = ?
-            """,
-            (site_id,)
-        )
-        for dev in cursor.fetchall():
-            objects = json_loads(dev["objects_json"])
-            for obj in objects:
-                value = simulate_value(obj["name"])
-                record_trend(cursor, site_id, "bacnet", timestamp, str(dev["device_instance"]), obj["obj"], value)
+        # 2. BACnet (Lecture Réelle via script externe)
+        run_bacnet_cycle(cursor, site_id, timestamp)
         
         conn.commit()
         
         # 3. Tentative de synchronisation avec la flotte
         if fleet.is_registered():
             sync_trends_to_fleet(site_id, external_site_id)
+
+def run_bacnet_cycle(cursor, site_id, timestamp):
+    """Gère la lecture des points BACnet via le script services/bacnet_reader.py"""
+    requests = []
+    
+    # Priorité 1 : Fichier JSON (si présent, pour compatibilité ou forçage)
+    if BACNET_POINTS_FILE.exists():
+        try:
+            with open(BACNET_POINTS_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                # On s'attend à un format {"points": [{"addr": "...", "obj": "...", "instance": 123}, ...]}
+                requests = data.get("points", [])
+        except Exception as e:
+            logger.warning(f"Fichier {BACNET_POINTS_FILE} illisible : {e}")
+    
+    # Priorité 2 : Base de données (si aucune requête via fichier)
+    if not requests:
+        try:
+            cursor.execute(
+                """
+                SELECT d.*, t.objects_json 
+                FROM bacnet_devices d
+                JOIN bacnet_templates t ON d.template_id = t.id
+                WHERE d.site_id = ?
+                """,
+                (site_id,)
+            )
+            for dev in cursor.fetchall():
+                objects = json_loads(dev["objects_json"])
+                for obj in objects:
+                    requests.append({
+                        "addr": dev["network_address"],
+                        "instance": dev["device_instance"],
+                        "obj": obj["obj"],
+                        "device_id": str(dev["device_instance"]) # Pour le stockage trend
+                    })
+        except Exception as e:
+            logger.error(f"Erreur lecture BACnet DB : {e}")
+
+    if not requests:
+        return
+
+    # Appel du script externe
+    try:
+        # Chemin absolu vers le reader
+        reader_path = os.path.join(os.path.dirname(__file__), "bacnet_reader.py")
+        
+        # Utilisation du venv BACnet s'il existe
+        bacnet_python = "/opt/boitier-bacnet/venv/bin/python"
+        if not os.path.exists(bacnet_python):
+            bacnet_python = sys.executable
+            
+        process = subprocess.Popen(
+            [bacnet_python, reader_path],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True
+        )
+        stdout, stderr = process.communicate(input=json.dumps(requests), timeout=45)
+        
+        if process.returncode == 0:
+            data = json.loads(stdout)
+            if "error" in data:
+                logger.warning(f"Erreur retournée par le reader BACnet : {data['error']}")
+            
+            for res in data.get("results", []):
+                if res.get("status") == "ok":
+                    # On retrouve le device_id d'origine pour l'enregistrement
+                    # (Dans un système réel, on passerait un ID de contexte)
+                    dev_id = next((r["device_id"] for r in requests if r["addr"] == res["addr"] and r["obj"] == res["obj"]), res["instance"])
+                    record_trend(cursor, site_id, "bacnet", timestamp, str(dev_id), res["obj"], res["value"])
+        else:
+            logger.error(f"Le reader BACnet a échoué (code {process.returncode}) : {stderr}")
+
+    except subprocess.TimeoutExpired:
+        logger.warning("Le reader BACnet a expiré (timeout).")
+    except Exception as e:
+        logger.error(f"Erreur lors de l'appel au reader BACnet : {e}")
 
 def simulate_value(name):
     """Simule une valeur réaliste basée sur le nom du point."""

@@ -1,10 +1,13 @@
 import time
 import logging
 import json
+import os
 from core.sys import get_sys
 from core.utils import get_changed_items
+from core.paths import IPSCAN_RESULTS_FILE
 from services.network import get_network_overview
 from services.gsm import get_gsm_info
+from services.ipscan import is_ipscan_running
 from services.presence import get_current_site_name, is_current_site_provisional
 from services.wifi_mgr import get_ap_config
 
@@ -113,7 +116,9 @@ def handle_sse_stream(handler):
                 "net_ts_active": net['tailscale']['active'],
                 "net_ts_routes": "<br>".join(net['tailscale']['routes']) or "Aucune",
                 
-                "net_ts_exit": net['ts_exit']
+                "net_ts_exit": net['ts_exit'],
+                "ipscan_running": is_ipscan_running(),
+                "ipscan_mtime": os.path.getmtime(IPSCAN_RESULTS_FILE) if os.path.exists(IPSCAN_RESULTS_FILE) else 0
             }
 
             # 2. Calcul du delta (ce qui a changé depuis le dernier envoi)

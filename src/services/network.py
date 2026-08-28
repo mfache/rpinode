@@ -99,11 +99,31 @@ def get_tailscale_exit_node():
     except:
         return "wwan0"
 
+def get_active_wifi_macs(iface="wlan0"):
+    """Récupère la liste des adresses MAC réellement connectées au WiFi."""
+    macs = set()
+    try:
+        cmd = ["sudo", "iw", "dev", iface, "station", "dump"]
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=2)
+        if result.returncode == 0:
+            for line in result.stdout.splitlines():
+                if line.startswith("Station"):
+                    parts = line.split()
+                    if len(parts) >= 2:
+                        macs.add(parts[1].lower())
+    except Exception as e:
+        logger.debug(f"Erreur iw station dump {iface}: {e}")
+    return macs
+
 def get_dhcp_clients(iface="wlan0"):
     """Récupère la liste des clients DHCP connectés (via dnsmasq de NM)."""
     clients = []
     lease_file = f"/var/lib/NetworkManager/dnsmasq-{iface}.leases"
     
+    active_macs = None
+    if iface == "wlan0":
+        active_macs = get_active_wifi_macs(iface)
+
     try:
         # Lecture avec sudo car le dossier est restreint
         cmd = ["sudo", "cat", lease_file]
@@ -113,10 +133,16 @@ def get_dhcp_clients(iface="wlan0"):
             for line in result.stdout.splitlines():
                 parts = line.split()
                 if len(parts) >= 4:
+                    mac = parts[1].lower()
+                    
+                    # Si c'est du WiFi, on filtre par présence réelle (iw station dump)
+                    if active_macs is not None and mac not in active_macs:
+                        continue
+
                     # Format: timestamp mac ip hostname client_id
                     clients.append({
                         "ip": parts[2],
-                        "mac": parts[1],
+                        "mac": mac,
                         "hostname": parts[3] if parts[3] != "*" else "Inconnu"
                     })
             logger.info(f"DHCP Clients trouvés sur {iface}: {len(clients)}")

@@ -1,2 +1,6 @@
-Dans le fichier rpinode/src/core/database.py, il faut sortir le sql qui crée les tables, je voudrais pouvoir éditer le fichier sql moi même pour qu'ensuite le script database le lit et crée les tables ou les adaptes.
-Nous étions arrivé au moment ou tu allais explorer la façon de récupérer les informations mcc, mnc et cellid de l'ancienne version de l'API. Tu allais créer le service **`src/services/gsm.py`** pour tenter de récupérer l'ID de l'antenne actuelle.
+## État d'avancement - 28/08/2026
+
+- **Refonte de `src/core/database.py`** : Le script lit maintenant `schema.sql` et exécute chaque commande séparément. Cela permet de modifier le schéma (ex: ajouter une colonne) directement dans le SQL et de relancer l'application pour que les changements soient appliqués (les erreurs "déjà existant" sont ignorées).
+- **Service GSM (`src/services/gsm.py`)** : Implémenté en reprenant la robustesse de l'ancienne version. Supporte maintenant l'activation séparée du 3GPP et du GPS, la récupération des coordonnées GPS, et le décodage correct du CID (hex/dec) pour extraire l'eNodeB et le secteur.
+- **Service de Présence (`src/services/presence.py`)** : Mis à jour pour enregistrer les coordonnées GPS dans la table `antennas` lorsqu'elles sont disponibles, en utilisant `ON CONFLICT` pour mettre à jour les données existantes.
+- **Scanner IP (`src/services/ipscan.py`)** : Nouvel outil de découverte réseau asynchrone. Utilise `fping` pour la rapidité et scanne les ports critiques (Modbus, HTTP, SSH, etc.). Intégration complète dans l'interface avec mise à jour temps réel via SSE (Server-Sent Events) et redirection intelligente vers les autres outils (ex: clic sur port 502 ouvre l'outil Modbus).

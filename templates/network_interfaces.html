@@ -1,0 +1,161 @@
+<section class="network-interfaces">
+    <h2>Configuration des Interfaces - Chantier: ${site_name}</h2>
+
+    <div class="card">
+        <h3>Interface Ethernet (eth0)</h3>
+        <p class="help-text">Les réglages ci-dessous sont enregistrés spécifiquement pour ce chantier et seront restaurés automatiquement lors d'un retour sur site.</p>
+        
+        <form id="form-eth0" onsubmit="saveEth0Config(event)">
+            <div class="form-group">
+                <label>Méthode d'adressage :</label>
+                <select name="method" onchange="toggleEth0ManualFields(this.value)">
+                    <option value="auto" ${method_auto_selected}>Automatique (DHCP)</option>
+                    <option value="manual" ${method_manual_selected}>Statique (IP Fixe)</option>
+                </select>
+            </div>
+
+            <div id="eth0-manual-fields" style="display: ${manual_fields_display};">
+                <div id="addresses-container">
+                    <label>Adresses IP (CIDR, ex: 192.168.1.10/24) :</label>
+                    ${addresses_rows}
+                </div>
+                <button type="button" class="btn-secondary" onclick="addAddressRow()">+ Ajouter une adresse</button>
+                
+                <div class="form-group mt-10">
+                    <label>Passerelle (optionnel) :</label>
+                    <input type="text" name="gateway" value="${gateway}" placeholder="192.168.1.1">
+                </div>
+            </div>
+
+            <div class="form-actions">
+                <button type="submit" class="btn-primary">Enregistrer et Appliquer</button>
+            </div>
+        </form>
+    </div>
+
+    <div class="card mt-20">
+        <h3>État actuel</h3>
+        <table class="data-table">
+            <tr>
+                <th>État :</th>
+                <td><span class="status-pill ${active_class}">${active_text}</span></td>
+            </tr>
+            <tr>
+                <th>Adresse IP actuelle :</th>
+                <td style="font-family: monospace; font-weight: bold;">${current_ip}</td>
+            </tr>
+            <tr>
+                <th>Adresse MAC :</th>
+                <td style="font-family: monospace;">${mac}</td>
+            </tr>
+        </table>
+    </div>
+</section>
+
+<style>
+.card {
+    background: white;
+    padding: 20px;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+}
+.mt-20 { margin-top: 20px; }
+.mt-10 { margin-top: 10px; }
+.form-group { margin-bottom: 15px; }
+.address-row { display: flex; gap: 10px; margin-bottom: 8px; }
+.address-row input { flex: 1; }
+.btn-remove { 
+    background: #f44336; 
+    color: white; 
+    border: none; 
+    border-radius: 4px; 
+    width: 38px; 
+    cursor: pointer;
+    font-size: 1.2rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.btn-secondary {
+    background: #f5f5f5;
+    border: 1px solid #ddd;
+    padding: 8px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.9rem;
+}
+.btn-secondary:hover { background: #eee; }
+.form-group label { display: block; margin-bottom: 5px; font-weight: bold; color: #444; }
+.form-group input, .form-group select { 
+    width: 100%; 
+    padding: 10px; 
+    border: 1px solid #ddd; 
+    border-radius: 4px; 
+    font-size: 1rem;
+}
+.help-text { font-size: 0.85em; color: #666; margin-bottom: 15px; }
+.form-actions { margin-top: 20px; border-top: 1px solid #eee; padding-top: 15px; text-align: right; }
+.data-table { width: 100%; border-collapse: collapse; }
+.data-table th { text-align: left; padding: 8px 0; color: #666; width: 200px; }
+.data-table td { padding: 8px 0; }
+</style>
+
+<script>
+function toggleEth0ManualFields(val) {
+    document.getElementById('eth0-manual-fields').style.display = val === 'manual' ? 'block' : 'none';
+}
+
+function addAddressRow() {
+    const container = document.getElementById('addresses-container');
+    const div = document.createElement('div');
+    div.className = 'address-row';
+    div.innerHTML = `
+        <input type="text" name="addresses" value="" placeholder="192.168.1.10/24">
+        <button type="button" class="btn-remove" onclick="removeAddressRow(this)">×</button>
+    `;
+    container.appendChild(div);
+}
+
+function removeAddressRow(btn) {
+    const rows = document.querySelectorAll('.address-row');
+    if (rows.length > 1) {
+        btn.closest('.address-row').remove();
+    } else {
+        btn.closest('.address-row').querySelector('input').value = '';
+    }
+}
+
+async function saveEth0Config(event) {
+    event.preventDefault();
+    const formData = new FormData(event.target);
+    
+    const baseUrl = window.CONFIG ? window.CONFIG.baseUrl : '/rpinode';
+    
+    const data = {
+        interface: 'eth0',
+        method: formData.get('method'),
+        gateway: formData.get('gateway'),
+        addresses: formData.getAll('addresses').filter(a => a.trim() !== '').join(',')
+    };
+    
+    try {
+        const url = (baseUrl + '/api/network/profile/save').replace(/\/+/g, '/');
+        const response = await fetch(url, {
+            method: 'POST',
+            body: JSON.stringify(data),
+            headers: { 'Content-Type': 'application/json' }
+        });
+        
+        const res = await response.json();
+        if (res.status === 'ok') {
+            alert('Configuration enregistrée et en cours d\'application...');
+            // On laisse un peu de temps à NetworkManager de redémarrer l'interface
+            setTimeout(() => window.location.reload(), 2000);
+        } else {
+            alert('Erreur : ' + res.message);
+        }
+    } catch (e) {
+        alert('Erreur lors de l\'enregistrement');
+    }
+}
+</script>

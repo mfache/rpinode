@@ -32,6 +32,27 @@ def apply_site_network_profiles(site_id):
         elif iface == "wlan0":
             _apply_wlan0_profile(method, p["ssid"], p["psk"], p["addresses"], p["gateway"])
 
+def publish_tailscale_routes():
+    """Publie les réseaux locaux sur Tailscale pour l'accès distant."""
+    from services.network import get_interface_status
+    import ipaddress
+    
+    routes = []
+    for iface in ["eth0", "wlan0"]:
+        status = get_interface_status(iface)
+        if status["active"] and "/" in status["ip"]:
+            try:
+                # On extrait le réseau correspondant à l'IP
+                net = ipaddress.IPv4Interface(status["ip"]).network
+                routes.append(str(net))
+            except Exception:
+                continue
+    
+    if routes:
+        routes_str = ",".join(set(routes))
+        logger.info(f"Publication des routes sur Tailscale : {routes_str}")
+        subprocess.run(f"sudo tailscale set --advertise-routes={routes_str}", shell=True)
+
 def _apply_eth0_profile(method, addresses, gateway):
     """Applique la config sur eth0 via nmcli."""
     logger.info(f"Application profil eth0 ({method})")
@@ -44,16 +65,37 @@ def _apply_eth0_profile(method, addresses, gateway):
     if method == "auto":
         nm_cmd = f"sudo nmcli con mod '{con_name}' ipv4.method auto ipv4.addresses '' ipv4.gateway ''"
     else:
-        nm_cmd = f"sudo nmcli con mod '{con_name}' ipv4.method manual ipv4.addresses '{addresses}'"
+        # Nettoyage des adresses. Pour nmcli, plusieurs adresses doivent être séparées par des virgules
+        # dans une seule chaîne de caractères si on utilise 'con mod'.
+        addrs_nm = ",".join([a.strip() for a in addresses.split(",") if a.strip()])
+        logger.info(f"Paramètres NM pour eth0: method={method}, addresses='{addrs_nm}', gateway='{gateway}'")
+        
+        nm_cmd = f"sudo nmcli con mod '{con_name}' ipv4.method manual ipv4.addresses '{addrs_nm}'"
         if gateway:
             nm_cmd += f" ipv4.gateway '{gateway}'"
     
     try:
         subprocess.run(nm_cmd, shell=True, check=True)
+        # On force la porteuse à être ignorée pour ne pas bloquer si pas de câble
+        subprocess.run(f"sudo nmcli con mod '{con_name}' ipv4.never-default yes", shell=True, check=True)
         subprocess.run(f"sudo nmcli con up '{con_name}'", shell=True, check=True)
         logger.info(f"Profil eth0 appliqué avec succès.")
+        
+        # Publication des routes sur Tailscale
+        publish_tailscale_routes()
     except subprocess.CalledProcessError as e:
         logger.error(f"Erreur lors de l'application du profil eth0: {e}")
+
+def get_site_network_profile(site_id, interface="eth0"):
+    """Récupère le profil réseau d'une interface pour un site donné."""
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT * FROM site_network_profiles WHERE site_id = ? AND interface = ?",
+            (site_id, interface)
+        )
+        row = cursor.fetchone()
+        return dict(row) if row else None
 
 def _apply_wlan0_profile(method, ssid, psk, addresses, gateway):
     """Applique la config WiFi sur wlan0 via nmcli."""
@@ -102,6 +144,9 @@ def save_site_network_profiles(site_id, profiles_list):
     with get_db_connection() as conn:
         cursor = conn.cursor()
         for p in profiles_list:
+            iface = p.get('interface') or p.get('iface')
+            if not iface:
+                continue
             cursor.execute(
                 """
                 INSERT INTO site_network_profiles 
@@ -115,7 +160,7 @@ def save_site_network_profiles(site_id, profiles_list):
                     psk = excluded.psk,
                     updated_at = CURRENT_TIMESTAMP
                 """,
-                (site_id, p['interface'], p.get('method', 'auto'), p.get('addresses'), 
+                (site_id, iface, p.get('method', 'auto'), p.get('addresses'), 
                  p.get('gateway'), p.get('ssid'), p.get('psk'))
             )
         conn.commit()

@@ -2,7 +2,10 @@ import requests
 import logging
 import socket
 import os
+import json
+import sqlite3
 from core.config import load_config, save_config
+from core.database import get_db_connection
 
 logger = logging.getLogger(__name__)
 
@@ -95,13 +98,44 @@ class FleetClient:
         if not self.is_registered():
             return None
 
+        # 1. Collecte des annotations "dirty" à pousser
+        dirty_annotations = []
+        try:
+            with get_db_connection() as conn:
+                rows = conn.execute("""
+                    SELECT mac, vendor, annotations_json 
+                    FROM discovered_devices 
+                    WHERE is_dirty = 1
+                """).fetchall()
+                for row in rows:
+                    mac = row["mac"]
+                    if row["vendor"]:
+                        dirty_annotations.append({
+                            "kind": "ip_vendor",
+                            "key": mac,
+                            "field": "",
+                            "value": row["vendor"]
+                        })
+                    if row["annotations_json"]:
+                        annots = json.loads(row["annotations_json"])
+                        for k, v in annots.items():
+                            dirty_annotations.append({
+                                "kind": "ip_annot",
+                                "key": mac,
+                                "field": k,
+                                "value": v
+                            })
+        except Exception as e:
+            logger.error(f"Erreur lors de la lecture des annotations dirty : {e}")
+
         url = f"{self.base_url}/sync"
         payload = {
             "cell": {
                 "mcc": gsm_info.get("mcc"),
                 "mnc": gsm_info.get("mnc"),
                 "enodeb": gsm_info.get("enodeb")
-            }
+            },
+            "annotations": dirty_annotations
         }
         if site_hint_name:
             payload["site_hint_name"] = site_hint_name
@@ -110,10 +144,71 @@ class FleetClient:
             response = requests.post(url, json=payload, headers=self._headers(), timeout=10)
             data = response.json()
             if data.get("ok"):
-                return data # On retourne tout le dict pour avoir chantier, net_profiles, etc.
+                # 2. Traitement des annotations reçues (Pull)
+                received = data.get("annotations", [])
+                if received:
+                    self._apply_annotations_pull(received)
+                
+                # 3. Marquer les locales comme synchronisées
+                if dirty_annotations:
+                    macs = list(set(a["key"] for a in dirty_annotations))
+                    with get_db_connection() as conn:
+                        for mac in macs:
+                            conn.execute("""
+                                UPDATE discovered_devices 
+                                SET is_dirty = 0, sync_updated_at = CURRENT_TIMESTAMP 
+                                WHERE mac = ?
+                            """, (mac,))
+                        conn.commit()
+                
+                return data
         except Exception as e:
             logger.error(f"Erreur lors de la synchronisation : {e}")
         return None
+
+    def _apply_annotations_pull(self, annotations):
+        """Met à jour la base locale avec les annotations reçues du serveur."""
+        try:
+            with get_db_connection() as conn:
+                for a in annotations:
+                    kind = a.get("kind")
+                    mac = a.get("key", "").lower()
+                    field = a.get("field", "")
+                    value = a.get("value")
+                    
+                    if not mac or kind not in ("ip_vendor", "ip_annot"):
+                        continue
+                        
+                    if kind == "ip_vendor":
+                        conn.execute("""
+                            INSERT INTO discovered_devices (mac, vendor, is_dirty, updated_at)
+                            VALUES (?, ?, 0, CURRENT_TIMESTAMP)
+                            ON CONFLICT(mac) DO UPDATE SET
+                                vendor = EXCLUDED.vendor,
+                                is_dirty = 0,
+                                updated_at = CURRENT_TIMESTAMP
+                            WHERE is_dirty = 0 OR updated_at < EXCLUDED.updated_at
+                        """, (mac, value))
+                    elif kind == "ip_annot":
+                        # Pour les annotations JSON, c'est plus délicat car on stocke tout dans un champ
+                        # On récupère l'existant
+                        row = conn.execute("SELECT annotations_json FROM discovered_devices WHERE mac = ?", (mac,)).fetchone()
+                        annots = json.loads(row["annotations_json"]) if row and row["annotations_json"] else {}
+                        
+                        if annots.get(field) != value:
+                            annots[field] = value
+                            conn.execute("""
+                                INSERT INTO discovered_devices (mac, annotations_json, is_dirty, updated_at)
+                                VALUES (?, ?, 0, CURRENT_TIMESTAMP)
+                                ON CONFLICT(mac) DO UPDATE SET
+                                    annotations_json = EXCLUDED.annotations_json,
+                                    is_dirty = 0,
+                                    updated_at = CURRENT_TIMESTAMP
+                                WHERE is_dirty = 0 OR updated_at < EXCLUDED.updated_at
+                            """, (mac, json.dumps(annots)))
+                conn.commit()
+        except Exception as e:
+            logger.error(f"Erreur lors de l'application des annotations reçues : {e}")
 
     def rename_chantier(self, external_id, new_name):
         """Informe le serveur du renommage d'un chantier."""

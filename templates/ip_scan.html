@@ -1,0 +1,221 @@
+<section class="ip-scan">
+    <div class="header-with-actions">
+        <h2>Scanner IP Local</h2>
+        <div class="actions">
+            <span id="scan-status" class="status-badge ${running == 'true' ? 'running' : 'idle'}">
+                ${running == 'true' ? 'Scan en cours...' : 'Prêt'}
+            </span>
+            <button id="btn-start-scan" class="btn-primary" onclick="startIpScan()" ${running == 'true' ? 'disabled' : ''}>
+                🔍 Lancer un Scan
+            </button>
+        </div>
+    </div>
+
+    <div class="scan-info card">
+        <p>Dernier balayage : <b id="subt_ipscan_last_scan">${last_scan}</b></p>
+        <p class="help-text">Découverte des équipements via Ping Sweep (fping) et table ARP. Scanne les ports 80, 443, 502, 22, 23, 445.</p>
+    </div>
+
+    <div class="results-container card">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Adresse IP</th>
+                    <th>Adresse MAC</th>
+                    <th>Fabricant</th>
+                    <th>Ports Ouverts</th>
+                    <th>Annotations</th>
+                    <th>Interface</th>
+                </tr>
+            </thead>
+            <tbody id="ipscan-results-body">
+                ${devices_rows}
+            </tbody>
+        </table>
+    </div>
+</section>
+
+<style>
+.header-with-actions {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+}
+.status-badge {
+    padding: 5px 12px;
+    border-radius: 20px;
+    font-size: 0.85em;
+    font-weight: bold;
+    margin-right: 10px;
+}
+.status-badge.idle { background: #eee; color: #666; }
+.status-badge.running { 
+    background: #e3f2fd; color: #1976d2; 
+    animation: pulse 1.5s infinite;
+}
+@keyframes pulse {
+    0% { opacity: 1; }
+    50% { opacity: 0.5; }
+    100% { opacity: 1; }
+}
+.card {
+    background: white;
+    padding: 15px;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    margin-bottom: 20px;
+}
+.help-text {
+    font-size: 0.85em;
+    color: #666;
+    margin-top: 5px;
+}
+.data-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+.data-table th {
+    text-align: left;
+    padding: 12px;
+    border-bottom: 2px solid #eee;
+    color: #666;
+    font-size: 0.9em;
+}
+.data-table td {
+    padding: 12px;
+    border-bottom: 1px solid #f5f5f5;
+    font-size: 0.95em;
+}
+.vendor-tag {
+    background: #f0f7ff;
+    color: #0056b3;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 0.85em;
+}
+.annot-tag {
+    background: #f8f9fa;
+    border: 1px solid #dee2e6;
+    color: #495057;
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-size: 0.8em;
+    margin-right: 4px;
+}
+.sync-pending {
+    color: #f39c12;
+    font-size: 1.1em;
+    cursor: help;
+    animation: bounce 2s infinite;
+}
+@keyframes bounce {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-3px); }
+}
+</style>
+
+<script>
+    async function startIpScan() {
+        const btn = document.getElementById('btn-start-scan');
+        const status = document.getElementById('scan-status');
+        
+        // On récupère le baseUrl dynamiquement
+        const baseUrl = window.CONFIG ? window.CONFIG.baseUrl : '/rpinode';
+        
+        btn.disabled = true;
+        status.textContent = 'Scan en cours...';
+        status.className = 'status-badge running';
+        
+        console.log("Lancement du scan IP via POST...");
+        try {
+            // Construction propre de l'URL
+            const url = (baseUrl + '/api/scan/ip/start').replace(/\/+/g, '/');
+            
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: { 'Accept': 'application/json' }
+            });
+            
+            if (!response.ok) {
+                const text = await response.text();
+                throw new Error(`Erreur ${response.status}: ${text.substring(0, 50)}`);
+            }
+
+            const result = await response.json();
+            if (result.status !== 'ok') {
+                throw new Error(result.message || 'Erreur inconnue');
+            }
+            console.log("Scan lancé avec succès");
+        } catch (e) {
+            console.error("Erreur scan:", e);
+            alert('Erreur : ' + e.message);
+            btn.disabled = false;
+            status.textContent = 'Erreur';
+            status.className = 'status-badge idle';
+        }
+    }
+
+    async function editDevice(mac, ip) {
+        const currentVendor = document.getElementById(`vendor-${mac}`).textContent;
+        const newVendor = prompt(`Fabricant pour ${ip} (${mac}) :`, currentVendor);
+        
+        if (newVendor === null) return;
+        
+        const currentAnnots = document.getElementById(`annots-${mac}`).textContent;
+        const annotStr = prompt(`Annotation (ex: "Pièce: Local Tech") :`, "");
+        
+        let annotations = null;
+        if (annotStr) {
+            const parts = annotStr.split(':');
+            if (parts.length >= 2) {
+                annotations = {};
+                annotations[parts[0].trim()] = parts.slice(1).join(':').trim();
+            }
+        }
+
+        try {
+            const baseUrl = window.CONFIG ? window.CONFIG.baseUrl : '/rpinode';
+            const url = (baseUrl + '/api/scan/ip/annotate').replace(/\/+/g, '/');
+            
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    mac: mac,
+                    vendor: newVendor,
+                    annotations: annotations
+                })
+            });
+            
+            if (response.ok) {
+                // Rafraîchissement local simple
+                if (newVendor) document.getElementById(`vendor-${mac}`).textContent = newVendor;
+                if (annotations) {
+                    const container = document.getElementById(`annots-${mac}`);
+                    for (const [k, v] of Object.entries(annotations)) {
+                        const span = document.createElement('span');
+                        span.className = 'annot-tag';
+                        span.textContent = `${k}: ${v}`;
+                        container.appendChild(span);
+                    }
+                }
+                
+                // Afficher l'indicateur de synchro en attente
+                const vendorCell = document.getElementById(`vendor-${mac}`).parentElement;
+                if (!vendorCell.querySelector('.sync-pending')) {
+                    const syncSpan = document.createElement('span');
+                    syncSpan.className = 'sync-pending';
+                    syncSpan.title = 'En attente de synchronisation';
+                    syncSpan.textContent = '☁️';
+                    vendorCell.appendChild(syncSpan);
+                }
+            } else {
+                alert("Erreur lors de l'enregistrement");
+            }
+        } catch (e) {
+            console.error(e);
+            alert("Erreur réseau");
+        }
+    }
+</script>

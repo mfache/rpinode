@@ -138,3 +138,15 @@ CREATE TABLE IF NOT EXISTS trends (
     is_synced BOOLEAN DEFAULT 0,        -- 1 si envoyé au serveur maître
     FOREIGN KEY (site_id) REFERENCES sites(id) ON DELETE CASCADE
 );
+
+-- Équipements découverts sur le réseau (Scanner IP)
+-- On utilise la MAC comme clé unique pour persister les annotations (pièce, usage, etc.)
+CREATE TABLE IF NOT EXISTS discovered_devices (
+    mac TEXT PRIMARY KEY,
+    vendor TEXT,
+    annotations_json TEXT,              -- JSON des champs personnalisés {"Pièce": "Local Tech", ...}
+    is_dirty BOOLEAN DEFAULT 1,         -- 1 si modifié localement et non synchronisé
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    sync_updated_at DATETIME,           -- Date de dernière synchro réussie
+    last_seen DATETIME DEFAULT CURRENT_TIMESTAMP
+);

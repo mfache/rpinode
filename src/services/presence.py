@@ -53,12 +53,22 @@ def label_current_location(site_name, is_provisional=False, external_id=None):
             site_id = cursor.lastrowid
         
         # 2. S'assurer que l'antenne existe
+        # On met à jour les coordonnées GPS si on en a de nouvelles
+        gps = gsm.get("gps")
+        lat, lon = (gps["lat"], gps["lon"]) if gps else (None, None)
+
         cursor.execute(
             """
-            INSERT OR IGNORE INTO antennas (mcc, mnc, enodeb, lac_tac, cid)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO antennas (mcc, mnc, enodeb, lac_tac, cid, lat, lon)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(mcc, mnc, enodeb) DO UPDATE SET
+                lac_tac = excluded.lac_tac,
+                cid = excluded.cid,
+                lat = COALESCE(excluded.lat, lat),
+                lon = COALESCE(excluded.lon, lon),
+                last_seen = CURRENT_TIMESTAMP
             """,
-            (gsm["mcc"], gsm["mnc"], gsm["enodeb"], gsm.get("tac"), gsm.get("cid"))
+            (gsm["mcc"], gsm["mnc"], gsm["enodeb"], gsm.get("tac"), gsm.get("cid"), lat, lon)
         )
         cursor.execute(
             "SELECT id FROM antennas WHERE mcc = ? AND mnc = ? AND enodeb = ?",

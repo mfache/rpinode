@@ -6,8 +6,8 @@ logger = logging.getLogger(__name__)
 
 def get_gsm_info():
     """
-    Récupère les informations de la cellule GSM/LTE via ModemManager (mmcli).
-    Cette méthode reprend la logique de l'ancienne version de l'API (admin_boitier).
+    Récupère les informations de la cellule GSM/LTE et le GPS via ModemManager (mmcli).
+    Cette méthode reprend la logique de l'ancienne version (admin_boitier/webadmin/location.py).
     """
     info = {
         "mcc": None,
@@ -16,23 +16,26 @@ def get_gsm_info():
         "tac": None,
         "cid": None,
         "enodeb": None,
-        "sector": None
+        "sector": None,
+        "gps": None
     }
     
-    # 1. S'assurer que la localisation 3GPP est activée (idempotent)
-    try:
-        subprocess.run(
-            ["mmcli", "-m", "any", "--location-enable-3gpp"],
-            capture_output=True,
-            timeout=5,
-            check=False
-        )
-    except Exception as e:
-        logger.debug(f"Impossible d'activer la localisation 3GPP : {e}")
+    # 1. S'assurer que les sources de localisation sont activées
+    # On le fait en deux appels distincts car l'échec du GPS ne doit pas bloquer la cellule.
+    for source in ("--location-enable-3gpp", "--location-enable-gps-raw"):
+        try:
+            subprocess.run(
+                ["mmcli", "-m", "any", source],
+                capture_output=True,
+                timeout=5,
+                check=False
+            )
+        except Exception:
+            pass
 
     # 2. Récupérer les données de localisation
     try:
-        # On tente avec sudo si possible, car ModemManager restreint souvent l'accès à la localisation
+        # On tente avec sudo car ModemManager restreint souvent l'accès à la localisation
         cmd = ["sudo", "mmcli", "-m", "any", "--location-get", "--output-keyvalue"]
         result = subprocess.run(
             cmd,
@@ -48,6 +51,21 @@ def get_gsm_info():
                 k, v = line.split(":", 1)
                 fields[k.strip()] = v.strip()
         
+        # --- GPS ---
+        lat = fields.get("modem.location.gps.latitude")
+        lon = fields.get("modem.location.gps.longitude")
+        if lat and lat != "--" and lon and lon != "--":
+            try:
+                info["gps"] = {
+                    "lat": float(lat),
+                    "lon": float(lon),
+                    "alt": fields.get("modem.location.gps.altitude"),
+                    "utc": fields.get("modem.location.gps.utc")
+                }
+            except ValueError:
+                pass
+
+        # --- 3GPP (Cellule) ---
         mcc = fields.get("modem.location.3gpp.mcc")
         mnc = fields.get("modem.location.3gpp.mnc")
         lac = fields.get("modem.location.3gpp.lac")
@@ -65,14 +83,13 @@ def get_gsm_info():
             
         if cid and cid != "--":
             info["cid"] = cid
-            # Logique LTE : l'identifiant de cellule (ECI 28 bits) = eNodeB (20 bits) << 8 | secteur (8 bits).
-            # eNodeB est l'antenne physique, plus stable pour identifier un chantier.
             try:
                 # ModemManager retourne souvent le CID en hexadécimal
                 cid_dec = int(cid, 16) if (isinstance(cid, str) and (cid.startswith("0x") or any(c in cid.upper() for c in 'ABCDEF'))) else int(cid)
+                info["cid_dec"] = cid_dec
+                # LTE : ECI (28 bits) = eNodeB (20 bits) << 8 | secteur (8 bits)
                 info["enodeb"] = cid_dec // 256
                 info["sector"] = cid_dec % 256
-                info["cid_dec"] = cid_dec
             except ValueError:
                 logger.warning(f"Format de CID non supporté : {cid}")
                 

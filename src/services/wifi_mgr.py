@@ -176,18 +176,13 @@ def _ensure_ap_mode():
     _setup_routing_and_nat()
 
 def _setup_routing_and_nat():
-    """Configure le routage IP et le NAT vers eth0 et wwan0."""
+    """Configure le routage IP au niveau du noyau.
+    Le NAT (masquerade) est géré de manière robuste par /etc/nftables.conf.
+    """
     try:
-        # Routage noyau
+        # Activation du routage IPv4 dans le noyau (persistant via /etc/sysctl.d/99-forwarding.conf normalement)
+        # On le force ici par sécurité à chaque bascule de mode.
         subprocess.run(["sudo", "sysctl", "-w", "net.ipv4.ip_forward=1"], capture_output=True, timeout=5)
 
-        # NAT pour eth0 et wwan0
-        # On vérifie si la règle existe déjà avant de l'ajouter pour éviter les doublons
-        for iface in ["eth0", "wwan0"]:
-            # On tente de supprimer pour être sûr de ne pas empiler
-            subprocess.run(["sudo", "iptables", "-t", "nat", "-D", "POSTROUTING", "-o", iface, "-j", "MASQUERADE"], capture_output=True, timeout=5)
-            # On ajoute proprement
-            subprocess.run(["sudo", "iptables", "-t", "nat", "-A", "POSTROUTING", "-o", iface, "-j", "MASQUERADE"], capture_output=True, timeout=5)
-            
     except Exception as e:
-        logger.error(f"Erreur configuration routage/NAT : {e}")
+        logger.error(f"Erreur lors de l'activation du routage noyau : {e}")

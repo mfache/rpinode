@@ -14,6 +14,10 @@ CONFIG_FILE = DATA_DIR / "config.json"
 DATABASE_FILE = DATA_DIR / "app.db"
 SCHEMA_FILE = PROJECT_ROOT / "src" / "core" / "schema.sql"
 
+# IP Scan
+IPSCAN_RESULTS_FILE = DATA_DIR / "ip_last_scan.json"
+IPSCAN_RUNNING_FILE = DATA_DIR / "ip_last_scan.json.running"
+
 # Dossier de logs
 LOG_DIR = PROJECT_ROOT / "log"
 LOG_FILE = LOG_DIR / "rpinode.log"
