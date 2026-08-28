@@ -3,6 +3,7 @@ import threading
 from core.paths import DATA_DIR, LOG_FILE
 from core.database import init_db
 from services.tracker import start_tracker
+from services.wifi_mgr import run_wifi_manager
 from web.server import start_server
 
 # Configuration du logging (Fichier + Console)
@@ -25,6 +26,10 @@ def main():
     # Démarrage du tracker de localisation en arrière-plan
     tracker_thread = threading.Thread(target=start_tracker, kwargs={'interval': 60}, daemon=True)
     tracker_thread.start()
+    
+    # Démarrage du thread de gestion WiFi robuste
+    wifi_thread = threading.Thread(target=run_wifi_manager, daemon=True)
+    wifi_thread.start()
     
     start_server()
 

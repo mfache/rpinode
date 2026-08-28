@@ -3,6 +3,7 @@ import logging
 import socket
 from services.gsm import get_gsm_info
 from services.presence import label_current_location, get_current_site_name
+from services.network_config import apply_site_network_profiles
 from services.fleet import fleet
 from core.database import get_db_connection
 
@@ -44,18 +45,38 @@ def check_and_update_site():
             
             if site_name != current_site:
                 logger.info(f"Changement d'antenne détecté ({enodeb}). Passage automatique sur le chantier : {site_name}")
-                label_current_location(site_name, is_provisional=is_prov, external_id=external_id)
+                if label_current_location(site_name, is_provisional=is_prov, external_id=external_id):
+                    # Récupérer l'id local pour appliquer les profils réseau
+                    cursor.execute("SELECT id FROM sites WHERE name = ?", (site_name,))
+                    site_row = cursor.fetchone()
+                    if site_row:
+                        apply_site_network_profiles(site_row["id"])
             return
 
     # 2. Si inconnu localement, interroger le serveur maître (Fleet)
     if fleet.is_registered():
         logger.info(f"Antenne {enodeb} inconnue localement, interrogation du serveur maître...")
-        chantier_distant = fleet.sync_location(gsm)
-        if chantier_distant:
+        sync_data = fleet.sync_location(gsm)
+        if sync_data and sync_data.get("chantier"):
+            chantier_distant = sync_data["chantier"]
             dist_name = chantier_distant.get("ref")
             dist_id = str(chantier_distant.get("id"))
             logger.info(f"Le serveur maître reconnaît l'antenne sur le chantier : {dist_name}")
-            label_current_location(dist_name, is_provisional=False, external_id=dist_id)
+            
+            if label_current_location(dist_name, is_provisional=False, external_id=dist_id):
+                # Récupérer l'id local créé ou mis à jour
+                with get_db_connection() as conn:
+                    cursor = conn.cursor()
+                    cursor.execute("SELECT id FROM sites WHERE external_id = ?", (dist_id,))
+                    row = cursor.fetchone()
+                    if row:
+                        local_site_id = row["id"]
+                        # Enregistrer les profils réseau reçus si présents
+                        if "net_profiles" in sync_data:
+                            from services.network_config import save_site_network_profiles
+                            save_site_network_profiles(local_site_id, sync_data["net_profiles"])
+                        
+                        apply_site_network_profiles(local_site_id)
             return
 
     # 3. Toujours inconnu : création d'un site temporaire

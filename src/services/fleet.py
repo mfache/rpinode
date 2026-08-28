@@ -12,8 +12,25 @@ class FleetClient:
         self.base_url = self.config.get("fleet_url", "https://docs.deltathermic.be/reports/api")
         self.token = self.config.get("fleet_token")
         
-        # Priorité à la variable d'environnement pour le secret
-        self.secret = os.environ.get("FLEET_SECRET") or self.config.get("fleet_secret")
+        # Tentative de récupération du secret (Priorité Environnement > Fichier .env > Config)
+        # On vérifie les deux noms possibles : FLEET_SECRET et FLEET_JOIN_SECRET
+        self.secret = os.environ.get("FLEET_SECRET") or os.environ.get("FLEET_JOIN_SECRET")
+        
+        if not self.secret:
+            # Essayer de lire le fichier d'environnement standard s'il existe
+            env_path = "/etc/boitier/fleet.env"
+            if os.path.exists(env_path):
+                try:
+                    with open(env_path, "r") as f:
+                        for line in f:
+                            if "FLEET_JOIN_SECRET=" in line:
+                                self.secret = line.split("=", 1)[1].strip().strip('"').strip("'")
+                                break
+                except Exception:
+                    pass
+
+        if not self.secret:
+            self.secret = self.config.get("fleet_secret")
         
         self.hostname = socket.gethostname()
 
@@ -93,7 +110,7 @@ class FleetClient:
             response = requests.post(url, json=payload, headers=self._headers(), timeout=10)
             data = response.json()
             if data.get("ok"):
-                return data.get("chantier")
+                return data # On retourne tout le dict pour avoir chantier, net_profiles, etc.
         except Exception as e:
             logger.error(f"Erreur lors de la synchronisation : {e}")
         return None

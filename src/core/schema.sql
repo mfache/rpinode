@@ -60,3 +60,68 @@ CREATE TABLE IF NOT EXISTS node_presence (
     FOREIGN KEY (node_id) REFERENCES nodes(id) ON DELETE CASCADE,
     FOREIGN KEY (site_id) REFERENCES sites(id) ON DELETE CASCADE
 );
+
+-- Profils réseau (IP fixe ou DHCP) associés à un chantier.
+-- Permet de restaurer la configuration IP lors d'un déplacement.
+CREATE TABLE IF NOT EXISTS site_network_profiles (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    site_id INTEGER NOT NULL,
+    interface TEXT NOT NULL,            -- 'eth0' ou 'wlan0'
+    method TEXT DEFAULT 'auto',         -- 'auto' (DHCP) ou 'manual'
+    addresses TEXT,                     -- Adresses CIDR (ex: "192.168.1.10/24")
+    gateway TEXT,
+    ssid TEXT,                          -- Pour le WiFi (wlan0)
+    psk TEXT,                           -- Mot de passe WiFi (optionnel)
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (site_id) REFERENCES sites(id) ON DELETE CASCADE,
+    UNIQUE(site_id, interface)
+);
+
+-- Templates Modbus génériques (communs à la flotte)
+CREATE TABLE IF NOT EXISTS modbus_templates (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    external_id TEXT UNIQUE,            -- ID sur le serveur maître
+    name TEXT NOT NULL,                 -- Nom du modèle d'appareil
+    manufacturer TEXT,
+    registers_json TEXT,                -- Définition des registres (JSON)
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Appareils Modbus installés sur un chantier
+CREATE TABLE IF NOT EXISTS modbus_devices (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    site_id INTEGER NOT NULL,
+    template_id INTEGER NOT NULL,
+    name TEXT,                          -- Nom donné par l'utilisateur (ex: "VMC local 101")
+    protocol TEXT NOT NULL,             -- 'tcp' ou 'mstp'
+    address TEXT NOT NULL,              -- IP (pour TCP) ou Slave ID (pour MSTP)
+    port INTEGER,                       -- Port (pour TCP, défaut 502)
+    is_dirty BOOLEAN DEFAULT 1,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (site_id) REFERENCES sites(id) ON DELETE CASCADE,
+    FOREIGN KEY (template_id) REFERENCES modbus_templates(id) ON DELETE CASCADE
+);
+
+-- Templates BACnet génériques
+CREATE TABLE IF NOT EXISTS bacnet_templates (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    external_id TEXT UNIQUE,
+    name TEXT NOT NULL,
+    manufacturer TEXT,
+    objects_json TEXT,                  -- Définition des objets (JSON)
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Appareils BACnet installés sur un chantier
+CREATE TABLE IF NOT EXISTS bacnet_devices (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    site_id INTEGER NOT NULL,
+    template_id INTEGER NOT NULL,
+    name TEXT,
+    device_instance INTEGER,            -- ID d'instance BACnet
+    network_address TEXT,               -- IP ou adresse MAC MSTP
+    is_dirty BOOLEAN DEFAULT 1,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (site_id) REFERENCES sites(id) ON DELETE CASCADE,
+    FOREIGN KEY (template_id) REFERENCES bacnet_templates(id) ON DELETE CASCADE
+);
