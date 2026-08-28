@@ -1,0 +1,177 @@
+<section class="modbus-mgr">
+    <h2>Gestion Modbus - Chantier: ${site_name}</h2>
+
+    <div class="site-devices">
+        <h3>Appareils sur ce site</h3>
+        <div class="devices-grid">
+            ${devices_list_html}
+        </div>
+        <button class="btn-primary" onclick="showAddDeviceModal()">➕ Ajouter un appareil</button>
+    </div>
+
+    <div class="templates-lib">
+        <h3>Bibliothèque de Templates</h3>
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Nom</th>
+                    <th>Fabricant</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${templates_list_html}
+            </tbody>
+        </table>
+        <button class="btn-secondary" onclick="showEditTemplateModal()">📄 Nouveau Template</button>
+    </div>
+</section>
+
+<!-- Modal pour ajouter un appareil -->
+<div id="modal-add-device" class="modal" style="display:none;">
+    <div class="modal-content">
+        <h3>Ajouter un appareil Modbus</h3>
+        <form id="form-add-device">
+            <label>Template :</label>
+            <select name="template_id" required>
+                ${templates_options_html}
+            </select>
+            
+            <label>Nom local :</label>
+            <input type="text" name="name" placeholder="Ex: VMC Etage 1" required>
+            
+            <label>Protocole :</label>
+            <select name="protocol" onchange="toggleProtocolFields(this.value)">
+                <option value="tcp">Modbus TCP</option>
+                <option value="mstp">Modbus RTU/MSTP</option>
+            </select>
+            
+            <div id="fields-tcp">
+                <label>Adresse IP :</label>
+                <input type="text" name="address_ip" placeholder="192.168.1.50">
+                <label>Port :</label>
+                <input type="number" name="port" value="502">
+            </div>
+            
+            <div id="fields-mstp" style="display:none;">
+                <label>Slave ID :</label>
+                <input type="number" name="slave_id" placeholder="1">
+            </div>
+            
+            <div class="modal-buttons">
+                <button type="button" onclick="hideModal('modal-add-device')">Annuler</button>
+                <button type="submit" class="btn-primary">Ajouter</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Modal pour créer/éditer un template -->
+<div id="modal-edit-template" class="modal" style="display:none;">
+    <div class="modal-content" style="width: 600px; max-height: 90vh; overflow-y: auto;">
+        <h3 id="template-modal-title">Nouveau Template Modbus</h3>
+        <form id="form-edit-template">
+            <input type="hidden" name="template_id" id="field-t-id">
+            
+            <div style="display: flex; gap: 10px;">
+                <div style="flex: 1;">
+                    <label>Nom du modèle :</label>
+                    <input type="text" name="name" id="field-t-name" placeholder="Ex: VMC Atlantic" required>
+                </div>
+                <div style="flex: 1;">
+                    <label>Fabricant :</label>
+                    <input type="text" name="manufacturer" id="field-t-mfr" placeholder="Ex: Atlantic">
+                </div>
+            </div>
+
+            <h4 style="margin-top: 20px;">Registres</h4>
+            <div id="registers-container">
+                <!-- Les lignes de registres seront ajoutées ici en JS -->
+            </div>
+            <button type="button" class="btn-secondary" style="margin-top: 10px;" onclick="addRegisterRow()">+ Ajouter un registre</button>
+
+            <div class="modal-buttons">
+                <button type="button" onclick="hideModal('modal-edit-template')">Annuler</button>
+                <button type="submit" class="btn-primary">Enregistrer le Template</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<style>
+.data-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 15px 0;
+}
+.data-table th, .data-table td {
+    padding: 10px;
+    border-bottom: 1px solid #eee;
+    text-align: left;
+}
+.modal {
+    position: fixed;
+    top: 0; left: 0; width: 100%; height: 100%;
+    background: rgba(0,0,0,0.5);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 1000;
+}
+.modal-content {
+    background: white; padding: 20px; border-radius: 8px; width: 400px;
+}
+.modal-content form label { display: block; margin-top: 10px; }
+.modal-content form input, .modal-content form select { width: 100%; padding: 8px; margin-top: 5px; }
+.modal-buttons { margin-top: 20px; display: flex; justify-content: flex-end; gap: 10px; }
+</style>
+
+<script>
+function showAddDeviceModal() { document.getElementById('modal-add-device').style.display = 'flex'; }
+function hideModal(id) { document.getElementById(id).style.display = 'none'; }
+function toggleProtocolFields(val) {
+    document.getElementById('fields-tcp').style.display = val === 'tcp' ? 'block' : 'none';
+    document.getElementById('fields-mstp').style.display = val === 'mstp' ? 'block' : 'none';
+}
+
+function addRegisterRow(data = {}) {
+    const container = document.getElementById('registers-container');
+    const div = document.createElement('div');
+    div.className = 'register-row';
+    div.style = "display: flex; gap: 5px; margin-top: 5px; align-items: center;";
+    div.innerHTML = `
+        <input type="number" name="reg_addr[]" placeholder="Adresse" value="${data.addr || ''}" style="flex: 1;" required>
+        <input type="text" name="reg_name[]" placeholder="Libellé (ex: Température)" value="${data.name || ''}" style="flex: 3;" required>
+        <select name="reg_type[]" style="flex: 1.5;">
+            <option value="int16" ${data.type === 'int16' ? 'selected' : ''}>Int 16</option>
+            <option value="uint16" ${data.type === 'uint16' ? 'selected' : ''}>UInt 16</option>
+            <option value="float32" ${data.type === 'float32' ? 'selected' : ''}>Float 32</option>
+        </select>
+        <button type="button" class="btn-red" style="padding: 5px 10px;" onclick="this.parentElement.remove()">×</button>
+    `;
+    container.appendChild(div);
+}
+
+function showEditTemplateModal(templateData = null) {
+    const modal = document.getElementById('modal-edit-template');
+    const title = document.getElementById('template-modal-title');
+    const container = document.getElementById('registers-container');
+    
+    container.innerHTML = '';
+    
+    if (templateData) {
+        title.textContent = "Modifier le Template";
+        document.getElementById('field-t-id').value = templateData.id;
+        document.getElementById('field-t-name').value = templateData.name;
+        document.getElementById('field-t-mfr').value = templateData.manufacturer;
+        
+        const registers = JSON.parse(templateData.registers_json || '[]');
+        registers.forEach(r => addRegisterRow({addr: r.reg, name: r.name, type: r.type || 'int16'}));
+    } else {
+        title.textContent = "Nouveau Template Modbus";
+        document.getElementById('form-edit-template').reset();
+        document.getElementById('field-t-id').value = '';
+        addRegisterRow(); // Une ligne vide par défaut
+    }
+    
+    modal.style.display = 'flex';
+}
+</script>

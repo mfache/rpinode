@@ -134,5 +134,35 @@ class FleetClient:
             logger.error(f"Erreur lors du renommage sur le serveur : {e}")
         return False
 
+    def sync_modbus_templates(self, templates):
+        """Envoie les templates Modbus locaux au serveur."""
+        if not self.is_registered():
+            return False
+
+        url = f"{self.base_url}/modbus-templates"
+        payload = {"templates": templates}
+
+        try:
+            response = requests.post(url, json=payload, headers=self._headers(), timeout=10)
+            return response.json().get("ok", False)
+        except Exception as e:
+            logger.error(f"Erreur lors de la synchro des templates Modbus : {e}")
+            return False
+
+    def send_trends(self, trends):
+        """Envoie les relevés historiques au serveur maître."""
+        if not self.is_registered():
+            return False
+
+        url = f"{self.base_url}/trends"
+        payload = {"trends": trends}
+
+        try:
+            response = requests.post(url, json=payload, headers=self._headers(), timeout=15)
+            return response.json().get("ok", False)
+        except Exception as e:
+            logger.error(f"Erreur lors de l'envoi des trends : {e}")
+            return False
+
 # Instance globale
 fleet = FleetClient()

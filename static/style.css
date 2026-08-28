@@ -216,3 +216,21 @@ main {
     font-family: monospace;
     transition: opacity 0.2s;
 }
+
+/* Password hover effect */
+.hover-pass {
+    cursor: help;
+}
+.hover-pass .real-pass {
+    display: none;
+    font-family: monospace;
+    background: #f0f0f0;
+    padding: 2px 4px;
+    border-radius: 3px;
+}
+.hover-pass:hover .masked-pass {
+    display: none;
+}
+.hover-pass:hover .real-pass {
+    display: inline;
+}

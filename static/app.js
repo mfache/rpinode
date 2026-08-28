@@ -195,6 +195,14 @@ document.addEventListener("DOMContentLoaded", () => {
                     continue; // On ne veut pas que updateElement mette "true" dans la bannière
                 }
 
+                // Traitement spécial pour le mode WiFi
+                if (key === 'wifi_mode') {
+                    const apZone = document.getElementById('ap-info-zone');
+                    if (apZone) {
+                        apZone.style.display = value.includes('Access Point') ? 'block' : 'none';
+                    }
+                }
+
                 const targetKey = `subt_${key}`;
 
                 // 1. Chercher par ID
@@ -373,3 +381,47 @@ async function confirmNewSite() {
         alert("Erreur lors de la création");
     }
 }
+
+/**
+ * Ajoute un appareil Modbus
+ */
+document.addEventListener('submit', async (e) => {
+    if (e.target && (e.target.id === 'form-add-device' || e.target.id === 'form-edit-template')) {
+        e.preventDefault();
+        const formData = new FormData(e.target);
+        const baseUrl = window.CONFIG?.baseUrl || "";
+        try {
+            // Helper pour transformer FormData en JSON gérant les tableaux []
+            const payload = {};
+            formData.forEach((value, key) => {
+                if (key.endsWith('[]')) {
+                    if (!payload[key]) payload[key] = [];
+                    payload[key].push(value);
+                } else {
+                    payload[key] = value;
+                }
+            });
+
+            let endpoint = '';
+            if (e.target.id === 'form-add-device') {
+                endpoint = window.location.pathname.includes('modbus') ? '/api/modbus/device/add' : '/api/bacnet/device/add';
+            } else if (e.target.id === 'form-edit-template') {
+                endpoint = window.location.pathname.includes('modbus') ? '/api/modbus/template/save' : '/api/bacnet/template/save';
+            }
+
+            const response = await fetch(`${baseUrl}${endpoint}`, {
+                method: 'POST',
+                body: JSON.stringify(payload)
+            });
+            if (response.ok) {
+                hideModal(e.target.id.replace('form-', 'modal-'));
+                location.reload();
+            } else {
+                const err = await response.json();
+                alert("Erreur: " + err.message);
+            }
+        } catch (e) {
+            alert("Erreur réseau");
+        }
+    }
+});

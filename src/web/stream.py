@@ -6,8 +6,26 @@ from core.utils import get_changed_items
 from services.network import get_network_overview
 from services.gsm import get_gsm_info
 from services.presence import get_current_site_name, is_current_site_provisional
+from services.wifi_mgr import get_ap_config
 
 logger = logging.getLogger(__name__)
+
+def _get_current_wifi_mode():
+    """Détermine si wlan0 est en mode AP ou Client."""
+    try:
+        import subprocess
+        cmd = ["nmcli", "-t", "-f", "DEVICE,TYPE,CONNECTION", "dev"]
+        res = subprocess.run(cmd, capture_output=True, text=True)
+        for line in res.stdout.splitlines():
+            if line.startswith("wlan0:"):
+                parts = line.split(":")
+                if len(parts) >= 3:
+                    con = parts[2]
+                    if "ap" in con.lower(): return "Access Point"
+                    if con: return f"Client ({con})"
+        return "Inactif"
+    except:
+        return "Inconnu"
 
 def handle_sse_stream(handler):
     """
@@ -36,15 +54,20 @@ def handle_sse_stream(handler):
 
             # 1. Préparation des données actuelles complètes
             gsm_info = f"{gsm.get('mcc', '-')}-{gsm.get('mnc', '-')}-{gsm.get('enodeb', '-')}" if gsm.get('mcc') else "Pas de 4G"
-            
+            wifi_mode = _get_current_wifi_mode()
+            ap_config = get_ap_config()
+
             current_data = {
                 "cpu_temp": f"{get_sys('cpu_temp')}°C",
                 "update_time": time.strftime("%H:%M:%S"),
                 "site_name": site_name,
                 "is_provisional": is_prov,
-                "net_data": site_name,
+                "site_name_html": f"<b>{site_name}</b>",
                 "net": gsm_info,
                 "cpu_data": f"Temp: {get_sys('cpu_temp')}°C",
+                "wifi_mode": wifi_mode,
+                "wifi_ap_ssid": ap_config["ssid"],
+                "wifi_ap_pass": ap_config["password"],
                 
                 # Données réseau
                 "net_wwan0_ip": net['wwan0']['ip'],
@@ -68,7 +91,8 @@ def handle_sse_stream(handler):
                 "net_ts_active": net['tailscale']['active'],
                 "net_ts_routes": "<br>".join(net['tailscale']['routes']) or "Aucune",
                 
-                "net_ts_exit": net['ts_exit']
+                "net_ts_exit": net['ts_exit'],
+                "wifi_mode": _get_current_wifi_mode()
             }
 
             # 2. Calcul du delta (ce qui a changé depuis le dernier envoi)

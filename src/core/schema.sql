@@ -125,3 +125,16 @@ CREATE TABLE IF NOT EXISTS bacnet_devices (
     FOREIGN KEY (site_id) REFERENCES sites(id) ON DELETE CASCADE,
     FOREIGN KEY (template_id) REFERENCES bacnet_templates(id) ON DELETE CASCADE
 );
+
+-- Historique des relevés (Trends)
+CREATE TABLE IF NOT EXISTS trends (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    site_id INTEGER NOT NULL,
+    protocol TEXT NOT NULL,             -- 'modbus' ou 'bacnet'
+    timestamp INTEGER NOT NULL,         -- Unix timestamp
+    device_id TEXT NOT NULL,            -- Identifiant de l'appareil
+    object_id TEXT NOT NULL,            -- Registre Modbus ou Objet BACnet
+    value TEXT,                         -- Valeur relevée
+    is_synced BOOLEAN DEFAULT 0,        -- 1 si envoyé au serveur maître
+    FOREIGN KEY (site_id) REFERENCES sites(id) ON DELETE CASCADE
+);

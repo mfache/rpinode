@@ -15,6 +15,14 @@ RESCUE_CON_NAME = "rpirescue"  # Correspond à ce qui existe déjà dans nmcli
 AP_CON_NAME = "rpinode-ap"
 WLAN_IFACE = "wlan0"
 
+def get_ap_config():
+    """Retourne l'identifiant et le mot de passe du point d'accès."""
+    hostname = socket.gethostname()
+    return {
+        "ssid": f"RPINODE-{hostname.upper()}",
+        "password": "deltathermic"
+    }
+
 def run_wifi_manager():
     """
     Boucle principale de gestion du WiFi.
@@ -94,9 +102,9 @@ def _get_site_wifi_config(site_id):
 
 def _is_ssid_visible(ssid):
     try:
-        subprocess.run(["sudo", "nmcli", "device", "wifi", "rescan"], timeout=10, capture_output=True)
+        subprocess.run(["sudo", "nmcli", "device", "wifi", "rescan"], timeout=5, capture_output=True)
         cmd = ["nmcli", "-t", "-f", "SSID", "dev", "wifi", "list"]
-        res = subprocess.run(cmd, capture_output=True, text=True)
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
         return ssid in [line.strip() for line in res.stdout.splitlines()]
     except:
         return False
@@ -112,7 +120,7 @@ def _ensure_client_mode(con_name, ssid=None, psk=None):
     
     # 2. Créer/Mettre à jour la connexion si c'est un site (on ne touche pas au rescue existant)
     if ssid:
-        opts = f"802-11-wireless.ssid {shlex.quote(ssid)} connection.autoconnect yes connection.priority 50 "
+        opts = f"802-11-wireless.ssid {shlex.quote(ssid)} connection.autoconnect yes connection.autoconnect-priority 50 "
         if psk:
             opts += f"wifi-sec.key-mgmt wpa-psk wifi-sec.psk {shlex.quote(psk)} "
         else:
@@ -139,14 +147,22 @@ def _ensure_ap_mode():
     logger.info("Activation du mode Access Point.")
     hostname = socket.gethostname()
     ssid = f"RPINODE-{hostname.upper()}"
+    password = "deltathermic" # Mot de passe par défaut pour l'AP
     
     # Création/MàJ de la connexion AP
+    # Note: 'connection.priority' n'existe pas dans toutes les versions de nmcli
+    # On utilise 'connection.autoconnect-priority' à la place
     opts = (
         f"mode ap ssid {ssid} "
-        "ipv4.method shared " # Active le serveur DHCP et le partage (NAT non nécessaire ici mais active DHCP)
+        "ipv4.method shared " # Active le serveur DHCP
+        "802-11-wireless-security.key-mgmt wpa-psk "
+        f"802-11-wireless-security.psk {password} "
         "connection.autoconnect no "
-        "connection.priority 10 "
+        "connection.autoconnect-priority 10 "
     )
+    
+    # On s'assure que wlan0 est libre
+    subprocess.run(["sudo", "nmcli", "device", "disconnect", "wlan0"], capture_output=True)
     
     check = subprocess.run(["nmcli", "con", "show", AP_CON_NAME], capture_output=True)
     if check.returncode == 0:
