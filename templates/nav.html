@@ -1,0 +1,60 @@
+<nav class="sidebar">
+    <ul class="nav-list">
+        <li>
+            <a href="${base_url}/" class="nav-item">🏠 Dashboard</a>
+        </li>
+        
+        <li class="nav-group">
+            <span class="nav-label">🌐 Réseau</span>
+            <ul class="sub-nav">
+                <li><a href="${base_url}/network/overview">Vue d'ensemble</a></li>
+                <li><a href="${base_url}/network/interfaces">Interfaces</a></li>
+                <li><a href="${base_url}/network/wifi">WiFi</a></li>
+                <li><a href="${base_url}/network/dhcp">DHCP</a></li>
+            </ul>
+        </li>
+
+        <li class="nav-group">
+            <span class="nav-label">🔍 Scanners</span>
+            <ul class="sub-nav">
+                <li><a href="${base_url}/scan/ip">IP Scan</a></li>
+                <li><a href="${base_url}/scan/modbus">Modbus</a></li>
+                <li><a href="${base_url}/scan/bacnet">BACnet</a></li>
+            </ul>
+        </li>
+
+        <li class="nav-group">
+            <span class="nav-label">💾 Stockage & USB</span>
+            <ul class="sub-nav">
+                <li><a href="${base_url}/storage/devices">Périphériques</a></li>
+                <li><a href="${base_url}/storage/explorer">Explorateur</a></li>
+                <li><a href="${base_url}/storage/share">Partages réseau</a></li>
+            </ul>
+        </li>
+
+        <li class="nav-group">
+            <span class="nav-label">📊 Monitoring</span>
+            <ul class="sub-nav">
+                <li><a href="${base_url}/monitor/suivi">Suivi des points</a></li>
+                <li><a href="${base_url}/monitor/system">État système</a></li>
+                <li><a href="${base_url}/monitor/logs">Journaux</a></li>
+            </ul>
+        </li>
+
+        <li class="nav-group">
+            <span class="nav-label">⚙️ Système</span>
+            <ul class="sub-nav">
+                <li><a href="#" onclick="restartServer(); return false;">🔄 Relancer Interface</a></li>
+                <li><a href="#" onclick="systemAction('reboot'); return false;">🔌 Reboot Système</a></li>
+                <li><a href="#" onclick="systemAction('shutdown'); return false;">⛔ Arrêter Système</a></li>
+            </ul>
+        </li>
+
+        <li class="nav-group mobile-only">
+            <span class="nav-label">⬅️ Navigation</span>
+            <ul class="sub-nav">
+                <li><a href="/">Ancienne version</a></li>
+            </ul>
+        </li>
+    </ul>
+</nav>

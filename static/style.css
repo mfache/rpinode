@@ -1,0 +1,218 @@
+:root {
+    --primary: #2c3e50;
+    --secondary: #34495e;
+    --accent: #2ecc71;
+    --text: #333;
+    --text-light: #ecf0f1;
+    --bg: #f4f4f9;
+    --sidebar-width: 260px;
+}
+
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background-color: var(--bg);
+    color: var(--text);
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+}
+
+header {
+    flex-shrink: 0;
+    z-index: 1100; /* Plus haut que la sidebar mobile */
+}
+
+.app-container {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+}
+
+/* Sidebar */
+.sidebar {
+    width: var(--sidebar-width);
+    background: var(--primary);
+    color: var(--text-light);
+    overflow-y: auto;
+    flex-shrink: 0;
+    border-right: 1px solid rgba(0,0,0,0.1);
+    transition: transform 0.3s ease;
+}
+
+/* Mobile Sidebar Toggle */
+.menu-toggle {
+    display: none;
+    background: rgba(255,255,255,0.1);
+    border: 1px solid rgba(255,255,255,0.2);
+    color: white;
+    font-size: 1.5rem;
+    cursor: pointer;
+    padding: 5px 12px;
+    margin-right: 10px;
+    border-radius: 4px;
+    line-height: 1;
+}
+
+/* Header Buttons */
+.btn-action {
+    color: white;
+    border: none;
+    padding: 8px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-weight: bold;
+    font-size: 0.85rem;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    white-space: nowrap;
+}
+
+.btn-orange { background: #f39c12; }
+.btn-blue { background: #3498db; }
+.btn-red { background: #c0392b; }
+
+.btn-old-version {
+    margin-left: 10px;
+    background: rgba(255,255,255,0.1);
+    color: white;
+    padding: 8px 12px;
+    text-decoration: none;
+    border-radius: 4px;
+    font-size: 0.85rem;
+    border: 1px solid rgba(255,255,255,0.2);
+    white-space: nowrap;
+}
+
+.mobile-only { display: none; }
+
+@media (max-width: 900px) {
+    .btn-label {
+        display: none;
+    }
+    
+    .btn-action {
+        padding: 10px 15px;
+        font-size: 1.2rem;
+    }
+}
+
+@media (max-width: 768px) {
+    .menu-toggle {
+        display: block;
+    }
+
+    .sidebar {
+        position: fixed;
+        top: 0; 
+        left: 0;
+        bottom: 0;
+        padding-top: 70px; /* Espace pour le header */
+        z-index: 1000;
+        transform: translateX(-100%);
+        box-shadow: 5px 0 15px rgba(0,0,0,0.2);
+    }
+
+    .sidebar.open {
+        transform: translateX(0);
+    }
+
+    main {
+        padding: 15px;
+    }
+
+    .widgets-container {
+        grid-template-columns: 1fr;
+    }
+
+    .mobile-only { display: block; }
+}
+
+.nav-list {
+    list-style: none;
+    padding: 10px 0;
+    margin: 0;
+}
+
+.nav-item {
+    display: block;
+    padding: 12px 20px;
+    color: var(--text-light);
+    text-decoration: none;
+    font-weight: 500;
+    transition: background 0.2s;
+}
+
+.nav-item:hover {
+    background: rgba(255,255,255,0.1);
+}
+
+.nav-group {
+    padding: 15px 0 5px 0;
+}
+
+.nav-label {
+    display: block;
+    padding: 5px 20px;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    opacity: 0.5;
+    font-weight: bold;
+}
+
+.sub-nav {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.sub-nav a {
+    display: block;
+    padding: 8px 20px 8px 40px;
+    color: var(--text-light);
+    text-decoration: none;
+    font-size: 0.9rem;
+    opacity: 0.8;
+    transition: all 0.2s;
+}
+
+.sub-nav a:hover {
+    opacity: 1;
+    background: rgba(255,255,255,0.05);
+    padding-left: 45px;
+}
+
+/* Content Area */
+main {
+    flex: 1;
+    padding: 25px;
+    overflow-y: auto;
+    background: var(--bg);
+}
+
+/* Widgets */
+.widgets-container {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 20px;
+}
+
+.widget {
+    background: white;
+    border-radius: 10px;
+    padding: 20px;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.05);
+    border: 1px solid rgba(0,0,0,0.05);
+}
+
+.dynamic-update-zone {
+    margin-top: 1rem;
+    padding: 0.5rem;
+    background: #eef;
+    border-radius: 4px;
+    font-family: monospace;
+    transition: opacity 0.2s;
+}

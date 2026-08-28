@@ -1,0 +1,2 @@
+Dans le fichier rpinode/src/core/database.py, il faut sortir le sql qui crée les tables, je voudrais pouvoir éditer le fichier sql moi même pour qu'ensuite le script database le lit et crée les tables ou les adaptes.
+Nous étions arrivé au moment ou tu allais explorer la façon de récupérer les informations mcc, mnc et cellid de l'ancienne version de l'API. Tu allais créer le service **`src/services/gsm.py`** pour tenter de récupérer l'ID de l'antenne actuelle.

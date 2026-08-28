@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environnement / Config
+data/*.db
+data/*.db-journal
+data/*.tmp
+data/config.json
+
+# Logs
+log/*.log
+
+# IDE
+.zed/
+.vscode/
+.idea/
