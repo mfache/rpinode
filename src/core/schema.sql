@@ -149,6 +149,7 @@ CREATE TABLE IF NOT EXISTS discovered_devices (
     last_iface TEXT,                    -- Interface (eth0, wlan0)
     bacnet_instance INTEGER,            -- Instance BACnet découverte
     bacnet_name TEXT,                   -- Nom BACnet découvert
+    modbus_info TEXT,                   -- Infos Modbus découvertes (Unit IDs, etc.)
     annotations_json TEXT,              -- JSON des champs personnalisés {"Pièce": "Local Tech", ...}
     is_dirty BOOLEAN DEFAULT 1,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,

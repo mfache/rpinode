@@ -511,7 +511,10 @@ class WebAdminHandler(BaseHTTPRequestHandler):
                 formatted_ports = []
                 for p in ports:
                     if p == 502:
-                        formatted_ports.append(f"<a href='{base_url}/scan/modbus?ip={d['ip']}' title='Gérer en Modbus' style='color: #2ecc71; font-weight: bold;'>502 (Modbus)</a>")
+                        modbus_info = ""
+                        if d.get("modbus_info"):
+                            modbus_info = f" <small style='color:#2ecc71'>({d['modbus_info']})</small>"
+                        formatted_ports.append(f"<a href='{base_url}/scan/modbus?ip={d['ip']}' title='Gérer en Modbus' style='color: #2ecc71; font-weight: bold;'>502 (Modbus)</a>{modbus_info}")
                     elif p == 47808:
                         bacnet_info = ""
                         if d.get("bacnet_instance"):

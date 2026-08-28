@@ -67,7 +67,19 @@ async def check_port(ip, port):
     """Tente de se connecter au port TCP ou vérifie le port UDP pour BACnet."""
     if port == 47808:
         return await check_bacnet_udp(ip)
+    
+    if port == 502:
+        # On vérifie d'abord si le port est ouvert
+        res = await check_tcp_port(ip, port)
+        if res:
+            # On pourrait tenter un probe Modbus immédiat, mais on garde ça pour l'enrichissement
+            return 502
+        return None
         
+    return await check_tcp_port(ip, port)
+
+async def check_tcp_port(ip, port):
+    """Vérifie si un port TCP est ouvert."""
     try:
         fut = asyncio.open_connection(ip, port)
         _, writer = await asyncio.wait_for(fut, timeout=0.4)
@@ -233,8 +245,8 @@ async def run_ip_scan():
             # Persistance immédiate dans la base de données
             update_db_results(results, scanned_ifaces)
             
-            # Phase 2 : Enrichissement BACnet (Différé)
-            await enrich_bacnet_results(results)
+            # Phase 2 : Enrichissement BACnet & Modbus (Différé)
+            await enrich_results(results)
 
         logger.info("Scan IP terminé.")
         
@@ -251,9 +263,9 @@ def update_db_results(devices, ifaces=None):
                 conn.execute("""
                     INSERT INTO discovered_devices (
                         mac, vendor, last_ip, last_ports, last_iface, 
-                        bacnet_instance, bacnet_name, last_seen, updated_at, is_dirty
+                        bacnet_instance, bacnet_name, modbus_info, last_seen, updated_at, is_dirty
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 1)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 1)
                     ON CONFLICT(mac) DO UPDATE SET
                         vendor = COALESCE(discovered_devices.vendor, EXCLUDED.vendor),
                         last_ip = EXCLUDED.last_ip,
@@ -261,10 +273,11 @@ def update_db_results(devices, ifaces=None):
                         last_iface = EXCLUDED.last_iface,
                         bacnet_instance = COALESCE(EXCLUDED.bacnet_instance, discovered_devices.bacnet_instance),
                         bacnet_name = COALESCE(EXCLUDED.bacnet_name, discovered_devices.bacnet_name),
+                        modbus_info = COALESCE(EXCLUDED.modbus_info, discovered_devices.modbus_info),
                         last_seen = CURRENT_TIMESTAMP
                 """, (
                     d["mac"].lower(), d["vendor"], d["ip"], ports_json, d["iface"],
-                    d.get("bacnet_instance"), d.get("bacnet_name")
+                    d.get("bacnet_instance"), d.get("bacnet_name"), d.get("modbus_info")
                 ))
             conn.commit()
             
@@ -276,32 +289,85 @@ def update_db_results(devices, ifaces=None):
     except Exception as e:
         logger.error(f"Erreur update_db_results : {e}")
 
-async def enrich_bacnet_results(devices):
-    """Tente de trouver l'instance BACnet pour les équipements ayant le port 47808 ouvert."""
+async def enrich_results(devices):
+    """Tente d'enrichir les résultats (BACnet & Modbus)."""
+    tasks = []
+    for d in devices:
+        ports = d.get("ports", [])
+        if 47808 in ports:
+            tasks.append(enrich_bacnet_device(d))
+        if 502 in ports:
+            tasks.append(enrich_modbus_device(d))
+    
+    if tasks:
+        await asyncio.gather(*tasks)
+
+async def enrich_bacnet_device(d):
+    """Tente de trouver l'instance BACnet."""
+    logger.info(f"Enrichissement BACnet pour {d['ip']}...")
     reader_path = os.path.join(os.path.dirname(__file__), "bacnet_reader.py")
     bacnet_python = "/opt/boitier-bacnet/venv/bin/python"
     if not os.path.exists(bacnet_python):
         bacnet_python = sys.executable
+        
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            bacnet_python, reader_path, "probe", d["ip"],
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=15)
+        if proc.returncode == 0:
+            info = json.loads(stdout.decode())
+            if "instance" in info:
+                d["bacnet_instance"] = info["instance"]
+                d["bacnet_name"] = info.get("name")
+                update_db_results([d])
+    except Exception as e:
+        logger.warning(f"Échec enrichissement BACnet pour {d['ip']}: {e}")
+
+async def enrich_modbus_device(d):
+    """Tente de trouver les Unit IDs Modbus."""
+    logger.info(f"Enrichissement Modbus pour {d['ip']}...")
     
-    for d in devices:
-        if 47808 in d.get("ports", []):
-            logger.info(f"Enrichissement BACnet pour {d['ip']}...")
+    def _probe_modbus():
+        import socket
+        import struct
+        
+        found_units = []
+        # On teste les Unit IDs les plus courants: 1, 255, 0
+        for unit in [1, 255, 0]:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(1.0)
             try:
-                proc = await asyncio.create_subprocess_exec(
-                    bacnet_python, reader_path, "probe", d["ip"],
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE
-                )
-                stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=15)
-                if proc.returncode == 0:
-                    info = json.loads(stdout.decode())
-                    if "instance" in info:
-                        d["bacnet_instance"] = info["instance"]
-                        d["bacnet_name"] = info.get("name")
-                        # Mise à jour DB progressive
-                        update_db_results([d])
-            except Exception as e:
-                logger.warning(f"Échec enrichissement BACnet pour {d['ip']}: {e}")
+                sock.connect((d["ip"], 502))
+                # Transaction ID: 1, Protocol: 0, Length: 6, Unit: <unit>, Func: 3, Addr: 0, Count: 1
+                # Format: >HHHBBHH
+                req = struct.pack(">HHHBBHH", 1, 0, 6, unit, 3, 0, 1)
+                sock.send(req)
+                resp = sock.recv(1024)
+                # Réponse valide (min 9 octets pour FC03): Tid(2), Proto(2), Len(2), Unit(1), Func(1), ByteCount(1), Data...
+                if len(resp) >= 9 and resp[7] == 3:
+                    found_units.append(str(unit))
+                elif len(resp) >= 9 and resp[7] == 0x83:
+                    # Exception Modbus = Esclave présent mais erreur sur la requête (ex: registre 0 inexistant)
+                    found_units.append(str(unit))
+            except:
+                pass
+            finally:
+                sock.close()
+        
+        if found_units:
+            return f"Units: {', '.join(found_units)}"
+        return None
+
+    try:
+        info = await asyncio.to_thread(_probe_modbus)
+        if info:
+            d["modbus_info"] = info
+            update_db_results([d])
+    except Exception as e:
+        logger.warning(f"Échec enrichissement Modbus pour {d['ip']}: {e}")
 
 def _run_async_scan():
     """Exécute le scan dans une nouvelle boucle d'événements (pour thread séparé)."""
