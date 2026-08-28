@@ -102,6 +102,17 @@ class FleetClient:
         dirty_annotations = []
         try:
             with get_db_connection() as conn:
+                # Fabricants globaux (mac_vendors)
+                rows = conn.execute("SELECT prefix, vendor FROM mac_vendors WHERE is_dirty = 1").fetchall()
+                for row in rows:
+                    dirty_annotations.append({
+                        "kind": "ip_vendor",
+                        "key": row["prefix"],
+                        "field": "",
+                        "value": row["vendor"]
+                    })
+                
+                # Annotations spécifiques (discovered_devices)
                 rows = conn.execute("""
                     SELECT mac, vendor, annotations_json 
                     FROM discovered_devices 
@@ -111,7 +122,7 @@ class FleetClient:
                     mac = row["mac"]
                     if row["vendor"]:
                         dirty_annotations.append({
-                            "kind": "ip_vendor",
+                            "kind": "ip_device_vendor", # Kind spécial pour différencier du global OUI
                             "key": mac,
                             "field": "",
                             "value": row["vendor"]
@@ -151,14 +162,16 @@ class FleetClient:
                 
                 # 3. Marquer les locales comme synchronisées
                 if dirty_annotations:
-                    macs = list(set(a["key"] for a in dirty_annotations))
                     with get_db_connection() as conn:
+                        # Marquer mac_vendors
+                        prefixes = [a["key"] for a in dirty_annotations if a["kind"] == "ip_vendor"]
+                        for p in prefixes:
+                            conn.execute("UPDATE mac_vendors SET is_dirty = 0, sync_updated_at = CURRENT_TIMESTAMP WHERE prefix = ?", (p,))
+                        
+                        # Marquer discovered_devices
+                        macs = list(set(a["key"] for a in dirty_annotations if a["kind"] in ("ip_device_vendor", "ip_annot")))
                         for mac in macs:
-                            conn.execute("""
-                                UPDATE discovered_devices 
-                                SET is_dirty = 0, sync_updated_at = CURRENT_TIMESTAMP 
-                                WHERE mac = ?
-                            """, (mac,))
+                            conn.execute("UPDATE discovered_devices SET is_dirty = 0, sync_updated_at = CURRENT_TIMESTAMP WHERE mac = ?", (mac,))
                         conn.commit()
                 
                 return data
@@ -180,6 +193,18 @@ class FleetClient:
                         continue
                         
                     if kind == "ip_vendor":
+                        # C'est un préfixe constructeur global
+                        conn.execute("""
+                            INSERT INTO mac_vendors (prefix, vendor, is_dirty, updated_at)
+                            VALUES (?, ?, 0, CURRENT_TIMESTAMP)
+                            ON CONFLICT(prefix) DO UPDATE SET
+                                vendor = EXCLUDED.vendor,
+                                is_dirty = 0,
+                                updated_at = CURRENT_TIMESTAMP
+                            WHERE is_dirty = 0 OR updated_at < EXCLUDED.updated_at
+                        """, (mac, value))
+                    elif kind == "ip_device_vendor":
+                        # C'est une annotation spécifique à un équipement
                         conn.execute("""
                             INSERT INTO discovered_devices (mac, vendor, is_dirty, updated_at)
                             VALUES (?, ?, 0, CURRENT_TIMESTAMP)

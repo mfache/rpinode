@@ -725,22 +725,37 @@ class WebAdminHandler(BaseHTTPRequestHandler):
                 return self.send_json({"status": "error", "message": "MAC manquante"})
                 
             with get_db_connection() as conn:
+                if vendor:
+                    # 1. Mise à jour de la connaissance globale (OUI)
+                    oui_prefix = mac[:8]
+                    conn.execute("""
+                        INSERT INTO mac_vendors (prefix, vendor, is_dirty, updated_at)
+                        VALUES (?, ?, 1, CURRENT_TIMESTAMP)
+                        ON CONFLICT(prefix) DO UPDATE SET
+                            vendor = EXCLUDED.vendor,
+                            is_dirty = 1,
+                            updated_at = CURRENT_TIMESTAMP
+                    """, (oui_prefix, vendor))
+                    
+                    # 2. Mise à jour de l'équipement spécifique
+                    conn.execute("""
+                        INSERT INTO discovered_devices (mac, vendor, is_dirty, updated_at, last_seen)
+                        VALUES (?, ?, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                        ON CONFLICT(mac) DO UPDATE SET
+                            vendor = EXCLUDED.vendor,
+                            is_dirty = 1,
+                            updated_at = CURRENT_TIMESTAMP,
+                            last_seen = CURRENT_TIMESTAMP
+                    """, (mac, vendor))
+                
                 if annotations is not None:
-                    if isinstance(annotations, dict):
-                        annotations_json = json.dumps(annotations)
-                    else:
-                        annotations_json = annotations
-                        
-                conn.execute("""
-                    INSERT INTO discovered_devices (mac, vendor, annotations_json, last_seen, updated_at, is_dirty)
-                    VALUES (?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 1)
-                    ON CONFLICT(mac) DO UPDATE SET
-                        vendor = COALESCE(?, discovered_devices.vendor),
-                        annotations_json = COALESCE(?, discovered_devices.annotations_json),
-                        updated_at = CURRENT_TIMESTAMP,
-                        is_dirty = 1,
-                        last_seen = CURRENT_TIMESTAMP
-                """, (mac, vendor, annotations_json if annotations is not None else None, vendor, annotations_json if annotations is not None else None))
+                    annotations_json = json.dumps(annotations) if isinstance(annotations, dict) else annotations
+                    conn.execute("""
+                        UPDATE discovered_devices 
+                        SET annotations_json = ?, is_dirty = 1, updated_at = CURRENT_TIMESTAMP
+                        WHERE mac = ?
+                    """, (annotations_json, mac))
+                
                 conn.commit()
             
             # Déclenchement immédiat d'une synchronisation si le boîtier est enregistré

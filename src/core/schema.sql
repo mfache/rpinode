@@ -139,6 +139,16 @@ CREATE TABLE IF NOT EXISTS trends (
     FOREIGN KEY (site_id) REFERENCES sites(id) ON DELETE CASCADE
 );
 
+-- Base de connaissance des fabricants (OUI)
+-- Partagée par toute la flotte pour identifier les équipements par leur MAC.
+CREATE TABLE IF NOT EXISTS mac_vendors (
+    prefix TEXT PRIMARY KEY,             -- Préfixe MAC (ex: "00:90:e8")
+    vendor TEXT NOT NULL,
+    is_dirty BOOLEAN DEFAULT 1,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    sync_updated_at DATETIME
+);
+
 -- Équipements découverts sur le réseau (Scanner IP)
 -- On utilise la MAC comme clé unique pour persister les annotations (pièce, usage, etc.)
 CREATE TABLE IF NOT EXISTS discovered_devices (

@@ -20,23 +20,24 @@ def get_oui_vendor(mac):
         return "Inconnu"
     mac_lower = mac.lower()
     
-    # Recherche dans la base de données (annotations synchronisées ou locales)
-    # On cherche d'abord la MAC complète, puis le préfixe OUI (6 chars + 2 séparateurs = 8)
+    # 1. Recherche d'un fabricant spécifique par MAC complète (prioritaire)
+    # 2. Recherche par préfixe OUI (8 chars: 00:00:00)
     try:
         with get_db_connection() as conn:
-            # 1. MAC exacte
+            # On tente d'abord de voir si on a un préfixe correspondant dans mac_vendors
+            # On teste toutes les longueurs de préfixe possibles (généralement 8 chars)
+            oui_prefix = mac_lower[:8]
+            row = conn.execute(
+                "SELECT vendor FROM mac_vendors WHERE prefix = ?", 
+                (oui_prefix,)
+            ).fetchone()
+            if row:
+                return row["vendor"]
+            
+            # Repli sur discovered_devices pour une annotation spécifique à CET équipement
             row = conn.execute(
                 "SELECT vendor FROM discovered_devices WHERE mac = ?", 
                 (mac_lower,)
-            ).fetchone()
-            if row and row["vendor"]:
-                return row["vendor"]
-            
-            # 2. Préfixe OUI (ex: 00:90:e8)
-            oui_prefix = mac_lower[:8]
-            row = conn.execute(
-                "SELECT vendor FROM discovered_devices WHERE mac = ?", 
-                (oui_prefix,)
             ).fetchone()
             if row and row["vendor"]:
                 return row["vendor"]
