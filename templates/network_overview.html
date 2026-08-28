@@ -1,6 +1,6 @@
 <div class="network-overview">
     <h2>Vue d'ensemble Réseau</h2>
-    
+
     <div class="topology-container">
         <!-- Niveau 1 : Internet / 4G -->
         <div class="topology-level">
@@ -50,18 +50,23 @@
     <div class="network-details">
         <h3>📊 État détaillé</h3>
         <div class="status-grid">
-            <!-- wwan0 -->
-            <div class="status-card" id="card-wwan0">
+            <!-- wlan0 -->
+            <div class="status-card" id="card-wlan0">
                 <div class="card-header">
-                    <span class="icon">📡</span>
-                    <span class="title">wwan0 (4G)</span>
-                    <span id="pill-wwan0" class="status-pill">--</span>
+                    <span class="icon">📶</span>
+                    <span class="title">wlan0 (WiFi)</span>
+                    <span id="pill-wlan0" class="status-pill">--</span>
                 </div>
                 <div class="card-body">
-                    <div class="status-row"><span>IP</span> <b class="subt_net_wwan0_ip">--</b></div>
-                    <div class="status-row"><span>MAC</span> <span class="subt_net_wwan0_mac">--</span></div>
+                    <div class="status-row"><span>IP</span> <b class="subt_net_wlan0_ip">--</b></div>
+                    <div class="status-row"><span>MAC</span> <span class="subt_net_wlan0_mac">--</span></div>
+
+                    <div id="subt_net_wlan0_clients_html">
+                        <!-- Liste des clients DHCP injectée ici -->
+                    </div>
+
                     <div class="status-section-title">Routes</div>
-                    <div class="status-routes subt_net_wwan0_routes">--</div>
+                    <div class="status-routes subt_net_wlan0_routes">--</div>
                 </div>
             </div>
 
@@ -75,23 +80,13 @@
                 <div class="card-body">
                     <div class="status-row"><span>IP</span> <b class="subt_net_eth0_ip">--</b></div>
                     <div class="status-row"><span>MAC</span> <span class="subt_net_eth0_mac">--</span></div>
+
+                    <div id="subt_net_eth0_clients_html">
+                        <!-- Liste des clients DHCP injectée ici -->
+                    </div>
+
                     <div class="status-section-title">Routes</div>
                     <div class="status-routes subt_net_eth0_routes">--</div>
-                </div>
-            </div>
-
-            <!-- wlan0 -->
-            <div class="status-card" id="card-wlan0">
-                <div class="card-header">
-                    <span class="icon">📶</span>
-                    <span class="title">wlan0 (WiFi)</span>
-                    <span id="pill-wlan0" class="status-pill">--</span>
-                </div>
-                <div class="card-body">
-                    <div class="status-row"><span>IP</span> <b class="subt_net_wlan0_ip">--</b></div>
-                    <div class="status-row"><span>MAC</span> <span class="subt_net_wlan0_mac">--</span></div>
-                    <div class="status-section-title">Routes</div>
-                    <div class="status-routes subt_net_wlan0_routes">--</div>
                 </div>
             </div>
 
@@ -107,6 +102,22 @@
                     <div class="status-row"><span>Nom DNS</span> <span class="subt_net_ts_name">--</span></div>
                     <div class="status-section-title">Routes Publiées</div>
                     <div class="status-routes subt_net_ts_routes">--</div>
+                </div>
+            </div>
+
+            <!-- wwan0 -->
+            <div class="status-card" id="card-wwan0">
+                <div class="card-header">
+                    <span class="icon">📡</span>
+                    <span class="title">wwan0 (4G)</span>
+                    <span id="pill-wwan0" class="status-pill">--</span>
+                </div>
+                <div class="card-body">
+                    <div class="status-row"><span>IP</span> <b class="subt_net_wwan0_ip">--</b></div>
+                    <div class="status-row"><span>MAC</span> <span class="subt_net_wwan0_mac">--</span></div>
+                    <div class="status-row"><span>Cellule</span> <span class="subt_gsm_cell">--</span></div>
+                    <div class="status-section-title">Routes</div>
+                    <div class="status-routes subt_net_wwan0_routes">--</div>
                 </div>
             </div>
         </div>
@@ -279,7 +290,7 @@
 document.addEventListener('DOMContentLoaded', () => {
     // On écoute les mises à jour SSE via un mécanisme global si besoin
     // Mais ici le JS générique met déjà à jour les IDs 'subt_net_...'
-    
+
     // On ajoute un observer pour réagir quand les classes changent ou quand le TS change
 });
 </script>

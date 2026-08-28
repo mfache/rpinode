@@ -99,11 +99,42 @@ def get_tailscale_exit_node():
     except:
         return "wwan0"
 
+def get_dhcp_clients(iface="wlan0"):
+    """Récupère la liste des clients DHCP connectés (via dnsmasq de NM)."""
+    clients = []
+    lease_file = f"/var/lib/NetworkManager/dnsmasq-{iface}.leases"
+    
+    try:
+        # Lecture avec sudo car le dossier est restreint
+        cmd = ["sudo", "cat", lease_file]
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=2)
+        
+        if result.returncode == 0:
+            for line in result.stdout.splitlines():
+                parts = line.split()
+                if len(parts) >= 4:
+                    # Format: timestamp mac ip hostname client_id
+                    clients.append({
+                        "ip": parts[2],
+                        "mac": parts[1],
+                        "hostname": parts[3] if parts[3] != "*" else "Inconnu"
+                    })
+            logger.info(f"DHCP Clients trouvés sur {iface}: {len(clients)}")
+    except Exception as e:
+        logger.debug(f"Erreur lecture baux DHCP {iface}: {e}")
+        
+    return clients
+
 def get_network_overview():
     """Agrège toutes les infos pour le graphique et les détails."""
     wwan = get_interface_status("wwan0")
     eth = get_interface_status("eth0")
     wlan = get_interface_status("wlan0")
+    
+    # Ajout des clients DHCP pour wlan0 et eth0
+    wlan["clients"] = get_dhcp_clients("wlan0")
+    eth["clients"] = get_dhcp_clients("eth0")
+    
     ts = get_tailscale_status()
     ts_exit = get_tailscale_exit_node()
     

@@ -140,34 +140,54 @@ def _ensure_client_mode(con_name, ssid=None, psk=None):
 
 def _ensure_ap_mode():
     """S'assure que wlan0 est en mode Access Point."""
-    status = subprocess.run(["nmcli", "-t", "-f", "DEVICE,CONNECTION", "dev", "status"], capture_output=True, text=True)
+    status = subprocess.run(["nmcli", "-t", "-f", "DEVICE,CONNECTION", "dev", "status"], capture_output=True, text=True, timeout=5)
     if f"wlan0:{AP_CON_NAME}" in status.stdout:
         return # Déjà OK
 
     logger.info("Activation du mode Access Point.")
     hostname = socket.gethostname()
     ssid = f"RPINODE-{hostname.upper()}"
-    password = "deltathermic" # Mot de passe par défaut pour l'AP
+    password = "deltathermic"
     
-    # Création/MàJ de la connexion AP
-    # Note: 'connection.priority' n'existe pas dans toutes les versions de nmcli
-    # On utilise 'connection.autoconnect-priority' à la place
+    # Construction de la config
     opts = (
         f"mode ap ssid {ssid} "
-        "ipv4.method shared " # Active le serveur DHCP
+        "ipv4.method shared "
         "802-11-wireless-security.key-mgmt wpa-psk "
         f"802-11-wireless-security.psk {password} "
         "connection.autoconnect no "
         "connection.autoconnect-priority 10 "
     )
     
-    # On s'assure que wlan0 est libre
-    subprocess.run(["sudo", "nmcli", "device", "disconnect", "wlan0"], capture_output=True)
+    # 1. Libérer wlan0
+    subprocess.run(["sudo", "nmcli", "device", "disconnect", "wlan0"], capture_output=True, timeout=10)
     
-    check = subprocess.run(["nmcli", "con", "show", AP_CON_NAME], capture_output=True)
+    # 2. Configurer NetworkManager pour l'AP
+    check = subprocess.run(["nmcli", "con", "show", AP_CON_NAME], capture_output=True, timeout=5)
     if check.returncode == 0:
-        subprocess.run(f"sudo nmcli con mod '{AP_CON_NAME}' {opts}", shell=True)
+        subprocess.run(f"sudo nmcli con mod '{AP_CON_NAME}' {opts}", shell=True, timeout=10)
     else:
-        subprocess.run(f"sudo nmcli con add type wifi ifname wlan0 con-name '{AP_CON_NAME}' {opts}", shell=True)
+        subprocess.run(f"sudo nmcli con add type wifi ifname wlan0 con-name '{AP_CON_NAME}' {opts}", shell=True, timeout=10)
     
-    subprocess.run(["sudo", "nmcli", "con", "up", AP_CON_NAME], timeout=30)
+    # 3. Lancer l'AP
+    subprocess.run(["sudo", "nmcli", "con", "up", AP_CON_NAME], timeout=30, capture_output=True)
+
+    # 4. Activer le routage et le NAT de manière robuste
+    _setup_routing_and_nat()
+
+def _setup_routing_and_nat():
+    """Configure le routage IP et le NAT vers eth0 et wwan0."""
+    try:
+        # Routage noyau
+        subprocess.run(["sudo", "sysctl", "-w", "net.ipv4.ip_forward=1"], capture_output=True, timeout=5)
+
+        # NAT pour eth0 et wwan0
+        # On vérifie si la règle existe déjà avant de l'ajouter pour éviter les doublons
+        for iface in ["eth0", "wwan0"]:
+            # On tente de supprimer pour être sûr de ne pas empiler
+            subprocess.run(["sudo", "iptables", "-t", "nat", "-D", "POSTROUTING", "-o", iface, "-j", "MASQUERADE"], capture_output=True, timeout=5)
+            # On ajoute proprement
+            subprocess.run(["sudo", "iptables", "-t", "nat", "-A", "POSTROUTING", "-o", iface, "-j", "MASQUERADE"], capture_output=True, timeout=5)
+            
+    except Exception as e:
+        logger.error(f"Erreur configuration routage/NAT : {e}")

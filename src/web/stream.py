@@ -27,6 +27,26 @@ def _get_current_wifi_mode():
     except:
         return "Inconnu"
 
+def _format_dhcp_clients(clients):
+    """Formate la liste des clients DHCP en HTML pour le widget."""
+    try:
+        if not clients:
+            return "<div style='opacity:0.6; font-size:0.85em;'>Aucun client connecté.</div>"
+        
+        html = "<div class='dhcp-clients-list' style='margin-top:10px; border-top:1px solid #eee; padding-top:8px;'>"
+        html += "<div style='font-size:0.75rem; font-weight:bold; color:#999; text-transform:uppercase; margin-bottom:5px;'>Clients connectés</div>"
+        for c in clients:
+            html += f"""
+                <div style='font-size:0.85em; display:flex; justify-content:space-between; margin-bottom:3px;'>
+                    <span><b>{c.get('hostname', 'Inconnu')}</b></span>
+                    <span style='font-family:monospace;'>{c.get('ip', '--')}</span>
+                </div>
+            """
+        html += "</div>"
+        return html
+    except Exception as e:
+        return f"<!-- Erreur formatage DHCP: {e} -->"
+
 def handle_sse_stream(handler):
     """
     Gère une connexion Server-Sent Events (SSE) pour l'envoi de mises à jour en temps réel.
@@ -80,19 +100,20 @@ def handle_sse_stream(handler):
                 "net_eth0_mac": net['eth0']['mac'],
                 "net_eth0_active": net['eth0']['active'],
                 "net_eth0_routes": "<br>".join(net['eth0']['routes']) or "Aucune",
+                "net_eth0_clients_html": _format_dhcp_clients(net['eth0'].get('clients', [])),
 
                 "net_wlan0_ip": net['wlan0']['ip'],
                 "net_wlan0_mac": net['wlan0']['mac'],
                 "net_wlan0_active": net['wlan0']['active'],
                 "net_wlan0_routes": "<br>".join(net['wlan0']['routes']) or "Aucune",
+                "net_wlan0_clients_html": _format_dhcp_clients(net['wlan0'].get('clients', [])),
 
                 "net_ts_ip": net['tailscale']['ip'],
                 "net_ts_name": net['tailscale']['name'],
                 "net_ts_active": net['tailscale']['active'],
                 "net_ts_routes": "<br>".join(net['tailscale']['routes']) or "Aucune",
                 
-                "net_ts_exit": net['ts_exit'],
-                "wifi_mode": _get_current_wifi_mode()
+                "net_ts_exit": net['ts_exit']
             }
 
             # 2. Calcul du delta (ce qui a changé depuis le dernier envoi)

@@ -185,74 +185,83 @@ document.addEventListener("DOMContentLoaded", () => {
             // Mise à jour générique : cherche tout ID ou CLASSE commençant par "subt_"
             // correspondant à une clé dans le JSON reçu.
             for (const [key, value] of Object.entries(updates)) {
-                // Traitement spécial pour le chantier provisoire
-                if (key === 'is_provisional') {
-                    const banner = document.getElementById('subt_is_provisional');
-                    if (banner) {
-                        banner.style.display = value ? 'block' : 'none';
-                        if (value) checkFleetRegistration();
-                    }
-                    continue; // On ne veut pas que updateElement mette "true" dans la bannière
-                }
-
-                // Traitement spécial pour le mode WiFi
-                if (key === 'wifi_mode') {
-                    const apZone = document.getElementById('ap-info-zone');
-                    if (apZone) {
-                        apZone.style.display = value.includes('Access Point') ? 'block' : 'none';
-                    }
-                }
-
-                const targetKey = `subt_${key}`;
-
-                // 1. Chercher par ID
-                const elById = document.getElementById(targetKey);
-                if (elById) updateElement(elById, value, key);
-
-                // 2. Chercher par Classe (pour les éléments répétés)
-                const elsByClass = document.getElementsByClassName(targetKey);
-                for (const el of elsByClass) {
-                    updateElement(el, value, key);
-                }
-
-                // Traitement spécial pour les états actifs (couleurs des nodes et pills)
-                if (key.endsWith('_active')) {
-                    const iface = key.replace('net_', '').replace('_active', '');
-                    const node = document.getElementById(`node-${iface}`);
-                    const pill = document.getElementById(`pill-${iface}`);
+                try {
+                    if (value === undefined || value === null) continue;
                     
-                    const isActive = (value === true || value === "true");
-                    
-                    if (node) {
-                        if (isActive) node.classList.add('active');
-                        else node.classList.remove('active');
+                    // Traitement spécial pour le chantier provisoire
+                    if (key === 'is_provisional') {
+                        const banner = document.getElementById('subt_is_provisional');
+                        if (banner) {
+                            banner.style.display = value ? 'block' : 'none';
+                            if (value) checkFleetRegistration();
+                        }
+                        continue; // On ne veut pas que updateElement mette "true" dans la bannière
                     }
-                    
-                    if (pill) {
-                        pill.textContent = isActive ? 'Connecté' : 'Coupé';
-                        pill.className = `status-pill ${isActive ? 'active' : 'inactive'}`;
-                    }
-                }
 
-                // Traitement spécial pour Tailscale exit et IP
-                if (key === 'net_ts_exit' || key === 'net_ts_ip') {
-                    const exitIface = updates['net_ts_exit'] || window.lastTsExit;
-                    const tsIp = updates['net_ts_ip'] || window.lastTsIp;
-                    
-                    if (exitIface) {
-                        // Masquer tous les blocs TS
-                        document.querySelectorAll('.ts-integrated-info').forEach(m => m.style.display = 'none');
+                    // Traitement spécial pour le mode WiFi
+                    if (key === 'wifi_mode') {
+                        const apZone = document.getElementById('ap-info-zone');
+                        if (apZone && typeof value === 'string') {
+                            apZone.style.display = value.includes('Access Point') ? 'block' : 'none';
+                        }
+                    }
+
+                    const targetKey = `subt_${key}`;
+
+                    // 1. Chercher par ID
+                    const elById = document.getElementById(targetKey);
+                    if (elById) {
+                        if (key === 'net_wlan0_clients_html') console.log("Mise à jour clients DHCP:", value);
+                        updateElement(elById, value, key);
+                    }
+
+                    // 2. Chercher par Classe (pour les éléments répétés)
+                    const elsByClass = document.getElementsByClassName(targetKey);
+                    for (const el of elsByClass) {
+                        updateElement(el, value, key);
+                    }
+
+                    // Traitement spécial pour les états actifs (couleurs des nodes et pills)
+                    if (key.endsWith('_active')) {
+                        const iface = key.replace('net_', '').replace('_active', '');
+                        const node = document.getElementById(`node-${iface}`);
+                        const pill = document.getElementById(`pill-${iface}`);
                         
-                        // Afficher et mettre à jour le bon bloc
-                        const tsBlock = document.getElementById(`ts-info-${exitIface}`);
-                        const tsIpDisplay = document.getElementById(`subt_net_ts_ip_${exitIface}`);
+                        const isActive = (value === true || value === "true");
                         
-                        if (tsBlock) tsBlock.style.display = 'block';
-                        if (tsIpDisplay && tsIp) tsIpDisplay.textContent = tsIp;
+                        if (node) {
+                            if (isActive) node.classList.add('active');
+                            else node.classList.remove('active');
+                        }
                         
-                        window.lastTsExit = exitIface;
+                        if (pill) {
+                            pill.textContent = isActive ? 'Connecté' : 'Coupé';
+                            pill.className = `status-pill ${isActive ? 'active' : 'inactive'}`;
+                        }
                     }
-                    if (tsIp) window.lastTsIp = tsIp;
+
+                    // Traitement spécial pour Tailscale exit et IP
+                    if (key === 'net_ts_exit' || key === 'net_ts_ip') {
+                        const exitIface = updates['net_ts_exit'] || window.lastTsExit;
+                        const tsIp = updates['net_ts_ip'] || window.lastTsIp;
+                        
+                        if (exitIface) {
+                            // Masquer tous les blocs TS
+                            document.querySelectorAll('.ts-integrated-info').forEach(m => m.style.display = 'none');
+                            
+                            // Afficher et mettre à jour le bon bloc
+                            const tsBlock = document.getElementById(`ts-info-${exitIface}`);
+                            const tsIpDisplay = document.getElementById(`subt_net_ts_ip_${exitIface}`);
+                            
+                            if (tsBlock) tsBlock.style.display = 'block';
+                            if (tsIpDisplay && tsIp) tsIpDisplay.textContent = tsIp;
+                            
+                            window.lastTsExit = exitIface;
+                        }
+                        if (tsIp) window.lastTsIp = tsIp;
+                    }
+                } catch (innerError) {
+                    console.error(`Erreur lors de la mise à jour de la clé ${key}:`, innerError);
                 }
             }
 

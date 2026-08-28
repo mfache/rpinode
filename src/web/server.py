@@ -336,55 +336,26 @@ class WebAdminHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.end_headers()
         self.wfile.write(final_html.encode("utf-8"))
+
+    def serve_network_overview(self):
         config = load_config()
         base_url = config.get("base_url", "")
         hostname = socket.gethostname()
         version = str(int(time.time()))
 
-        from services.presence import get_current_site_name
-        from services.bacnet_mgr import get_all_templates, get_site_devices
-        from core.database import get_db_connection
-        
-        site_name = get_current_site_name()
-        with get_db_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT id FROM sites WHERE name = ?", (site_name,))
-            site_row = cursor.fetchone()
-            site_id = site_row["id"] if site_row else None
-
-        templates = get_all_templates()
-        devices = get_site_devices(site_id) if site_id else []
-
-        # Rendu des lignes de templates
-        templates_html = ""
-        for t in templates:
-            t_json = json.dumps(dict(t)).replace("'", "\\'")
-            templates_html += f"""
-                <tr>
-                    <td>{t['name']}</td>
-                    <td>{t['manufacturer']}</td>
-                    <td>
-                        <button class='btn-blue' onclick='showEditTemplateModal({t_json})'>Modifier</button>
-                    </td>
-                </tr>
-            """
-        if not templates: templates_html = "<tr><td colspan='3'>Aucun template disponible</td></tr>"
-
-        devices_html = "".join([f"<div class='status-card'><strong>{d['name']}</strong><br>{d['template_name']} (Inst: {d['device_instance']} @ {d['network_address']})</div>" for d in devices])
-        if not devices: devices_html = "<p>Aucun appareil configuré sur ce site.</p>"
-
-        options_html = "".join([f"<option value='{t['id']}'>{t['name']}</option>" for t in templates])
-
-        content = render(
-            "bacnet.html",
-            site_name=site_name,
-            templates_list_html=templates_html,
-            devices_list_html=devices_html,
-            templates_options_html=options_html
-        )
-        
+        # On injecte le chemin de base pour le JS si nécessaire (via window.CONFIG dans layout)
+        content = render("network_overview.html", base_url=base_url)
         nav_html = render("nav.html", base_url=base_url)
-        final_html = render("layout.html", title="Gestion BACnet", hostname=escape(hostname), base_url=escape(base_url), version=version, nav=nav_html, content=content)
+        
+        final_html = render(
+            "layout.html",
+            title="Vue d'ensemble Réseau",
+            hostname=escape(hostname),
+            base_url=escape(base_url),
+            version=version,
+            nav=nav_html,
+            content=content
+        )
         
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")

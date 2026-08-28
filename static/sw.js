@@ -1,4 +1,4 @@
-const CACHE_NAME = 'rpinode-v3';
+const CACHE_NAME = 'rpinode-v6';
 const ASSETS = [
   '/rpinode/',
   '/rpinode/manifest.json',

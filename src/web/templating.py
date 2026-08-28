@@ -19,7 +19,7 @@ class TemplateEngine:
     def _load_template(self, name: str) -> string.Template:
         if name in self._cache:
             return self._cache[name]
-            
+        
         path = self.templates_dir / name
         try:
             with open(path, encoding="utf-8") as f:
