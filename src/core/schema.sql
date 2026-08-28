@@ -144,9 +144,14 @@ CREATE TABLE IF NOT EXISTS trends (
 CREATE TABLE IF NOT EXISTS discovered_devices (
     mac TEXT PRIMARY KEY,
     vendor TEXT,
+    last_ip TEXT,                       -- Dernière IP connue
+    last_ports TEXT,                    -- Ports ouverts (JSON: [80, 502, ...])
+    last_iface TEXT,                    -- Interface (eth0, wlan0)
+    bacnet_instance INTEGER,            -- Instance BACnet découverte
+    bacnet_name TEXT,                   -- Nom BACnet découvert
     annotations_json TEXT,              -- JSON des champs personnalisés {"Pièce": "Local Tech", ...}
-    is_dirty BOOLEAN DEFAULT 1,         -- 1 si modifié localement et non synchronisé
+    is_dirty BOOLEAN DEFAULT 1,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    sync_updated_at DATETIME,           -- Date de dernière synchro réussie
+    sync_updated_at DATETIME,
     last_seen DATETIME DEFAULT CURRENT_TIMESTAMP
 );

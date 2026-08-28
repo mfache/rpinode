@@ -4,7 +4,7 @@ import json
 import os
 from core.sys import get_sys
 from core.utils import get_changed_items
-from core.paths import IPSCAN_RESULTS_FILE
+from core.config import load_config
 from services.network import get_network_overview
 from services.gsm import get_gsm_info
 from services.ipscan import is_ipscan_running
@@ -116,10 +116,10 @@ def handle_sse_stream(handler):
                 "net_ts_active": net['tailscale']['active'],
                 "net_ts_routes": "<br>".join(net['tailscale']['routes']) or "Aucune",
                 
-                "net_ts_exit": net['ts_exit'],
-                "ipscan_running": is_ipscan_running(),
-                "ipscan_mtime": os.path.getmtime(IPSCAN_RESULTS_FILE) if os.path.exists(IPSCAN_RESULTS_FILE) else 0
-            }
+	                "net_ts_exit": net['ts_exit'],
+	                "ipscan_running": is_ipscan_running(),
+	                "ipscan_last_at": load_config().get("ipscan_last_at", "")
+	            }
 
             # 2. Calcul du delta (ce qui a changé depuis le dernier envoi)
             payload = get_changed_items(last_data, current_data)

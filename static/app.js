@@ -280,14 +280,14 @@ document.addEventListener("DOMContentLoaded", () => {
                             }
                         }
                     }
-                    if (key === 'ipscan_mtime') {
-                        // Si le fichier de résultats a changé pendant qu'on regarde la page de scan, on rafraîchit
+                    if (key === 'ipscan_last_at') {
+                        // Si le scan a été mis à jour pendant qu'on regarde la page, on rafraîchit
                         if (window.location.pathname.includes('/scan/ip')) {
-                            if (window.lastIpscanMtime && window.lastIpscanMtime !== value) {
+                            if (window.lastIpscanAt && window.lastIpscanAt !== value) {
                                 console.log("Mise à jour des résultats de scan détectée");
                                 window.location.reload();
                             }
-                            window.lastIpscanMtime = value;
+                            window.lastIpscanAt = value;
                         }
                     }
                 } catch (innerError) {

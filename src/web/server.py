@@ -498,29 +498,13 @@ class WebAdminHandler(BaseHTTPRequestHandler):
         results = load_ipscan_results()
         running = is_ipscan_running()
         
-        # On récupère les annotations de la base de données
-        annotations = {}
-        try:
-            with get_db_connection() as conn:
-                rows = conn.execute("SELECT mac, vendor, annotations_json, is_dirty FROM discovered_devices").fetchall()
-                for row in rows:
-                    annotations[row["mac"]] = {
-                        "vendor": row["vendor"],
-                        "is_dirty": row["is_dirty"],
-                        "data": json.loads(row["annotations_json"]) if row["annotations_json"] else {}
-                    }
-        except Exception:
-            pass
-
         devices_html = ""
         if results and results.get("devices"):
             for d in results["devices"]:
                 mac = d.get('mac', '').lower()
-                # On enrichit avec les données de la DB si présentes
-                db_info = annotations.get(mac, {})
-                vendor = db_info.get("vendor") or d.get("vendor") or "Inconnu"
-                annots = db_info.get("data", {})
-                is_dirty = db_info.get("is_dirty", 0)
+                vendor = d.get("vendor") or "Inconnu"
+                annots = json.loads(d.get("annotations_json")) if d.get("annotations_json") else {}
+                is_dirty = d.get("is_dirty", 0)
                 
                 # Formatage des ports
                 ports = d.get("ports", [])

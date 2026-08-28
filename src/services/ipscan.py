@@ -10,7 +10,8 @@ import sqlite3
 import sys
 import socket
 from core.database import get_db_connection
-from core.paths import IPSCAN_RESULTS_FILE, IPSCAN_RUNNING_FILE
+from core.paths import IPSCAN_RUNNING_FILE
+from core.config import load_config, save_config
 
 logger = logging.getLogger(__name__)
 
@@ -160,13 +161,32 @@ async def sweep_iface(iface, ip_str, prefix):
     return alive
 
 def load_ipscan_results():
-    if not os.path.exists(IPSCAN_RESULTS_FILE):
-        return None
+    """Charge les derniers résultats du scan depuis la base de données."""
+    config = load_config()
+    last_at = config.get("ipscan_last_at", "Jamais")
+    
+    devices = []
     try:
-        with open(IPSCAN_RESULTS_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except Exception:
-        return None
+        with get_db_connection() as conn:
+            # On récupère les équipements vus lors du dernier scan (ou les 100 derniers)
+            # Pour la fluidité, on prend tout ce qui a été vu depuis 'last_at' (ou tout court)
+            rows = conn.execute("""
+                SELECT * FROM discovered_devices 
+                ORDER BY last_seen DESC, last_ip ASC
+            """).fetchall()
+            for row in rows:
+                d = dict(row)
+                d["ip"] = d.get("last_ip") or "Inconnu"
+                d["iface"] = d.get("last_iface") or "Inconnu"
+                d["ports"] = json.loads(d["last_ports"]) if d.get("last_ports") else []
+                devices.append(d)
+    except Exception as e:
+        logger.error(f"Erreur load_ipscan_results : {e}")
+        
+    return {
+        "scanned_at": last_at,
+        "devices": devices
+    }
 
 def is_ipscan_running():
     if not os.path.exists(IPSCAN_RUNNING_FILE):
@@ -210,26 +230,11 @@ async def run_ip_scan():
             results = await asyncio.gather(*tasks)
             results.sort(key=lambda x: ipaddress.IPv4Address(x["ip"]))
             
-            # Enregistrement initial (Phase 1 terminée)
-            save_results(scanned_ifaces, results)
+            # Persistance immédiate dans la base de données
+            update_db_results(results, scanned_ifaces)
             
-            # Persistance dans la base de données
-            try:
-                with get_db_connection() as conn:
-                    for r in results:
-                        conn.execute("""
-                            INSERT INTO discovered_devices (mac, vendor, last_seen, updated_at, is_dirty)
-                            VALUES (?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 1)
-                            ON CONFLICT(mac) DO UPDATE SET
-                                vendor = COALESCE(discovered_devices.vendor, EXCLUDED.vendor),
-                                last_seen = CURRENT_TIMESTAMP
-                        """, (r["mac"].lower(), r["vendor"]))
-                    conn.commit()
-            except sqlite3.Error as e:
-                logger.error(f"Erreur lors de la mise à jour de discovered_devices : {e}")
-
             # Phase 2 : Enrichissement BACnet (Différé)
-            await enrich_bacnet_results(scanned_ifaces, results)
+            await enrich_bacnet_results(results)
 
         logger.info("Scan IP terminé.")
         
@@ -237,24 +242,43 @@ async def run_ip_scan():
         if os.path.exists(IPSCAN_RUNNING_FILE):
             os.remove(IPSCAN_RUNNING_FILE)
 
-def save_results(ifaces, devices):
-    """Enregistre les résultats dans le fichier JSON."""
-    data = {
-        "scanned_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "count": len(devices),
-        "ifaces": ifaces,
-        "devices": devices,
-    }
-    with open(str(IPSCAN_RESULTS_FILE) + ".tmp", "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2)
-    os.replace(str(IPSCAN_RESULTS_FILE) + ".tmp", IPSCAN_RESULTS_FILE)
+def update_db_results(devices, ifaces=None):
+    """Met à jour la base de données avec les résultats du scan."""
+    try:
+        with get_db_connection() as conn:
+            for d in devices:
+                ports_json = json.dumps(d.get("ports", []))
+                conn.execute("""
+                    INSERT INTO discovered_devices (
+                        mac, vendor, last_ip, last_ports, last_iface, 
+                        bacnet_instance, bacnet_name, last_seen, updated_at, is_dirty
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 1)
+                    ON CONFLICT(mac) DO UPDATE SET
+                        vendor = COALESCE(discovered_devices.vendor, EXCLUDED.vendor),
+                        last_ip = EXCLUDED.last_ip,
+                        last_ports = EXCLUDED.last_ports,
+                        last_iface = EXCLUDED.last_iface,
+                        bacnet_instance = COALESCE(EXCLUDED.bacnet_instance, discovered_devices.bacnet_instance),
+                        bacnet_name = COALESCE(EXCLUDED.bacnet_name, discovered_devices.bacnet_name),
+                        last_seen = CURRENT_TIMESTAMP
+                """, (
+                    d["mac"].lower(), d["vendor"], d["ip"], ports_json, d["iface"],
+                    d.get("bacnet_instance"), d.get("bacnet_name")
+                ))
+            conn.commit()
+            
+            # On stocke la date du scan dans la config pour l'UI
+            if ifaces:
+                config = load_config()
+                config["ipscan_last_at"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                save_config(config)
+    except Exception as e:
+        logger.error(f"Erreur update_db_results : {e}")
 
-async def enrich_bacnet_results(ifaces, devices):
+async def enrich_bacnet_results(devices):
     """Tente de trouver l'instance BACnet pour les équipements ayant le port 47808 ouvert."""
-    has_update = False
     reader_path = os.path.join(os.path.dirname(__file__), "bacnet_reader.py")
-    
-    # Utilisation du venv BACnet s'il existe, sinon le python par défaut
     bacnet_python = "/opt/boitier-bacnet/venv/bin/python"
     if not os.path.exists(bacnet_python):
         bacnet_python = sys.executable
@@ -263,7 +287,6 @@ async def enrich_bacnet_results(ifaces, devices):
         if 47808 in d.get("ports", []):
             logger.info(f"Enrichissement BACnet pour {d['ip']}...")
             try:
-                # Appel du reader en mode 'probe'
                 proc = await asyncio.create_subprocess_exec(
                     bacnet_python, reader_path, "probe", d["ip"],
                     stdout=asyncio.subprocess.PIPE,
@@ -275,13 +298,10 @@ async def enrich_bacnet_results(ifaces, devices):
                     if "instance" in info:
                         d["bacnet_instance"] = info["instance"]
                         d["bacnet_name"] = info.get("name")
-                        has_update = True
-                        # Sauvegarde intermédiaire pour fluidité
-                        save_results(ifaces, devices)
+                        # Mise à jour DB progressive
+                        update_db_results([d])
             except Exception as e:
                 logger.warning(f"Échec enrichissement BACnet pour {d['ip']}: {e}")
-    
-    return has_update
 
 def _run_async_scan():
     """Exécute le scan dans une nouvelle boucle d'événements (pour thread séparé)."""
