@@ -99,7 +99,7 @@ async def check_bacnet_udp(ip):
     
     def _probe():
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        sock.settimeout(1.0)
+        sock.settimeout(0.3)
         try:
             sock.sendto(whois_pkt, (ip, 47808))
             data, addr = sock.recvfrom(1024)
@@ -112,32 +112,42 @@ async def check_bacnet_udp(ip):
     # On utilise to_thread pour ne pas bloquer l'event loop
     return await asyncio.to_thread(_probe)
 
-async def scan_host(ip, mac, iface):
+async def scan_host(ip, mac, iface, scan_timestamp, delay_ms=0):
     """Scanne les ports d'un hôte trouvé."""
+    if delay_ms > 0:
+        await asyncio.sleep(delay_ms / 1000.0)
+        
     ports_to_check = [80, 443, 502, 47808, 22, 23, 445]
     tasks = [check_port(ip, p) for p in ports_to_check]
     results = await asyncio.gather(*tasks)
     open_ports = [p for p in results if p is not None]
 
-    return {
+    res = {
         "ip": ip,
         "mac": mac,
         "iface": iface,
         "vendor": get_oui_vendor(mac),
-        "ports": open_ports
+        "ports": open_ports,
+        "last_seen": scan_timestamp
     }
+    
+    # Enregistrer en base et diffuser
+    update_db_results([res])
+    from services.mqtt_service import mqtt_client
+    mqtt_client.publish("rpinode/ipscan/host_ready", json.dumps(res))
+    
+    return res
 
 async def sweep_iface(iface, ip_str, prefix):
     """Ping sweep + lecture ARP sur une interface. Renvoie [(ip, mac), ...]."""
     logger.info(f"Balayage de {iface} ({ip_str}/{prefix})...")
-    
-    # Utilisation de fping si disponible, sinon on peut pas faire grand chose de rapide
-    cmd = f"fping -I {iface} -c 1 -t 50 -q -g {ip_str}/{prefix} 2>/dev/null"
-    try:
-        subprocess.run(cmd, shell=True)
-    except Exception as e:
-        logger.error(f"Erreur fping : {e}")
-        
+
+    # On augmente le timeout à 400ms pour les appareils lents (ex: ESP32 en veille WiFi)
+    cmd = f"fping -a -I {iface} -r 0 -t 400 -g {ip_str}/{prefix} 2>/dev/null"
+    proc = await asyncio.create_subprocess_shell(cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+    stdout, _ = await proc.communicate()
+    alive_ips = set(stdout.decode().splitlines())
+
     await asyncio.sleep(0.5)  # Temps de mise à jour de la table ARP
 
     alive = []
@@ -147,29 +157,30 @@ async def sweep_iface(iface, ip_str, prefix):
         ).decode()
     except subprocess.CalledProcessError:
         arp_out = ""
-        
+
     for line in arp_out.splitlines():
-        if "REACHABLE" in line or "STALE" in line or "DELAY" in line:
-            parts = line.split()
-            if len(parts) >= 4:
-                ip_h = parts[0]
+        parts = line.split()
+        if len(parts) >= 3:
+            ip_h = parts[0]
+            # Un appareil est vivant s'il a répondu au ping OU s'il est actif dans l'ARP (REACHABLE/DELAY)
+            state = parts[-1] if parts else ""
+            if ip_h in alive_ips or state in ["REACHABLE", "DELAY"]:
                 try:
                     ipaddress.IPv4Address(ip_h)
-                except ValueError:
-                    continue
-                mac_h = ""
-                try:
                     if "lladdr" in parts:
                         mac_h = parts[parts.index("lladdr") + 1]
+                        if mac_h != "<incomplete>":
+                            alive.append((ip_h, mac_h))
                 except (ValueError, IndexError):
                     pass
                 if mac_h and mac_h != "<incomplete>":
                     alive.append((ip_h, mac_h))
 
-    # Ajouter l'IP du boîtier lui-même
+    # Ajouter l'IP du boîtier lui-même si on l'a vu (ou par sécurité)
     try:
         with open(f"/sys/class/net/{iface}/address") as f:
-            alive.append((ip_str, f.read().strip()))
+            if ip_str in alive_ips or True: # On force notre propre présence si l'interface est UP
+                alive.append((ip_str, f.read().strip()))
     except OSError:
         pass
         
@@ -250,14 +261,18 @@ async def run_ip_scan():
             logger.warning("Aucune interface LAN n'a d'adresse IP.")
             results = []
         else:
+            scan_timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             logger.info(f"{len(found)} hôtes trouvés, scan des ports...")
-            tasks = [scan_host(ip_h, mac_h, iface) for ip_h, (mac_h, iface) in found.items()]
+            
+            tasks = []
+            for i, (ip_h, (mac_h, iface)) in enumerate(found.items()):
+                # On ajoute un délai incrémental (50ms) pour "étaler" visuellement l'apparition dans l'UI
+                # sans ralentir significativement le processus global.
+                tasks.append(scan_host(ip_h, mac_h, iface, scan_timestamp, delay_ms=i * 50))
+                
             results = await asyncio.gather(*tasks)
             results.sort(key=lambda x: ipaddress.IPv4Address(x["ip"]))
-            
-            # Persistance immédiate dans la base de données
-            update_db_results(results, scanned_ifaces)
-            
+
             # On retire le lock du scan pour que l'UI réagisse plus vite
             if os.path.exists(IPSCAN_RUNNING_FILE):
                 os.remove(IPSCAN_RUNNING_FILE)
@@ -278,20 +293,24 @@ def update_db_results(devices, ifaces=None):
         logger.error("Impossible de mettre à jour les résultats : aucun chantier actif.")
         return
 
+    # On fige le timestamp exact de ce scan pour tous les appareils trouvés
+    # Cela permet de les identifier de manière unique lors de la lecture pour savoir qui est "en ligne"
+    scan_timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
     try:
         with get_db_connection() as conn:
             for d in devices:
                 ports_json = json.dumps(d.get("ports", []))
                 conn.execute("""
                     INSERT INTO discovered_devices (
-                        site_id, mac, vendor, last_ip, last_ports, last_iface, 
+                        site_id, mac, vendor, last_ip, last_ports, last_iface,
                         bacnet_instance, bacnet_name, modbus_info, last_seen, updated_at, is_dirty
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 1)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, 1)
                     ON CONFLICT(site_id, mac) DO UPDATE SET
-                        vendor = CASE 
-                            WHEN discovered_devices.vendor IS NULL OR discovered_devices.vendor = 'Inconnu' THEN EXCLUDED.vendor 
-                            ELSE discovered_devices.vendor 
+                        vendor = CASE
+                            WHEN discovered_devices.vendor IS NULL OR discovered_devices.vendor = 'Inconnu' THEN EXCLUDED.vendor
+                            ELSE discovered_devices.vendor
                         END,
                         last_ip = EXCLUDED.last_ip,
                         last_ports = EXCLUDED.last_ports,
@@ -299,10 +318,11 @@ def update_db_results(devices, ifaces=None):
                         bacnet_instance = COALESCE(EXCLUDED.bacnet_instance, discovered_devices.bacnet_instance),
                         bacnet_name = COALESCE(EXCLUDED.bacnet_name, discovered_devices.bacnet_name),
                         modbus_info = COALESCE(EXCLUDED.modbus_info, discovered_devices.modbus_info),
-                        last_seen = CURRENT_TIMESTAMP
+                        last_seen = EXCLUDED.last_seen
                 """, (
                     site_id, d["mac"].lower(), d["vendor"], d["ip"], ports_json, d["iface"],
-                    d.get("bacnet_instance"), d.get("bacnet_name"), d.get("modbus_info")
+                    d.get("bacnet_instance"), d.get("bacnet_name"), d.get("modbus_info"),
+                    d.get("last_seen", datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
                 ))
             conn.commit()
     except Exception as e:
@@ -356,9 +376,11 @@ async def enrich_bacnet_device(d):
                                 vendor_name = f"Fabricant #{info['vendor_id']}"
                     except:
                         pass
-                        
+
                 d["bacnet_name"] = vendor_name
                 update_db_results([d])
+                from services.mqtt_service import mqtt_client
+                mqtt_client.publish("rpinode/ipscan/host_ready", json.dumps(d))
     except Exception as e:
         logger.warning(f"Échec enrichissement BACnet pour {d['ip']}: {e}")
 
@@ -402,6 +424,8 @@ async def enrich_modbus_device(d):
         if info:
             d["modbus_info"] = info
             update_db_results([d])
+            from services.mqtt_service import mqtt_client
+            mqtt_client.publish("rpinode/ipscan/host_ready", json.dumps(d))
     except Exception as e:
         logger.warning(f"Échec enrichissement Modbus pour {d['ip']}: {e}")
 

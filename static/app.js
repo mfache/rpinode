@@ -162,7 +162,73 @@ document.addEventListener("DOMContentLoaded", () => {
     // Connexion SSE pour mettre à jour les éléments dynamiques
     const baseUrl = window.CONFIG?.baseUrl || "";
     const evtSource = new EventSource(`${baseUrl}/api/stream`);
-    
+
+    evtSource.addEventListener('host_ready', (e) => {
+        if (!window.location.pathname.includes('/scan/ip')) return;
+        try {
+            const data = JSON.parse(e.data);
+            const tbody = document.getElementById('ipscan-results-body');
+            if (!tbody) return;
+
+            let row = null;
+            if (data.mac) {
+                for (let tr of tbody.rows) {
+                    if (tr.cells.length > 1 && tr.cells[1].textContent.trim().toLowerCase() === data.mac.toLowerCase()) {
+                        row = tr;
+                        break;
+                    }
+                }
+            }
+
+            let portsHtml = [];
+            const portsList = Array.isArray(data.ports) ? data.ports : [];
+            for (let p of portsList) {
+                if (p === 502) {
+                    let m = data.modbus_info ? ` <small style='color:#2ecc71'>(${data.modbus_info})</small>` : '';
+                    portsHtml.push(`<a href='${baseUrl}/scan/modbus?ip=${data.ip}' style='color: #2ecc71; font-weight: bold;'>502 (Modbus)</a>${m}`);
+                } else if (p === 47808) {
+                    let b = [];
+                    if (data.bacnet_instance) b.push(`Inst: ${data.bacnet_instance}`);
+                    if (data.bacnet_name && data.bacnet_name !== "Automate BACnet") b.push(data.bacnet_name);
+                    let info = b.length ? ` <small style='color:#e67e22'>(${b.join(', ')})</small>` : '';
+                    portsHtml.push(`<a href='${baseUrl}/scan/bacnet?ip=${data.ip}' style='color: #e67e22; font-weight: bold;'>47808 (BACnet)</a>${info}`);
+                } else if (p === 80) {
+                    portsHtml.push(`<a href='http://${data.ip}' target='_blank' style='color: #3498db;'>80</a>`);
+                } else {
+                    portsHtml.push(p);
+                }
+            }
+            let portsStr = portsHtml.length ? portsHtml.join(', ') : "<span style='opacity:0.4;'>Aucun</span>";
+
+            if (row) {
+                row.classList.remove('row-offline');
+                const ipCell = row.cells[0];
+                ipCell.style.opacity = '1';
+                ipCell.style.textDecoration = 'none';
+                ipCell.style.fontWeight = 'bold';
+                ipCell.innerHTML = `<span title='En ligne' style='color: #2ecc71; font-size: 0.8em; margin-right: 5px;'>🟢</span>${data.ip}`;
+                row.cells[3].innerHTML = portsStr;
+
+                row.style.transition = 'background 0.3s';
+                row.style.background = '#e8f8f5';
+                setTimeout(() => { row.style.background = ''; }, 600);
+            } else {
+                if (tbody.rows.length === 1 && tbody.rows[0].cells.length === 1) tbody.innerHTML = '';
+                // Nouvelle ligne, rechargement silencieux pour rafraîchir toutes les annotations custom
+                const refreshTableSilently = async () => {
+                    try {
+                        const url = (baseUrl + '/api/scan/ip/results').replace(/\/+/g, '/');
+                        const res = await fetch(url);
+                        const resData = await res.json();
+                        if (resData.html) tbody.innerHTML = resData.html;
+                        if (typeof filterTable === 'function') filterTable();
+                    } catch(err) {}
+                };
+                refreshTableSilently();
+            }
+        } catch (err) { console.error("Erreur SSE host_ready:", err); }
+    });
+
     evtSource.onmessage = function(event) {
         try {
             // Réinitialisation du "watchdog" et du compteur
@@ -333,14 +399,18 @@ document.addEventListener("DOMContentLoaded", () => {
                                         
                                         const tbody = document.getElementById('ipscan-results-body');
                                         const lastScan = document.getElementById('subt_ipscan_last_scan');
-                                        
+                                        const table = document.getElementById('inventory-table');
+
                                         if (tbody && data.html) {
                                             tbody.innerHTML = data.html;
                                         }
                                         if (lastScan && data.scanned_at) {
                                             lastScan.textContent = data.scanned_at;
                                         }
-                                        
+                                        if (table) {
+                                            table.classList.remove('scanning');
+                                        }
+
                                         // Réappliquer les filtres/tris/visibilités
                                         if (typeof initColumnPicker === 'function') {
                                             const hiddenColLabels = JSON.parse(localStorage.getItem('ipscan_hidden_labels') || '[]');
@@ -363,38 +433,13 @@ document.addEventListener("DOMContentLoaded", () => {
                         }
                     }
                     if (key === 'ipscan_last_at') {
-                        // Si le scan a été mis à jour pendant qu'on regarde la page, on rafraîchit (silencieusement)
+                        // Si le scan a été mis à jour pendant qu'on regarde la page
+                        // On update juste le label du timestamp pour éviter de recharger la grille de manière agressive.
+                        // Les mises à jour fines sont gérées par host_ready.
                         if (window.location.pathname.includes('/scan/ip')) {
-                            if (window.lastIpscanAt && window.lastIpscanAt !== value) {
-                                console.log("Mise à jour des résultats de scan détectée");
-                                setTimeout(async () => {
-                                    try {
-                                        const url = (baseUrl + '/api/scan/ip/results').replace(/\/+/g, '/');
-                                        const res = await fetch(url);
-                                        const data = await res.json();
-                                        
-                                        const tbody = document.getElementById('ipscan-results-body');
-                                        const lastScan = document.getElementById('subt_ipscan_last_scan');
-                                        
-                                        if (tbody && data.html) tbody.innerHTML = data.html;
-                                        if (lastScan && data.scanned_at) lastScan.textContent = data.scanned_at;
-                                        
-                                        // Réappliquer les filtres/tris/visibilités
-                                        if (typeof initColumnPicker === 'function') {
-                                            const hiddenColLabels = JSON.parse(localStorage.getItem('ipscan_hidden_labels') || '[]');
-                                            const table = document.getElementById("inventory-table");
-                                            const headers = table.querySelectorAll("thead th");
-                                            headers.forEach((th, index) => {
-                                                if (index === 0) return;
-                                                const label = th.textContent.replace(' ↕', '').replace('×', '').trim();
-                                                if (hiddenColLabels.includes(label)) {
-                                                    applyColumnVisibility(index, false);
-                                                }
-                                            });
-                                        }
-                                        if (typeof filterTable === 'function') filterTable();
-                                    } catch(e) { console.error("Erreur de rafraîchissement:", e); }
-                                }, 500);
+                            const lastScan = document.getElementById('subt_ipscan_last_scan');
+                            if (lastScan && window.lastIpscanAt && window.lastIpscanAt !== value) {
+                                lastScan.textContent = value;
                             }
                             window.lastIpscanAt = value;
                         }

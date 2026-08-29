@@ -360,11 +360,20 @@ class WebAdminHandler(BaseHTTPRequestHandler):
             rows = conn.execute("SELECT column_key, column_label FROM custom_column_definitions WHERE table_id = 'ip_scan'").fetchall()
             custom_columns = [dict(r) for r in rows]
         devices_rows = ""
+        global_scanned_at = results.get("scanned_at", "Jamais")
+        
         if results and results.get("devices"):
             for d in results["devices"]:
                 mac = d.get('mac', '').lower()
                 vendor = d.get("vendor") or "Inconnu"
                 is_dirty = d.get("is_dirty", 0)
+                
+                # Détermination En ligne / Hors ligne
+                is_offline = (d.get("last_seen") != global_scanned_at)
+                row_class = "row-offline" if is_offline else ""
+                status_dot = "<span title='Hors ligne (historique)' style='color: #e74c3c; font-size: 0.8em; margin-right: 5px;'>🔴</span>" if is_offline else "<span title='En ligne' style='color: #2ecc71; font-size: 0.8em; margin-right: 5px;'>🟢</span>"
+                ip_style = "opacity: 0.5; text-decoration: line-through;" if is_offline else "font-weight: bold;"
+                
                 ports = d.get("ports", [])
                 formatted_ports = []
                 for p in ports:
@@ -390,9 +399,9 @@ class WebAdminHandler(BaseHTTPRequestHandler):
                     val = annots.get(col["column_key"], "")
                     custom_cells += f'<td class="editable" onclick="editCell(\'{mac}\', \'{col["column_key"]}\', \'{col["column_label"]}\')">{escape(str(val))}</td>'
                 sync_indicator = "<span class='sync-pending' title='En attente de synchronisation'>☁️</span>" if is_dirty else ""
-                devices_rows += f"<tr><td style='font-family: monospace; font-weight: bold;'>{escape(d.get('ip'))}</td><td style='font-family: monospace; font-size: 0.85em; color: #666;'>{escape(mac)}</td><td class='editable' onclick=\"editVendor('{mac}', '{escape(vendor)}')\">{escape(vendor)} {sync_indicator}</td><td>{ports_str}</td>{custom_cells}<td><small style='color:#999;'>{escape(d.get('iface'))}</small></td></tr>"
+                devices_rows += f"<tr class='{row_class}'><td style='font-family: monospace; {ip_style}'>{status_dot}{escape(d.get('ip'))}</td><td style='font-family: monospace; font-size: 0.85em; color: #666;'>{escape(mac)}</td><td class='editable' onclick=\"editVendor('{mac}', '{escape(vendor)}')\">{escape(vendor)} {sync_indicator}</td><td>{ports_str}</td>{custom_cells}<td><small style='color:#999;'>{escape(d.get('iface'))}</small></td></tr>"
         else: devices_rows = "<tr><td colspan='10' style='text-align:center; padding: 40px; color: #999;'>Aucun résultat.</td></tr>"
-        return devices_rows, results.get("scanned_at", "Jamais"), custom_columns
+        return devices_rows, global_scanned_at, custom_columns
 
     def serve_ip_scan_results(self):
         config = load_config()

@@ -1,221 +1,396 @@
 <section class="ip-scan">
     <div class="header-with-actions">
-        <h2>Scanner IP Local</h2>
+        <h2>Inventaire Réseau & Scan IP</h2>
         <div class="actions">
-            <span id="scan-status" class="status-badge ${running == 'true' ? 'running' : 'idle'}">
-                ${running == 'true' ? 'Scan en cours...' : 'Prêt'}
+            <span id="scan-status" class="status-badge ${is_running_class}">
+                ${is_running_text}
             </span>
-            <button id="btn-start-scan" class="btn-primary" onclick="startIpScan()" ${running == 'true' ? 'disabled' : ''}>
+            <button id="btn-start-scan" class="btn-primary" onclick="startIpScan()" ${is_running_class == 'running' ? 'disabled' : ''}>
                 🔍 Lancer un Scan
             </button>
         </div>
     </div>
 
     <div class="scan-info card">
-        <p>Dernier balayage : <b id="subt_ipscan_last_scan">${last_scan}</b></p>
-        <p class="help-text">Découverte des équipements via Ping Sweep (fping) et table ARP. Scanne les ports 80, 443, 502, 22, 23, 445.</p>
+        <div style="display: flex; justify-content: space-between; align-items: center; gap: 20px; flex-wrap: wrap;">
+            <div style="flex: 1; min-width: 300px;">
+                <p>Dernier balayage : <b id="subt_ipscan_last_scan">${scanned_at}</b></p>
+                <p class="help-text">Découverte des équipements et inventaire du chantier.</p>
+            </div>
+            <div style="flex: 1; min-width: 300px; display: flex; gap: 10px; position: relative;">
+                <input type="text" id="inventory-search" placeholder="Rechercher un équipement..." 
+                       onkeyup="filterTable()" style="flex: 1; padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px;">
+                
+                <div class="dropdown">
+                    <button class="btn-secondary" onclick="toggleColumnPicker()">📊 Colonnes</button>
+                    <div id="column-picker" class="dropdown-content">
+                        <!-- Rempli en JS -->
+                    </div>
+                </div>
+                
+                <button class="btn-secondary" onclick="addColumn()">+ Colonne</button>
+            </div>
+        </div>
     </div>
 
     <div class="results-container card">
-        <table class="data-table">
-            <thead>
-                <tr>
-                    <th>Adresse IP</th>
-                    <th>Adresse MAC</th>
-                    <th>Fabricant</th>
-                    <th>Ports Ouverts</th>
-                    <th>Annotations</th>
-                    <th>Interface</th>
-                </tr>
-            </thead>
-            <tbody id="ipscan-results-body">
-                ${devices_rows}
-            </tbody>
-        </table>
+        <div class="table-scroll">
+            <table class="data-table" id="inventory-table">
+                <thead>
+                    <tr>
+                        <th onclick="sortTable(0)">IP ↕</th>
+                        <th onclick="sortTable(1)">MAC ↕</th>
+                        <th onclick="sortTable(2)">Fabricant (OUI) ↕</th>
+                        <th>Ports</th>
+                        ${custom_headers}
+                        <th>Interface</th>
+                    </tr>
+                </thead>
+                <tbody id="ipscan-results-body">
+                    ${devices_rows}
+                </tbody>
+            </table>
+        </div>
     </div>
 </section>
 
 <style>
-.header-with-actions {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 20px;
-}
-.status-badge {
-    padding: 5px 12px;
-    border-radius: 20px;
-    font-size: 0.85em;
-    font-weight: bold;
-    margin-right: 10px;
-}
+.header-with-actions { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+.status-badge { padding: 5px 12px; border-radius: 20px; font-size: 0.85em; font-weight: bold; margin-right: 10px; }
 .status-badge.idle { background: #eee; color: #666; }
-.status-badge.running { 
-    background: #e3f2fd; color: #1976d2; 
-    animation: pulse 1.5s infinite;
-}
-@keyframes pulse {
-    0% { opacity: 1; }
-    50% { opacity: 0.5; }
-    100% { opacity: 1; }
-}
-.card {
-    background: white;
-    padding: 15px;
-    border-radius: 8px;
-    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-    margin-bottom: 20px;
-}
-.help-text {
-    font-size: 0.85em;
-    color: #666;
-    margin-top: 5px;
-}
-.data-table {
-    width: 100%;
-    border-collapse: collapse;
-}
-.data-table th {
-    text-align: left;
-    padding: 12px;
-    border-bottom: 2px solid #eee;
-    color: #666;
-    font-size: 0.9em;
-}
-.data-table td {
-    padding: 12px;
-    border-bottom: 1px solid #f5f5f5;
-    font-size: 0.95em;
-}
-.vendor-tag {
-    background: #f0f7ff;
-    color: #0056b3;
-    padding: 2px 8px;
+.status-badge.running { background: #e3f2fd; color: #1976d2; animation: pulse 1.5s infinite; }
+@keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
+
+.card { background: white; padding: 15px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); margin-bottom: 20px; }
+.help-text { font-size: 0.85em; color: #666; margin-top: 5px; }
+
+.table-scroll { overflow-x: auto; }
+.data-table { width: 100%; border-collapse: collapse; min-width: 800px; }
+.data-table th { text-align: left; padding: 12px; border-bottom: 2px solid #eee; color: #666; font-size: 0.85em; background: #fafafa; cursor: pointer; }
+.data-table td { padding: 12px; border-bottom: 1px solid #f5f5f5; font-size: 0.9em; }
+.data-table tr:hover { background: #fcfcfc; }
+
+.editable { cursor: pointer; position: relative; }
+.editable:hover { background: #fffde7; }
+.editable:hover::after { content: '✎'; position: absolute; right: 5px; top: 12px; opacity: 0.5; }
+
+.row-offline td { opacity: 0.5; }
+.row-offline td.editable { pointer-events: auto; opacity: 1; }
+.row-offline td.editable span { opacity: 0.5; }
+.scanning tbody { opacity: 0.4; pointer-events: none; transition: opacity 0.3s; }
+
+.port-tag { background: #f0f0f0; padding: 2px 5px; border-radius: 3px; font-size: 0.8em; margin-right: 3px; }
+.sync-pending { color: #f39c12; margin-left: 5px; }
+
+.btn-icon-sm { background: none; border: none; color: #ccc; cursor: pointer; padding: 0 5px; font-size: 1.2em; }
+.btn-icon-sm:hover { color: #e74c3c; }
+
+/* Dropdown Colonnes */
+.dropdown { position: relative; display: inline-block; }
+.dropdown-content {
+    display: none;
+    position: absolute;
+    right: 0;
+    background-color: white;
+    min-width: 200px;
+    box-shadow: 0px 8px 16px 0px rgba(0,0,0,0.2);
+    z-index: 100;
+    padding: 10px;
     border-radius: 4px;
-    font-size: 0.85em;
+    border: 1px solid #ddd;
+    max-height: 400px;
+    overflow-y: auto;
 }
-.annot-tag {
-    background: #f8f9fa;
-    border: 1px solid #dee2e6;
-    color: #495057;
-    padding: 1px 6px;
-    border-radius: 3px;
-    font-size: 0.8em;
-    margin-right: 4px;
+
+@media (max-width: 600px) {
+    .dropdown-content {
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        width: 90vw;
+        max-height: 70vh;
+        z-index: 1001;
+    }
+    
+    /* Optional overlay background could be added but let's keep it simple for now */
+    .dropdown.show-overlay::before {
+        content: '';
+        position: fixed;
+        top: 0; left: 0; right: 0; bottom: 0;
+        background: rgba(0,0,0,0.5);
+        z-index: 1000;
+    }
 }
-.sync-pending {
-    color: #f39c12;
-    font-size: 1.1em;
-    cursor: help;
-    animation: bounce 2s infinite;
+.dropdown-content label {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 5px 0;
+    cursor: pointer;
+    font-size: 0.9em;
+    color: #444;
 }
-@keyframes bounce {
-    0%, 100% { transform: translateY(0); }
-    50% { transform: translateY(-3px); }
-}
+.dropdown-content label:hover { background: #f5f5f5; }
+.show { display: block; }
+
+/* Styles pour le tri */
+th.sort-asc::after { content: " ▲"; font-size: 0.7em; }
+th.sort-desc::after { content: " ▼"; font-size: 0.7em; }
 </style>
 
 <script>
+    const baseUrl = window.CONFIG ? window.CONFIG.baseUrl : '/rpinode';
+
     async function startIpScan() {
         const btn = document.getElementById('btn-start-scan');
         const status = document.getElementById('scan-status');
-        
-        // On récupère le baseUrl dynamiquement
-        const baseUrl = window.CONFIG ? window.CONFIG.baseUrl : '/rpinode';
-        
         btn.disabled = true;
         status.textContent = 'Scan en cours...';
         status.className = 'status-badge running';
         
-        console.log("Lancement du scan IP via POST...");
+        // Griser toutes les lignes existantes instantanément (sans bloquer les clics sur editable)
+        const tbody = document.getElementById('ipscan-results-body');
+        if (tbody) {
+            for (let tr of tbody.rows) {
+                if (tr.cells.length > 1) {
+                    tr.classList.add('row-offline');
+                    const ipCell = tr.cells[0];
+                    ipCell.style.opacity = '0.5';
+                    ipCell.style.textDecoration = 'line-through';
+                    ipCell.style.fontWeight = 'normal';
+                    if (ipCell.innerHTML.includes('🟢')) {
+                        ipCell.innerHTML = ipCell.innerHTML.replace('🟢', '🔴').replace('En ligne', 'Hors ligne (historique)');
+                    }
+                }
+            }
+        }
+        
         try {
-            // Construction propre de l'URL
             const url = (baseUrl + '/api/scan/ip/start').replace(/\/+/g, '/');
-            
-            const response = await fetch(url, {
-                method: 'POST',
-                headers: { 'Accept': 'application/json' }
-            });
-            
-            if (!response.ok) {
-                const text = await response.text();
-                throw new Error(`Erreur ${response.status}: ${text.substring(0, 50)}`);
-            }
-
+            const response = await fetch(url, { method: 'POST' });
             const result = await response.json();
-            if (result.status !== 'ok') {
-                throw new Error(result.message || 'Erreur inconnue');
-            }
-            console.log("Scan lancé avec succès");
+            if (result.status !== 'ok') throw new Error(result.message);
         } catch (e) {
-            console.error("Erreur scan:", e);
             alert('Erreur : ' + e.message);
             btn.disabled = false;
-            status.textContent = 'Erreur';
-            status.className = 'status-badge idle';
         }
     }
 
-    async function editDevice(mac, ip) {
-        const currentVendor = document.getElementById(`vendor-${mac}`).textContent;
-        const newVendor = prompt(`Fabricant pour ${ip} (${mac}) :`, currentVendor);
-        
-        if (newVendor === null) return;
-        
-        const currentAnnots = document.getElementById(`annots-${mac}`).textContent;
-        const annotStr = prompt(`Annotation (ex: "Pièce: Local Tech") :`, "");
-        
-        let annotations = null;
-        if (annotStr) {
-            const parts = annotStr.split(':');
-            if (parts.length >= 2) {
-                annotations = {};
-                annotations[parts[0].trim()] = parts.slice(1).join(':').trim();
-            }
-        }
-
+    async function addColumn() {
+        const label = prompt("Nom de la nouvelle colonne (ex: Pièce, Usage, N° Série) :");
+        if (!label) return;
         try {
-            const baseUrl = window.CONFIG ? window.CONFIG.baseUrl : '/rpinode';
+            const url = (baseUrl + '/api/table/columns/add').replace(/\/+/g, '/');
+            const response = await fetch(url, {
+                method: 'POST',
+                body: JSON.stringify({ table_id: 'ip_scan', label: label })
+            });
+            const res = await response.json();
+            if (res.status === 'ok') window.location.reload();
+            else alert("Erreur: " + res.message);
+        } catch (e) { alert("Erreur réseau"); }
+    }
+
+    async function deleteColumn(key, label) {
+        if (!confirm(`Supprimer définitivement la colonne "${label}" et TOUTES les données associées ?`)) return;
+        try {
+            const url = (baseUrl + '/api/table/columns/delete').replace(/\/+/g, '/');
+            const response = await fetch(url, {
+                method: 'POST',
+                body: JSON.stringify({ table_id: 'ip_scan', column_key: key })
+            });
+            if (response.ok) {
+                // Nettoyer localStorage si la colonne était masquée
+                const hiddenColLabels = JSON.parse(localStorage.getItem('ipscan_hidden_labels') || '[]');
+                const i = hiddenColLabels.indexOf(label);
+                if (i > -1) {
+                    hiddenColLabels.splice(i, 1);
+                    localStorage.setItem('ipscan_hidden_labels', JSON.stringify(hiddenColLabels));
+                }
+                window.location.reload();
+            }
+        } catch (e) { alert("Erreur réseau"); }
+    }
+
+    async function editVendor(mac, current) {
+        const newVal = prompt(`Modifier le Fabricant pour ${mac} :`, current);
+        if (newVal === null || newVal === current) return;
+        saveAnnotation(mac, { vendor: newVal });
+    }
+
+    async function editCell(mac, colKey, colLabel) {
+        const currentCell = event.target;
+        const currentVal = currentCell.textContent;
+        const newVal = prompt(`Modifier "${colLabel}" :`, currentVal);
+        if (newVal === null || newVal === currentVal) return;
+        
+        // On récupère les annotations existantes si on peut, ou on envoie juste la mise à jour
+        // Le backend merge déjà les annotations dans discovered_devices
+        const annotations = {};
+        annotations[colKey] = newVal;
+        saveAnnotation(mac, { annotations: annotations });
+    }
+
+    async function saveAnnotation(mac, data) {
+        try {
             const url = (baseUrl + '/api/scan/ip/annotate').replace(/\/+/g, '/');
-            
             const response = await fetch(url, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    mac: mac,
-                    vendor: newVendor,
-                    annotations: annotations
-                })
+                body: JSON.stringify({ mac: mac, ...data })
             });
-            
-            if (response.ok) {
-                // Rafraîchissement local simple
-                if (newVendor) document.getElementById(`vendor-${mac}`).textContent = newVendor;
-                if (annotations) {
-                    const container = document.getElementById(`annots-${mac}`);
-                    for (const [k, v] of Object.entries(annotations)) {
-                        const span = document.createElement('span');
-                        span.className = 'annot-tag';
-                        span.textContent = `${k}: ${v}`;
-                        container.appendChild(span);
-                    }
-                }
-                
-                // Afficher l'indicateur de synchro en attente
-                const vendorCell = document.getElementById(`vendor-${mac}`).parentElement;
-                if (!vendorCell.querySelector('.sync-pending')) {
-                    const syncSpan = document.createElement('span');
-                    syncSpan.className = 'sync-pending';
-                    syncSpan.title = 'En attente de synchronisation';
-                    syncSpan.textContent = '☁️';
-                    vendorCell.appendChild(syncSpan);
-                }
-            } else {
-                alert("Erreur lors de l'enregistrement");
-            }
-        } catch (e) {
-            console.error(e);
-            alert("Erreur réseau");
+            if (response.ok) window.location.reload();
+            else alert("Erreur lors de l'enregistrement");
+        } catch (e) { alert("Erreur réseau"); }
+    }
+
+    // Gestion de la visibilité des colonnes
+    function toggleColumnPicker() {
+        const picker = document.getElementById("column-picker");
+        const dropdown = picker.closest('.dropdown');
+        picker.classList.toggle("show");
+        if (picker.classList.contains("show")) {
+            dropdown.classList.add("show-overlay");
+        } else {
+            dropdown.classList.remove("show-overlay");
         }
     }
+    
+    // Close picker when clicking outside
+    document.addEventListener('click', function(e) {
+        const dropdown = document.querySelector('.dropdown');
+        if (dropdown && !dropdown.contains(e.target)) {
+            const picker = document.getElementById("column-picker");
+            if (picker && picker.classList.contains("show")) {
+                picker.classList.remove("show");
+                dropdown.classList.remove("show-overlay");
+            }
+        }
+    });
+
+    // Fermer le dropdown si on clique ailleurs
+    window.onclick = function(event) {
+        if (!event.target.matches('.btn-secondary')) {
+            const dropdowns = document.getElementsByClassName("dropdown-content");
+            for (let i = 0; i < dropdowns.length; i++) {
+                if (dropdowns[i].classList.contains('show')) {
+                    dropdowns[i].classList.remove('show');
+                }
+            }
+        }
+    }
+
+    function initColumnPicker() {
+        const table = document.getElementById("inventory-table");
+        const headers = table.querySelectorAll("thead th");
+        const picker = document.getElementById("column-picker");
+        const hiddenColLabels = JSON.parse(localStorage.getItem('ipscan_hidden_labels') || '[]');
+
+        picker.innerHTML = '';
+        headers.forEach((th, index) => {
+            // On ne permet pas de masquer l'IP (colonne 0)
+            if (index === 0) return;
+
+            const label = th.textContent.replace(' ↕', '').replace('×', '').trim();
+            const isHidden = hiddenColLabels.includes(label);
+            
+            const item = document.createElement('label');
+            item.innerHTML = `<input type="checkbox" ${!isHidden ? 'checked' : ''} onchange="toggleColumn(this, ${index}, '${label}')"> ${label}`;
+            picker.appendChild(item);
+
+            if (isHidden) applyColumnVisibility(index, false);
+        });
+    }
+
+    function toggleColumn(checkbox, index, label) {
+        const visible = checkbox.checked;
+        const hiddenColLabels = JSON.parse(localStorage.getItem('ipscan_hidden_labels') || '[]');
+        
+        if (visible) {
+            const i = hiddenColLabels.indexOf(label);
+            if (i > -1) hiddenColLabels.splice(i, 1);
+        } else {
+            if (!hiddenColLabels.includes(label)) hiddenColLabels.push(label);
+        }
+        
+        localStorage.setItem('ipscan_hidden_labels', JSON.stringify(hiddenColLabels));
+        applyColumnVisibility(index, visible);
+    }
+
+    function applyColumnVisibility(index, visible) {
+        const table = document.getElementById("inventory-table");
+        const rows = table.rows;
+        for (let i = 0; i < rows.length; i++) {
+            const cell = rows[i].cells[index];
+            if (cell) cell.style.display = visible ? '' : 'none';
+        }
+    }
+
+    function filterTable() {
+        const input = document.getElementById("inventory-search");
+        const filter = input.value.toLowerCase();
+        const table = document.getElementById("inventory-table");
+        const tr = table.getElementsByTagName("tr");
+
+        for (let i = 1; i < tr.length; i++) {
+            let visible = false;
+            const td = tr[i].getElementsByTagName("td");
+            for (let j = 0; j < td.length; j++) {
+                if (td[j]) {
+                    const txtValue = td[j].textContent || td[j].innerText;
+                    if (txtValue.toLowerCase().indexOf(filter) > -1) {
+                        visible = true;
+                        break;
+                    }
+                }
+            }
+            tr[i].style.display = visible ? "" : "none";
+        }
+    }
+
+    function sortTable(n) {
+        const table = document.getElementById("inventory-table");
+        let rows, switching, i, x, y, shouldSwitch, dir, switchcount = 0;
+        switching = true;
+        dir = "asc";
+        while (switching) {
+            switching = false;
+            rows = table.rows;
+            for (i = 1; i < (rows.length - 1); i++) {
+                shouldSwitch = false;
+                x = rows[i].getElementsByTagName("TD")[n];
+                y = rows[i + 1].getElementsByTagName("TD")[n];
+                if (dir == "asc") {
+                    if (x.innerHTML.toLowerCase() > y.innerHTML.toLowerCase()) {
+                        shouldSwitch = true;
+                        break;
+                    }
+                } else if (dir == "desc") {
+                    if (x.innerHTML.toLowerCase() < y.innerHTML.toLowerCase()) {
+                        shouldSwitch = true;
+                        break;
+                    }
+                }
+            }
+            if (shouldSwitch) {
+                rows[i].parentNode.insertBefore(rows[i + 1], rows[i]);
+                switching = true;
+                switchcount ++;
+            } else {
+                if (switchcount == 0 && dir == "asc") {
+                    dir = "desc";
+                    switching = true;
+                }
+            }
+        }
+        // Mise à jour visuelle des headers
+        const headers = table.getElementsByTagName("TH");
+        for(let h of headers) h.className = "";
+        headers[n].className = dir === "asc" ? "sort-asc" : "sort-desc";
+    }
+    // Initialisation
+    document.addEventListener('DOMContentLoaded', () => {
+        initColumnPicker();
+    });
 </script>

@@ -80,6 +80,7 @@ def handle_sse_stream(handler):
     try:
         client.connect("127.0.0.1", 1883, 60)
         client.subscribe("rpinode/status/#")
+        client.subscribe("rpinode/ipscan/#")
         client.loop_start()
 
         last_data = {}
@@ -88,7 +89,14 @@ def handle_sse_stream(handler):
             try:
                 # On attend un message de la queue (bloquant avec timeout pour garder la main)
                 topic, data = q.get(timeout=5)
-                
+
+                if topic == "rpinode/ipscan/host_ready":
+                    # Bypass le get_changed_items pour ce topic événementiel
+                    message = f"event: host_ready\ndata: {json.dumps(data)}\n\n"
+                    handler.wfile.write(message.encode("utf-8"))
+                    handler.wfile.flush()
+                    continue
+
                 # On prépare le payload final en fonction du topic
                 current_data = {}
                 
