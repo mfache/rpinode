@@ -3,23 +3,35 @@
         <li>
             <a href="${base_url}/" class="nav-item">🏠 Dashboard</a>
         </li>
-        
+
         <li class="nav-group">
             <span class="nav-label">🌐 Réseau</span>
             <ul class="sub-nav">
                 <li><a href="${base_url}/network/overview">Vue d'ensemble</a></li>
                 <li><a href="${base_url}/network/interfaces">Interfaces</a></li>
-                <li><a href="${base_url}/network/wifi">WiFi</a></li>
-                <li><a href="${base_url}/network/dhcp">DHCP</a></li>
             </ul>
         </li>
 
         <li class="nav-group">
-            <span class="nav-label">🔍 Scanners</span>
+            <span class="nav-label">🔍 Inventaire</span>
             <ul class="sub-nav">
-                <li><a href="${base_url}/scan/ip">IP Scan</a></li>
-                <li><a href="${base_url}/scan/modbus">Modbus</a></li>
-                <li><a href="${base_url}/scan/bacnet">BACnet</a></li>
+                <li><a href="${base_url}/scan/ip">Scanner le réseau</a></li>
+            </ul>
+        </li>
+
+        <li class="nav-group">
+            <span class="nav-label">🔌 Modbus</span>
+            <ul class="sub-nav">
+                <li><a href="${base_url}/modbus/devices">Appareils du chantier</a></li>
+                <li><a href="${base_url}/modbus/templates">Templates & Modèles</a></li>
+                <li><a href="${base_url}/modbus/tools">Outils d'investigation</a></li>
+            </ul>
+        </li>
+
+        <li class="nav-group">
+            <span class="nav-label">🌐 BACnet</span>
+            <ul class="sub-nav">
+                <li><a href="${base_url}/scan/bacnet">Gestion BACnet</a></li>
             </ul>
         </li>
 

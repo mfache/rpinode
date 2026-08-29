@@ -1,0 +1,280 @@
+<section class="modbus-tools">
+    <div class="header-with-actions" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+        <h2>Outils d'investigation Modbus</h2>
+    </div>
+
+    <div class="card params-card">
+        <h3>Paramètres de connexion</h3>
+        <form id="form-connection" style="display: flex; gap: 15px; align-items: flex-end; flex-wrap: wrap;">
+            <div>
+                <label>Protocole :</label>
+                <select id="protocol" name="protocol">
+                    <option value="tcp">TCP</option>
+                    <!-- <option value="rtu">RTU/Série</option> (À réactiver plus tard) -->
+                </select>
+            </div>
+            <div>
+                <label>Adresse IP :</label>
+                <input type="text" id="address" name="address" value="${target_ip}" required>
+            </div>
+            <div>
+                <label>Port :</label>
+                <input type="number" id="port" name="port" value="502" style="width: 80px;" required>
+            </div>
+            <div>
+                <label>Unit ID (Esclave) :</label>
+                <input type="number" id="unit" name="unit" value="1" min="0" max="255" style="width: 80px;" required>
+            </div>
+            <div>
+                <label>Timeout (s) :</label>
+                <input type="number" id="timeout" name="timeout" value="1.0" min="0.1" max="10.0" step="0.1" style="width: 80px;" required>
+            </div>
+        </form>
+    </div>
+
+    <div class="tools-grid">
+        <!-- Outil : Recherche brute (Probe) -->
+        <div class="card tool-card">
+            <h3><span style="font-size: 1.2em;">🔍</span> Recherche brute (Probe)</h3>
+            <p class="hint">Balaie une plage d'adresses pour trouver les registres mappés sur l'automate (ignore les adresses illégales).</p>
+            <form id="form-probe" onsubmit="runProbe(event)">
+                <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                    <label><input type="checkbox" name="funcs" value="1"> FC01 Coils</label>
+                    <label><input type="checkbox" name="funcs" value="2"> FC02 Discrete</label>
+                    <label><input type="checkbox" name="funcs" value="3" checked> FC03 Holding</label>
+                    <label><input type="checkbox" name="funcs" value="4" checked> FC04 Input</label>
+                </div>
+                <div style="display: flex; gap: 10px; margin-top: 10px;">
+                    <div style="flex: 1;">
+                        <label>Adresse début :</label>
+                        <input type="number" name="start" value="0" min="0" max="65535" required>
+                    </div>
+                    <div style="flex: 1;">
+                        <label>Adresse fin :</label>
+                        <input type="number" name="end" value="100" min="0" max="65535" required>
+                    </div>
+                    <div style="flex: 1;">
+                        <label>Taille du bloc :</label>
+                        <input type="number" name="block" value="20" min="1" max="125" required>
+                    </div>
+                </div>
+                <button type="submit" class="btn-primary" style="margin-top: 15px; width: 100%;">Lancer la recherche</button>
+            </form>
+        </div>
+
+        <!-- Outil : Lecture précise -->
+        <div class="card tool-card">
+            <h3><span style="font-size: 1.2em;">📖</span> Lecture détaillée</h3>
+            <p class="hint">Lit une petite plage de registres et affiche les valeurs sous différents formats (Int16, Float32, Hex...).</p>
+            <form id="form-read" onsubmit="runRead(event)">
+                <div style="display: flex; gap: 10px; margin-top: 10px;">
+                    <div style="flex: 1.5;">
+                        <label>Fonction :</label>
+                        <select name="function" required>
+                            <option value="3">FC03 Holding Reg</option>
+                            <option value="4">FC04 Input Reg</option>
+                            <option value="1">FC01 Coils (Bits)</option>
+                            <option value="2">FC02 Discrete Input</option>
+                        </select>
+                    </div>
+                    <div style="flex: 1;">
+                        <label>Adresse :</label>
+                        <input type="number" name="address_start" value="0" min="0" max="65535" required>
+                    </div>
+                    <div style="flex: 1;">
+                        <label>Quantité :</label>
+                        <input type="number" name="count" value="10" min="1" max="125" required>
+                    </div>
+                </div>
+                <button type="submit" class="btn-primary" style="margin-top: 15px; width: 100%;">Lire les valeurs</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Zone de résultats -->
+    <div id="results-area" style="margin-top: 20px;"></div>
+</section>
+
+<style>
+.card { background: white; padding: 15px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); margin-bottom: 20px; }
+.hint { font-size: 0.85em; color: #666; margin-bottom: 10px; }
+.tools-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+@media (max-width: 800px) { .tools-grid { grid-template-columns: 1fr; } }
+form label { display: block; font-size: 0.9em; font-weight: bold; margin-bottom: 2px; }
+form input, form select { width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
+form input[type="checkbox"] { width: auto; margin-right: 5px; }
+
+/* Styles pour les résultats de Probe */
+.probe-func-result { margin-bottom: 15px; padding: 10px; border-left: 4px solid #3498db; background: #f8fbfe; border-radius: 4px; }
+.probe-func-result h4 { margin: 0 0 5px 0; color: #333; }
+.probe-summary { font-size: 0.85em; color: #666; margin-bottom: 10px; }
+.probe-table { width: 100%; border-collapse: collapse; font-family: monospace; font-size: 0.9em; background: white; }
+.probe-table th, .probe-table td { padding: 5px; border: 1px solid #ddd; text-align: left; }
+.probe-table th { background: #eee; }
+
+/* Styles pour la lecture détaillée */
+.read-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; margin-top: 10px; }
+.val-box { background: #fff; border: 1px solid #ddd; padding: 8px; border-radius: 4px; text-align: center; }
+.val-box .addr { font-size: 0.8em; color: #888; display: block; }
+.val-box .val { font-size: 1.1em; font-weight: bold; display: block; margin-top: 5px; }
+.val-box .hex { font-size: 0.8em; color: #2980b9; display: block; }
+</style>
+
+<script>
+const baseUrl = window.CONFIG ? window.CONFIG.baseUrl : '/rpinode';
+
+function getConnParams() {
+    const f = document.getElementById('form-connection');
+    return {
+        protocol: f.protocol.value,
+        address: f.address.value,
+        port: parseInt(f.port.value),
+        unit: parseInt(f.unit.value),
+        timeout: parseFloat(f.timeout.value)
+    };
+}
+
+async function runProbe(e) {
+    e.preventDefault();
+    const btn = e.target.querySelector('button[type="submit"]');
+    btn.disabled = true;
+    btn.textContent = "Recherche en cours...";
+    document.getElementById('results-area').innerHTML = '<div class="card"><div class="spinner" style="margin: 20px auto;"></div><p style="text-align:center;">Balayage Modbus en cours...</p></div>';
+    
+    const params = getConnParams();
+    const form = new FormData(e.target);
+    params.funcs = form.getAll("funcs").map(Number);
+    params.start = parseInt(form.get("start"));
+    params.end = parseInt(form.get("end"));
+    params.block = parseInt(form.get("block"));
+
+    try {
+        const url = (baseUrl + '/api/modbus/tools/probe').replace(/\/+/g, '/');
+        const res = await fetch(url, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(params)
+        });
+        const data = await res.json();
+        
+        if (data.status === 'ok') {
+            renderProbeResults(data.results);
+        } else {
+            document.getElementById('results-area').innerHTML = `<div class="card" style="border-left: 4px solid #e74c3c;"><h4>Erreur</h4><p>${data.message}</p></div>`;
+        }
+    } catch (err) {
+        document.getElementById('results-area').innerHTML = `<div class="card" style="border-left: 4px solid #e74c3c;"><h4>Erreur</h4><p>${err}</p></div>`;
+    } finally {
+        btn.disabled = false;
+        btn.textContent = "Lancer la recherche";
+    }
+}
+
+function renderProbeResults(results) {
+    let html = `<div class="card"><h3>Résultats de la recherche brute</h3>`;
+    const labels = {1: 'FC01 Coils', 2: 'FC02 Discrete Inputs', 3: 'FC03 Holding Registers', 4: 'FC04 Input Registers'};
+    
+    let anyFound = false;
+    
+    for (const [funcStr, res] of Object.entries(results)) {
+        const func = parseInt(funcStr);
+        let bits_txt = [];
+        if (res.illegal) bits_txt.push(`${res.illegal} exception(s) illégale(s) (normal)`);
+        if (res.timeout) bits_txt.push(`${res.timeout} non-réponse(s)`);
+        if (res.other) bits_txt.push(`${res.other} erreur(s) diverse(s)`);
+        
+        let summary = `${res.found.length} bloc(s) trouvé(s) !`;
+        if (bits_txt.length > 0) summary += ` (${bits_txt.join(', ')})`;
+        
+        html += `<div class="probe-func-result">
+            <h4>${labels[func]}</h4>
+            <div class="probe-summary">${summary}</div>
+        `;
+        
+        if (res.found.length > 0) {
+            anyFound = true;
+            html += `<table class="probe-table"><tr><th width="80">Adresse(s)</th><th>Valeurs brutes</th></tr>`;
+            for (const f of res.found) {
+                const startAddr = f[0];
+                const vals = f[1];
+                const endAddr = startAddr + vals.length - 1;
+                const addrStr = startAddr === endAddr ? `${startAddr}` : `${startAddr}–${endAddr}`;
+                const valsStr = vals.join(', ');
+                html += `<tr><td>${addrStr}</td><td>${valsStr}</td></tr>`;
+            }
+            html += `</table>`;
+        }
+        html += `</div>`;
+    }
+    
+    if (!anyFound) {
+        html += `<p style="color: #e67e22;"><b>Aucun registre valide trouvé dans la plage.</b> L'appareil est-il bien adressé (Unit ID correct ?) ou avez-vous ciblé la bonne plage ?</p>`;
+    }
+    
+    html += `</div>`;
+    document.getElementById('results-area').innerHTML = html;
+}
+
+async function runRead(e) {
+    e.preventDefault();
+    const btn = e.target.querySelector('button[type="submit"]');
+    btn.disabled = true;
+    
+    const params = getConnParams();
+    const form = new FormData(e.target);
+    params.function = parseInt(form.get("function"));
+    params.address_start = parseInt(form.get("address_start"));
+    params.count = parseInt(form.get("count"));
+
+    try {
+        const url = (baseUrl + '/api/modbus/tools/read').replace(/\/+/g, '/');
+        const res = await fetch(url, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(params)
+        });
+        const data = await res.json();
+        
+        if (data.status === 'ok') {
+            renderReadResults(params, data.values);
+        } else {
+            document.getElementById('results-area').innerHTML = `<div class="card" style="border-left: 4px solid #e74c3c;"><h4>Erreur</h4><p>${data.message}</p></div>`;
+        }
+    } catch (err) {
+        document.getElementById('results-area').innerHTML = `<div class="card" style="border-left: 4px solid #e74c3c;"><h4>Erreur</h4><p>${err}</p></div>`;
+    } finally {
+        btn.disabled = false;
+    }
+}
+
+function renderReadResults(params, values) {
+    let html = `<div class="card">
+        <h3>Résultats de la lecture détaillée (FC0${params.function})</h3>
+        <p class="hint">Lecture de ${values.length} point(s) à partir de l'adresse ${params.address_start}.</p>
+        <div class="read-grid">
+    `;
+    
+    for (let i = 0; i < values.length; i++) {
+        const addr = params.address_start + i;
+        const v = values[i];
+        
+        if (params.function === 1 || params.function === 2) {
+            html += `<div class="val-box">
+                <span class="addr">@${addr}</span>
+                <span class="val" style="color: ${v ? '#2ecc71' : '#e74c3c'}">${v ? 'ON' : 'OFF'}</span>
+            </div>`;
+        } else {
+            const int16 = v > 32767 ? v - 65536 : v; // Signed Int16
+            const hex = "0x" + v.toString(16).padStart(4, '0').toUpperCase();
+            html += `<div class="val-box">
+                <span class="addr">@${addr}</span>
+                <span class="val">${int16}</span>
+                <span class="hex">${hex} / ${v} (U)</span>
+            </div>`;
+        }
+    }
+    
+    html += `</div></div>`;
+    document.getElementById('results-area').innerHTML = html;
+}
+</script>

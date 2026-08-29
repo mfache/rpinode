@@ -1,16 +1,10 @@
-<section class="modbus-mgr">
-    <h2>Gestion Modbus - Chantier: ${site_name}</h2>
-
-    <div class="site-devices">
-        <h3>Appareils sur ce site</h3>
-        <div class="devices-grid">
-            ${devices_list_html}
-        </div>
-        <button class="btn-primary" onclick="showAddDeviceModal()">➕ Ajouter un appareil</button>
+<section class="modbus-templates-mgr">
+    <div class="header-with-actions" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+        <h2>Bibliothèque de Templates Modbus</h2>
+        <button class="btn-primary" onclick="showEditTemplateModal()">📄 Nouveau Template</button>
     </div>
 
-    <div class="templates-lib">
-        <h3>Bibliothèque de Templates</h3>
+    <div class="templates-lib card">
         <table class="data-table">
             <thead>
                 <tr>
@@ -23,48 +17,8 @@
                 ${templates_list_html}
             </tbody>
         </table>
-        <button class="btn-secondary" onclick="showEditTemplateModal()">📄 Nouveau Template</button>
     </div>
 </section>
-
-<!-- Modal pour ajouter un appareil -->
-<div id="modal-add-device" class="modal" style="display:none;">
-    <div class="modal-content">
-        <h3>Ajouter un appareil Modbus</h3>
-        <form id="form-add-device">
-            <label>Template :</label>
-            <select name="template_id" required>
-                ${templates_options_html}
-            </select>
-            
-            <label>Nom local :</label>
-            <input type="text" name="name" placeholder="Ex: VMC Etage 1" required>
-            
-            <label>Protocole :</label>
-            <select name="protocol" onchange="toggleProtocolFields(this.value)">
-                <option value="tcp">Modbus TCP</option>
-                <option value="mstp">Modbus RTU/MSTP</option>
-            </select>
-            
-            <div id="fields-tcp">
-                <label>Adresse IP :</label>
-                <input type="text" name="address_ip" placeholder="192.168.1.50">
-                <label>Port :</label>
-                <input type="number" name="port" value="502">
-            </div>
-            
-            <div id="fields-mstp" style="display:none;">
-                <label>Slave ID :</label>
-                <input type="number" name="slave_id" placeholder="1">
-            </div>
-            
-            <div class="modal-buttons">
-                <button type="button" onclick="hideModal('modal-add-device')">Annuler</button>
-                <button type="submit" class="btn-primary">Ajouter</button>
-            </div>
-        </form>
-    </div>
-</div>
 
 <!-- Modal pour créer/éditer un template -->
 <div id="modal-edit-template" class="modal" style="display:none;">
@@ -99,6 +53,7 @@
 </div>
 
 <style>
+.card { background: white; padding: 15px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
 .data-table {
     width: 100%;
     border-collapse: collapse;
@@ -125,12 +80,7 @@
 </style>
 
 <script>
-function showAddDeviceModal() { document.getElementById('modal-add-device').style.display = 'flex'; }
 function hideModal(id) { document.getElementById(id).style.display = 'none'; }
-function toggleProtocolFields(val) {
-    document.getElementById('fields-tcp').style.display = val === 'tcp' ? 'block' : 'none';
-    document.getElementById('fields-mstp').style.display = val === 'mstp' ? 'block' : 'none';
-}
 
 function addRegisterRow(data = {}) {
     const container = document.getElementById('registers-container');
@@ -138,13 +88,20 @@ function addRegisterRow(data = {}) {
     div.className = 'register-row';
     div.style = "display: flex; gap: 5px; margin-top: 5px; align-items: center;";
     div.innerHTML = `
-        <input type="number" name="reg_addr[]" placeholder="Adresse" value="${data.addr || ''}" style="flex: 1;" required>
-        <input type="text" name="reg_name[]" placeholder="Libellé (ex: Température)" value="${data.name || ''}" style="flex: 3;" required>
+        <input type="number" name="reg_addr[]" placeholder="Adresse" value="${data.addr !== undefined ? data.addr : ''}" style="flex: 1;" required>
+        <select name="reg_func[]" style="flex: 1.5;">
+            <option value="1" ${data.function == 1 ? 'selected' : ''}>FC01 Coils</option>
+            <option value="2" ${data.function == 2 ? 'selected' : ''}>FC02 Discrete</option>
+            <option value="3" ${data.function == 3 || !data.function ? 'selected' : ''}>FC03 Holding</option>
+            <option value="4" ${data.function == 4 ? 'selected' : ''}>FC04 Input</option>
+        </select>
+        <input type="text" name="reg_name[]" placeholder="Libellé" value="${data.name || ''}" style="flex: 2;" required>
         <select name="reg_type[]" style="flex: 1.5;">
             <option value="int16" ${data.type === 'int16' ? 'selected' : ''}>Int 16</option>
             <option value="uint16" ${data.type === 'uint16' ? 'selected' : ''}>UInt 16</option>
             <option value="float32" ${data.type === 'float32' ? 'selected' : ''}>Float 32</option>
         </select>
+        <input type="number" name="reg_scale[]" placeholder="Échelle (ex: 0.1)" value="${data.scale !== undefined ? data.scale : 1.0}" step="any" style="flex: 1;">
         <button type="button" class="btn-red" style="padding: 5px 10px;" onclick="this.parentElement.remove()">×</button>
     `;
     container.appendChild(div);
@@ -164,7 +121,13 @@ function showEditTemplateModal(templateData = null) {
         document.getElementById('field-t-mfr').value = templateData.manufacturer;
         
         const registers = JSON.parse(templateData.registers_json || '[]');
-        registers.forEach(r => addRegisterRow({addr: r.reg, name: r.name, type: r.type || 'int16'}));
+        registers.forEach(r => addRegisterRow({
+            addr: r.reg, 
+            function: r.function || 3,
+            name: r.name, 
+            type: r.type || 'int16',
+            scale: r.scale !== undefined ? r.scale : 1.0
+        }));
     } else {
         title.textContent = "Nouveau Template Modbus";
         document.getElementById('form-edit-template').reset();

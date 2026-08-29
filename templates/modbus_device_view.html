@@ -1,0 +1,155 @@
+<section class="modbus-device-view">
+    <div class="header-with-actions" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+        <div>
+            <h2>${device_name}</h2>
+            <p class="hint">Modèle : ${modbus_template_name} | Connexion : ${protocol}://${address}${port != 502 ? ':' + port : ''}</p>
+        </div>
+        <div style="display: flex; gap: 10px;">
+            <a href="${base_url}/modbus/devices" class="btn-secondary">Retour aux appareils</a>
+            <button class="btn-primary" onclick="readAllPoints()" id="btn-read-all">
+                <span style="font-size: 1.1em;">🔄</span> Lire tous les points
+            </button>
+        </div>
+    </div>
+
+    <div class="card">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Adresse</th>
+                    <th>Fct.</th>
+                    <th>Nom du point</th>
+                    <th>Type</th>
+                    <th>Valeur actuelle</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody id="points-tbody">
+                ${rows_html}
+            </tbody>
+        </table>
+    </div>
+</section>
+
+<style>
+.card { background: white; padding: 15px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+.hint { font-size: 0.9em; color: #666; margin: 5px 0 0 0; }
+.data-table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+.data-table th, .data-table td { padding: 10px; border-bottom: 1px solid #eee; text-align: left; }
+.data-table th { background: #fafafa; font-size: 0.9em; color: #555; }
+.badge-gray { background: #eee; color: #555; padding: 3px 8px; border-radius: 4px; font-family: monospace; }
+.badge-success { background: #e8f8f5; color: #16a085; padding: 3px 8px; border-radius: 4px; font-family: monospace; font-weight: bold; }
+.badge-error { background: #fdedec; color: #c0392b; padding: 3px 8px; border-radius: 4px; font-family: monospace; }
+.btn-sm { padding: 4px 8px; font-size: 0.85em; }
+</style>
+
+<script>
+const baseUrl = window.CONFIG ? window.CONFIG.baseUrl : '/rpinode';
+const deviceInfo = ${device_json};
+
+async function fetchPointValue(row, i) {
+    const reg = parseInt(row.getAttribute('data-reg'));
+    const func = parseInt(row.getAttribute('data-func'));
+    const typeStr = row.getAttribute('data-type');
+    const scale = parseFloat(row.getAttribute('data-scale')) || 1.0;
+    
+    const valSpan = document.getElementById(`val-${i}`);
+    valSpan.className = "live-val badge-gray";
+    valSpan.textContent = "...";
+    
+    // Déterminer la fonction d'interrogation et le nombre de registres
+    // Les booléens utilisent 1 ou 2. Les int16/uint16 utilisent 3 ou 4.
+    // Si type 32 bits (float32, int32), on lit 2 registres.
+    let count = 1;
+    if (typeStr === 'float32' || typeStr === 'int32' || typeStr === 'uint32') {
+        count = 2;
+    }
+    
+    const params = {
+        protocol: deviceInfo.protocol,
+        address: deviceInfo.address,
+        port: deviceInfo.port,
+        unit: deviceInfo.protocol === 'mstp' ? parseInt(deviceInfo.address) : 1, // Si MSTP, l'adresse EST le slave ID
+        function: func,
+        address_start: reg,
+        count: count,
+        timeout: 1.0
+    };
+    
+    // Dans le cas du TCP, on prend l'unit = 1 par defaut (on pourrait l'ajouter dans la db si besoin).
+    // Sur l'ancien système, pour Transtherm c'était 203. Si ça bloque, il faudra rajouter le champ 'unit' dans modbus_devices.
+    
+    try {
+        const url = (baseUrl + '/api/modbus/tools/read').replace(/\/+/g, '/');
+        const res = await fetch(url, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(params)
+        });
+        const data = await res.json();
+        
+        if (data.status === 'ok') {
+            let finalVal = 0;
+            if (func === 1 || func === 2) {
+                finalVal = data.values[0] ? 1 : 0;
+                valSpan.textContent = finalVal ? "ON" : "OFF";
+            } else {
+                if (count === 1) {
+                    let v = data.values[0];
+                    if (typeStr === 'int16' && v > 32767) v -= 65536; // Signé
+                    finalVal = v * scale;
+                } else if (count === 2) {
+                    // Décoder le 32 bits (simplification)
+                    // Ordre Big Endian (CDAB ou ABCD) - On simule ici la lecture d'un float CDAB le plus courant
+                    const buffer = new ArrayBuffer(4);
+                    const view = new DataView(buffer);
+                    if (typeStr === 'float32') {
+                        // Modbus standard = Big Endian. Pymodbus utilise souvent word1, word0 pour float
+                        view.setUint16(0, data.values[0], false);
+                        view.setUint16(2, data.values[1], false);
+                        finalVal = view.getFloat32(0, false) * scale;
+                    } else {
+                        // Juste concaténation basique pour l'exemple
+                        finalVal = ((data.values[0] << 16) | data.values[1]) * scale;
+                    }
+                }
+                
+                // Formatage propre
+                valSpan.textContent = finalVal % 1 === 0 ? finalVal : finalVal.toFixed(2);
+            }
+            valSpan.className = "live-val badge-success";
+        } else {
+            valSpan.textContent = "Err";
+            valSpan.className = "live-val badge-error";
+            valSpan.title = data.message;
+        }
+    } catch (err) {
+        valSpan.textContent = "Err";
+        valSpan.className = "live-val badge-error";
+        valSpan.title = "Erreur réseau";
+    }
+}
+
+async function readPoint(index) {
+    const row = document.getElementById(`row-${index}`);
+    if (row) {
+        const btn = row.querySelector('button');
+        btn.disabled = true;
+        await fetchPointValue(row, index);
+        btn.disabled = false;
+    }
+}
+
+async function readAllPoints() {
+    const btn = document.getElementById('btn-read-all');
+    btn.disabled = true;
+    
+    const rows = document.querySelectorAll('.point-row');
+    // On fait les lectures séquentiellement pour ne pas saturer l'automate/la passerelle
+    for (let i = 0; i < rows.length; i++) {
+        await fetchPointValue(rows[i], i);
+    }
+    
+    btn.disabled = false;
+}
+</script>

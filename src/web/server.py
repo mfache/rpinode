@@ -8,6 +8,7 @@ import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from socketserver import ThreadingMixIn
 from urllib.parse import parse_qs, urlparse
+from pathlib import Path
 
 from core.config import load_config
 from core.database import get_db_connection
@@ -38,6 +39,7 @@ class WebAdminHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         parsed_url = urlparse(self.path)
         path = parsed_url.path
+        query = parse_qs(parsed_url.query)
         
         if path.startswith("/rpinode/"):
             path = path[len("/rpinode"):]
@@ -78,8 +80,14 @@ class WebAdminHandler(BaseHTTPRequestHandler):
             return self.serve_network_overview()
         elif path == "/network/interfaces":
             return self.serve_network_interfaces()
-        elif path == "/scan/modbus":
-            return self.serve_modbus_mgr()
+        elif path == "/modbus/devices":
+            return self.serve_modbus_devices()
+        elif path == "/modbus/device/view":
+            return self.serve_modbus_device_view(query)
+        elif path == "/modbus/templates":
+            return self.serve_modbus_templates()
+        elif path == "/modbus/tools":
+            return self.serve_modbus_tools(query)
         elif path == "/scan/bacnet":
             return self.serve_bacnet_mgr()
         elif path == "/monitor/suivi":
@@ -131,10 +139,118 @@ class WebAdminHandler(BaseHTTPRequestHandler):
             self.handle_ip_scan_start()
         elif path == "/api/scan/ip/annotate":
             self.handle_ip_annotate()
+        elif path == "/api/modbus/tools/probe":
+            self.handle_modbus_probe()
+        elif path == "/api/modbus/tools/read":
+            self.handle_modbus_read()
+        elif path == "/api/modbus/tools/write":
+            self.handle_modbus_write()
         else:
             self.send_error(404, "Action non trouvée")
 
     def serve_static(self, path):
+        try:
+            if ".." in path:
+                self.send_error(403, "Forbidden")
+                return
+
+            if path.startswith("/"):
+                path = path[1:]
+                
+            filepath = Path(path)
+            if not filepath.exists() or not filepath.is_file():
+                self.send_error(404, "File Not Found")
+                return
+
+            content_type = "text/plain"
+            if path.endswith(".css"): content_type = "text/css"
+            elif path.endswith(".js"): content_type = "application/javascript"
+            elif path.endswith(".json"): content_type = "application/json"
+            elif path.endswith(".html"): content_type = "text/html"
+            elif path.endswith(".png"): content_type = "image/png"
+
+            with open(filepath, "rb") as f:
+                content = f.read()
+
+            self.send_response(200)
+            self.send_header("Content-Type", f"{content_type}; charset=utf-8")
+            self.send_header("Cache-Control", "public, max-age=3600")
+            self.end_headers()
+            self.wfile.write(content)
+        except Exception as e:
+            self.send_error(500, str(e))
+
+    def handle_modbus_probe(self):
+        try:
+            content_len = int(self.headers.get("Content-Length", 0))
+            post_data = self.rfile.read(content_len).decode("utf-8")
+            data = json.loads(post_data)
+            from services.modbus_tools import probe_range
+            
+            protocol = data.get("protocol", "tcp")
+            address = data.get("address", "")
+            port = int(data.get("port", 502))
+            unit = int(data.get("unit", 1))
+            funcs = [int(f) for f in data.get("funcs", [3])]
+            start = int(data.get("start", 0))
+            end = int(data.get("end", 100))
+            block = int(data.get("block", 20))
+            timeout = float(data.get("timeout", 1.0))
+            
+            results = probe_range(protocol, address, port, unit, funcs, start, end, block, timeout)
+            self.send_json({"status": "ok", "results": results})
+        except Exception as e:
+            self.send_json({"status": "error", "message": str(e)})
+
+    def handle_modbus_read(self):
+        try:
+            content_len = int(self.headers.get("Content-Length", 0))
+            post_data = self.rfile.read(content_len).decode("utf-8")
+            data = json.loads(post_data)
+            from services.modbus_tools import read_registers, read_bits
+            
+            protocol = data.get("protocol", "tcp")
+            address = data.get("address", "")
+            port = int(data.get("port", 502))
+            unit = int(data.get("unit", 1))
+            func = int(data.get("function", 3))
+            reg_addr = int(data.get("address_start", 0))
+            count = int(data.get("count", 1))
+            timeout = float(data.get("timeout", 1.0))
+            
+            if func in (1, 2):
+                vals = read_bits(protocol, address, port, unit, func, reg_addr, count, timeout)
+            else:
+                vals = read_registers(protocol, address, port, unit, func, reg_addr, count, timeout)
+                
+            self.send_json({"status": "ok", "values": vals, "function": func})
+        except Exception as e:
+            self.send_json({"status": "error", "message": str(e)})
+
+    def handle_modbus_write(self):
+        try:
+            content_len = int(self.headers.get("Content-Length", 0))
+            post_data = self.rfile.read(content_len).decode("utf-8")
+            data = json.loads(post_data)
+            from services.modbus_tools import write_single_register, write_single_coil
+            
+            protocol = data.get("protocol", "tcp")
+            address = data.get("address", "")
+            port = int(data.get("port", 502))
+            unit = int(data.get("unit", 1))
+            func = int(data.get("function", 6))
+            reg_addr = int(data.get("address_start", 0))
+            value = float(data.get("value", 0))
+            timeout = float(data.get("timeout", 1.0))
+            
+            if func == 5:
+                write_single_coil(protocol, address, port, unit, reg_addr, bool(value), timeout)
+            else:
+                write_single_register(protocol, address, port, unit, reg_addr, int(value), timeout)
+                
+            self.send_json({"status": "ok", "message": "Écriture effectuée avec succès."})
+        except Exception as e:
+            self.send_json({"status": "error", "message": str(e)})
         filename = path.replace("/static/", "").replace("/", "")
         file_path = STATIC_DIR / filename
         if not file_path.exists():
@@ -264,7 +380,7 @@ class WebAdminHandler(BaseHTTPRequestHandler):
             logger.error(f"Erreur save network profile: {e}")
             self.send_json({"status": "error", "message": str(e)})
 
-    def serve_modbus_mgr(self):
+    def serve_modbus_devices(self):
         config = load_config()
         base_url = config.get("base_url", "")
         hostname = socket.gethostname()
@@ -277,19 +393,147 @@ class WebAdminHandler(BaseHTTPRequestHandler):
             cursor.execute("SELECT id FROM sites WHERE name = ?", (site_name,))
             site_row = cursor.fetchone()
             site_id = site_row["id"] if site_row else None
+        
         templates = get_all_templates()
         devices = get_site_devices(site_id) if site_id else []
+        
+        devices_html = "".join([
+            f"<a href='{base_url}/modbus/device/view?id={d['id']}' style='text-decoration:none; color:inherit;'>"
+            f"<div class='status-card card-hover'><strong>{d['name']}</strong><br>{d['template_name']} ({d['protocol']}://{d['address']})</div>"
+            f"</a>" for d in devices
+        ])
+        if not devices: devices_html = "<p>Aucun appareil configuré sur ce site.</p>"
+        
+        options_html = "".join([f"<option value='{t['id']}'>{t['name']}</option>" for t in templates])
+        
+        content = render("modbus_devices.html", site_name=site_name, devices_list_html=devices_html, templates_options_html=options_html)
+        nav_html = render("nav.html", base_url=base_url)
+        final_html = render("layout.html", title="Appareils Modbus", hostname=escape(hostname), base_url=escape(base_url), version=version, nav=nav_html, content=content)
+        
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.end_headers()
+        self.wfile.write(final_html.encode("utf-8"))
+
+    def serve_modbus_device_view(self, query):
+        device_id = query.get("id", [""])[0]
+        if not device_id.isdigit():
+            self.send_error(400, "ID d'appareil invalide")
+            return
+            
+        config = load_config()
+        base_url = config.get("base_url", "")
+        hostname = socket.gethostname()
+        version = str(int(time.time()))
+        
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT d.*, t.name as template_name, t.registers_json
+                FROM modbus_devices d
+                JOIN modbus_templates t ON d.template_id = t.id
+                WHERE d.id = ?
+            """, (int(device_id),))
+            device = cursor.fetchone()
+            
+        if not device:
+            self.send_error(404, "Appareil non trouvé")
+            return
+            
+        device = dict(device)
+        registers = json.loads(device.get("registers_json") or "[]")
+        
+        rows_html = ""
+        for i, reg in enumerate(registers):
+            func_val = reg.get("function", 3)
+            # Normaliser la fonction (si texte)
+            if str(func_val).lower().startswith("fc"): 
+                func_val = int(func_val[2:])
+            elif isinstance(func_val, str) and func_val.isdigit():
+                func_val = int(func_val)
+                
+            scale = reg.get("scale", 1.0)
+            if scale is None: scale = 1.0
+            
+            # Attributs de données pour le JS
+            data_attrs = f"data-reg='{reg.get('reg')}' data-func='{func_val}' data-type='{reg.get('type', 'int16')}' data-scale='{scale}'"
+            
+            rows_html += f"""
+                <tr class="point-row" {data_attrs} id="row-{i}">
+                    <td>{reg.get('reg')}</td>
+                    <td>FC{func_val:02d}</td>
+                    <td><strong>{reg.get('name')}</strong></td>
+                    <td>{reg.get('type', 'int16')}</td>
+                    <td><span class="live-val badge-gray" id="val-{i}">-</span> {reg.get('unit', '')}</td>
+                    <td>
+                        <button class="btn-secondary btn-sm" onclick="readPoint({i})">Lire</button>
+                    </td>
+                </tr>
+            """
+            
+        if not registers:
+            rows_html = "<tr><td colspan='6'>Aucun point défini dans ce template.</td></tr>"
+            
+        device_json = json.dumps({
+            "id": device["id"],
+            "protocol": device["protocol"],
+            "address": device["address"],
+            "port": device["port"] or 502,
+        })
+            
+        content = render("modbus_device_view.html", 
+                         device_name=device["name"],
+                         modbus_template_name=device["template_name"],
+                         protocol=device["protocol"],
+                         address=device["address"],
+                         port=device["port"] or 502,
+                         rows_html=rows_html,
+                         device_json=device_json,
+                         base_url=base_url)
+                         
+        nav_html = render("nav.html", base_url=base_url)
+        final_html = render("layout.html", title=device["name"], hostname=escape(hostname), base_url=escape(base_url), version=version, nav=nav_html, content=content)
+        
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.end_headers()
+        self.wfile.write(final_html.encode("utf-8"))
+
+    def serve_modbus_templates(self):
+        config = load_config()
+        base_url = config.get("base_url", "")
+        hostname = socket.gethostname()
+        version = str(int(time.time()))
+        from services.modbus_mgr import get_all_templates
+        
+        templates = get_all_templates()
         templates_html = ""
         for t in templates:
             t_json = json.dumps(dict(t)).replace("'", "\\'")
             templates_html += f"<tr><td>{t['name']}</td><td>{t['manufacturer']}</td><td><button class='btn-blue' onclick='showEditTemplateModal({t_json})'>Modifier</button></td></tr>"
         if not templates: templates_html = "<tr><td colspan='3'>Aucun template disponible</td></tr>"
-        devices_html = "".join([f"<div class='status-card'><strong>{d['name']}</strong><br>{d['template_name']} ({d['protocol']}://{d['address']})</div>" for d in devices])
-        if not devices: devices_html = "<p>Aucun appareil configuré sur ce site.</p>"
-        options_html = "".join([f"<option value='{t['id']}'>{t['name']}</option>" for t in templates])
-        content = render("modbus.html", site_name=site_name, templates_list_html=templates_html, devices_list_html=devices_html, templates_options_html=options_html)
+        
+        content = render("modbus_templates.html", templates_list_html=templates_html)
         nav_html = render("nav.html", base_url=base_url)
-        final_html = render("layout.html", title="Gestion Modbus", hostname=escape(hostname), base_url=escape(base_url), version=version, nav=nav_html, content=content)
+        final_html = render("layout.html", title="Templates Modbus", hostname=escape(hostname), base_url=escape(base_url), version=version, nav=nav_html, content=content)
+        
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.end_headers()
+        self.wfile.write(final_html.encode("utf-8"))
+
+    def serve_modbus_tools(self, query):
+        config = load_config()
+        base_url = config.get("base_url", "")
+        hostname = socket.gethostname()
+        version = str(int(time.time()))
+        
+        target_ip = query.get("ip", [""])[0] if "ip" in query else "Non définie"
+        
+        content = render("modbus_tools.html", target_ip=target_ip)
+        nav_html = render("nav.html", base_url=base_url)
+        final_html = render("layout.html", title="Outils Modbus", hostname=escape(hostname), base_url=escape(base_url), version=version, nav=nav_html, content=content)
+        
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.end_headers()
@@ -379,7 +623,7 @@ class WebAdminHandler(BaseHTTPRequestHandler):
                 for p in ports:
                     if p == 502:
                         modbus_info = f" <small style='color:#2ecc71'>({d['modbus_info']})</small>" if d.get("modbus_info") else ""
-                        formatted_ports.append(f"<a href='{base_url}/scan/modbus?ip={d['ip']}' style='color: #2ecc71; font-weight: bold;'>502 (Modbus)</a>{modbus_info}")
+                        formatted_ports.append(f"<a href='{base_url}/modbus/tools?ip={d['ip']}' style='color: #2ecc71; font-weight: bold;'>502 (Modbus)</a>{modbus_info}")
                     elif p == 47808:
                         bacnet_info = []
                         if d.get("bacnet_instance"): bacnet_info.append(f"Inst: {d['bacnet_instance']}")
@@ -489,10 +733,24 @@ class WebAdminHandler(BaseHTTPRequestHandler):
             data = json.loads(post_data)
             from services.modbus_mgr import save_template
             registers = []
-            addrs, names, types = data.get("reg_addr[]", []), data.get("reg_name[]", []), data.get("reg_type[]", [])
-            if isinstance(addrs, str): addrs, names, types = [addrs], [names], [types]
+            addrs = data.get("reg_addr[]", [])
+            funcs = data.get("reg_func[]", [])
+            names = data.get("reg_name[]", [])
+            types = data.get("reg_type[]", [])
+            scales = data.get("reg_scale[]", [])
+            
+            if isinstance(addrs, str): 
+                addrs, funcs, names, types, scales = [addrs], [funcs], [names], [types], [scales]
+                
             for i in range(len(addrs)):
-                if addrs[i] and names[i]: registers.append({"reg": int(addrs[i]), "name": names[i], "type": types[i]})
+                if addrs[i] and names[i]: 
+                    registers.append({
+                        "reg": int(addrs[i]), 
+                        "function": int(funcs[i]) if funcs[i] else 3,
+                        "name": names[i], 
+                        "type": types[i],
+                        "scale": float(scales[i]) if scales[i] else 1.0
+                    })
             save_template(name=data.get("name"), manufacturer=data.get("manufacturer"), registers=registers, template_id=data.get("template_id") or None)
             self.send_json({"status": "ok", "message": "Template enregistré"})
         except Exception as e: self.send_error(400, str(e))
