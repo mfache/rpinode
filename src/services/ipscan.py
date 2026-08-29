@@ -12,6 +12,7 @@ import sys
 
 from core.config import load_config, save_config
 from core.database import get_db_connection
+from core.paths import DATABASE_FILE, IPSCAN_RUNNING_FILE
 from services.presence import get_current_site_id
 
 logger = logging.getLogger(__name__)
