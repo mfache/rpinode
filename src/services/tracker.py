@@ -47,6 +47,30 @@ def check_and_update_site():
     mcc, mnc, enodeb = gsm["mcc"], gsm["mnc"], gsm["enodeb"]
     
     # 2. Résolution locale
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT s.id, s.name 
+            FROM sites s
+            JOIN site_antennas sa ON s.id = sa.site_id
+            JOIN antennas a ON sa.antenna_id = a.id
+            WHERE a.mcc = ? AND a.mnc = ? AND a.enodeb = ?
+            """,
+            (mcc, mnc, enodeb)
+        )
+        row = cursor.fetchone()
+        
+        if row:
+            local_site_id = row["id"]
+            local_site_name = row["name"]
+            current_site = get_current_site_name()
+            
+            if local_site_name != current_site:
+                logger.info(f"Antenne reconnue localement : {local_site_name}")
+                label_current_location(local_site_name)
+                apply_site_network_profiles(local_site_id)
+            return
 
     # 3. Toujours inconnu : création d'un site temporaire
     temp_name = f"TEMP-{mcc}-{mnc}-{enodeb}"

@@ -32,12 +32,12 @@ class TemplateEngine:
             logger.error(f"Template introuvable: {path}")
             return string.Template(f"<!-- TEMPLATE INTROUVABLE: {name} -->")
 
-    def render(self, name: str, **kwargs) -> str:
+    def render(self, template_name: str, **kwargs) -> str:
         """
         Rend un template.
         Ex: render("page.html", content=render("widget.html", value="123"))
         """
-        tpl = self._load_template(name)
+        tpl = self._load_template(template_name)
         # safe_substitute permet de ne pas crasher si une variable manque.
         # Les variables non fournies resteront sous la forme `$variable`.
         return tpl.safe_substitute(**kwargs)

@@ -18,9 +18,8 @@ def apply_site_network_profiles(site_id):
         profiles = cursor.fetchall()
 
     if not profiles:
-        logger.info(f"Aucun profil réseau spécifique pour le site {site_id}. Utilisation des réglages par défaut (DHCP).")
-        # Par défaut, on s'assure d'être en DHCP sur eth0 si rien n'est spécifié ?
-        # Pour l'instant, on ne fait rien pour ne pas casser une config manuelle existante.
+        logger.info(f"Aucun profil réseau spécifique pour le site {site_id}. Reset eth0 en DHCP.")
+        _apply_eth0_profile("auto", None, None)
         return
 
     for p in profiles:
@@ -75,15 +74,28 @@ def _apply_eth0_profile(method, addresses, gateway):
             nm_cmd += f" ipv4.gateway '{gateway}'"
     
     try:
+        # 1. On vide radicalement les adresses pour éviter que l'ancienne IP (IEJN) ne reste
+        subprocess.run(f"sudo ip addr flush dev eth0", shell=True, check=False)
+        
+        # 2. On modifie le profil NM
         subprocess.run(nm_cmd, shell=True, check=True)
+        
+        # 3. On tente de lever la connexion
         # On force la porteuse à être ignorée pour ne pas bloquer si pas de câble
         subprocess.run(f"sudo nmcli con mod '{con_name}' ipv4.never-default yes", shell=True, check=True)
-        subprocess.run(f"sudo nmcli con up '{con_name}'", shell=True, check=True)
-        logger.info(f"Profil eth0 appliqué avec succès.")
+        
+        res_up = subprocess.run(f"sudo nmcli con up '{con_name}'", shell=True, capture_output=True, text=True)
+        if res_up.returncode != 0:
+            if "no suitable device" in res_up.stderr.lower() or "no carrier" in res_up.stderr.lower():
+                logger.info("eth0 n'a pas de lien physique, le profil DHCP sera activé au branchement.")
+            else:
+                logger.error(f"Erreur activation eth0 : {res_up.stderr}")
+        else:
+            logger.info(f"Profil eth0 appliqué avec succès.")
         
         # Publication des routes sur Tailscale
         publish_tailscale_routes()
-    except subprocess.CalledProcessError as e:
+    except Exception as e:
         logger.error(f"Erreur lors de l'application du profil eth0: {e}")
 
 def get_site_network_profile(site_id, interface="eth0"):
@@ -141,9 +153,13 @@ def save_site_network_profiles(site_id, profiles_list):
     Enregistre une liste de profils réseau pour un chantier.
     profiles_list: liste de dict [{interface, method, addresses, gateway, ssid, psk}]
     """
+    if not isinstance(profiles_list, list):
+        profiles_list = [profiles_list]
+        
     with get_db_connection() as conn:
         cursor = conn.cursor()
         for p in profiles_list:
+            # Gérer les deux noms de clés possibles ('iface' ou 'interface')
             iface = p.get('interface') or p.get('iface')
             if not iface:
                 continue

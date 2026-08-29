@@ -27,10 +27,21 @@ def main():
     
     # Publication initiale des routes sur Tailscale
     try:
-        from services.network_config import publish_tailscale_routes
+        from services.network_config import publish_tailscale_routes, apply_site_network_profiles
+        from services.presence import get_current_site_id
+        
+        logging.info("--- DEMARRAGE RPINODE ---")
+        
+        # 1. On applique le profil réseau du chantier actuel
+        current_site_id = get_current_site_id()
+        if current_site_id:
+            logging.info(f"Application du profil réseau pour le chantier actuel (ID: {current_site_id})")
+            apply_site_network_profiles(current_site_id)
+            
+        # 2. On publie les routes
         publish_tailscale_routes()
     except Exception as e:
-        logging.error(f"Erreur publication routes initiale : {e}")
+        logging.error(f"Erreur initialisation réseau : {e}")
     
     # Démarrage du tracker de localisation en arrière-plan
     tracker_thread = threading.Thread(target=start_tracker, kwargs={'interval': 60}, daemon=True)

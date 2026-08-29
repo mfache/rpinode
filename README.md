@@ -54,9 +54,35 @@ Ouvrir votre navigateur sur `http://localhost:8080`. Vous verrez :
 1. Le Layout englobant la Home englobant les Widgets.
 2. Le Widget CPU mis à jour dynamiquement toutes les 2 secondes par l'EventSource.
 
+## Tests et Qualité
+
+Pour s'assurer du bon fonctionnement après une modification, une suite de tests est disponible.
+
+### Exécuter les tests
+```bash
+./run_tests.sh
+```
+
+Ces tests vérifient :
+- L'existence des chemins et dossiers requis (`paths`).
+- Le bon fonctionnement du moteur de templates "poupée russe" (`templating`).
+- Le chargement et la sauvegarde de la configuration (`config`).
+- La réponse correcte du serveur HTTP (test fonctionnel sur `/`).
+
 ## Pratique
 
 L'accès à sudo local est disponible.
+Lorsqu'une adaptation a eu lieu et qu'elle est fonctionnelle, il faut redémarrer le service pour que les modifications (notamment Python) soient prises en compte, puis pousser les changements sur GitHub.
+
+### Redémarrage sécurisé du service
+Un script est disponible pour vérifier le code et redémarrer proprement le processus en arrière-plan :
+```bash
+./run.sh
+```
+Ce script :
+1. Lance automatiquement la suite de tests (`run_tests.sh`).
+2. **Interrompt le redémarrage** en cas d'échec (pour rester sur la dernière version stable).
+3. Tue l'ancienne instance et relance `main.py` avec `sudo` en cas de succès.
 
 ## Gestion de la flotte
 

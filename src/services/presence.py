@@ -57,6 +57,13 @@ def label_current_location(site_name, is_provisional=False, external_id=None):
         gps = gsm.get("gps")
         lat, lon = (gps["lat"], gps["lon"]) if gps else (None, None)
 
+        # On s'assure que les valeurs ne sont pas des listes (sécurité SQL)
+        mcc = str(gsm["mcc"]) if gsm.get("mcc") else None
+        mnc = str(gsm["mnc"]) if gsm.get("mnc") else None
+        enodeb = str(gsm["enodeb"]) if gsm.get("enodeb") else None
+        lac_tac = str(gsm.get("tac") or gsm.get("lac")) if (gsm.get("tac") or gsm.get("lac")) else None
+        cid = str(gsm.get("cid")) if gsm.get("cid") else None
+
         cursor.execute(
             """
             INSERT INTO antennas (mcc, mnc, enodeb, lac_tac, cid, lat, lon)
@@ -68,7 +75,7 @@ def label_current_location(site_name, is_provisional=False, external_id=None):
                 lon = COALESCE(excluded.lon, lon),
                 last_seen = CURRENT_TIMESTAMP
             """,
-            (gsm["mcc"], gsm["mnc"], gsm["enodeb"], gsm.get("tac"), gsm.get("cid"), lat, lon)
+            (mcc, mnc, enodeb, lac_tac, cid, lat, lon)
         )
         cursor.execute(
             "SELECT id FROM antennas WHERE mcc = ? AND mnc = ? AND enodeb = ?",
@@ -107,6 +114,25 @@ def label_current_location(site_name, is_provisional=False, external_id=None):
         conn.commit()
         logger.info(f"Localisation réussie : {hostname} est maintenant sur le chantier '{site_name}'")
         return True
+
+def get_current_site_id():
+    """Retourne l'ID du chantier actuel pour ce rpinode."""
+    hostname = socket.gethostname()
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT s.id 
+            FROM sites s
+            JOIN node_presence p ON s.id = p.site_id
+            JOIN nodes n ON p.node_id = n.id
+            WHERE n.hostname = ? AND p.is_current = 1
+            LIMIT 1
+            """,
+            (hostname,)
+        )
+        row = cursor.fetchone()
+        return row["id"] if row else None
 
 def get_current_site_name():
     """Retourne le nom du chantier actuel pour ce rpinode."""
