@@ -1,4 +1,5 @@
 import json
+import gzip
 import logging
 import os
 import socket
@@ -300,6 +301,56 @@ class FleetClient:
         except Exception as e:
             logger.error(f"Erreur lors de la synchro des templates Modbus : {e}")
             return False
+
+    def send_logs(self, logs):
+        """Envoie des logs applicatifs vers le serveur central (avec compression gzip)."""
+        if not self.is_registered():
+            return False
+            
+        try:
+            payload = json.dumps({"logs": logs}).encode("utf-8")
+            compressed_payload = gzip.compress(payload)
+            
+            headers = self._headers()
+            headers["Content-Encoding"] = "gzip"
+            headers["Content-Type"] = "application/json"
+            
+            resp = requests.post(
+                f"{self.base_url}/logs",
+                data=compressed_payload,
+                headers=headers,
+                timeout=10
+            )
+            if resp.status_code == 200:
+                res = resp.json()
+                return res.get("ok", False)
+            return False
+        except Exception as e:
+            logger.debug(f"Erreur envoi logs: {e}")
+            return False
+
+    def get_logs(self, limit=50, level=None):
+        """Récupère les logs depuis le serveur."""
+        if not self.is_registered():
+            return None
+        
+        try:
+            params = {"limit": limit}
+            if level:
+                params["level"] = level
+                
+            resp = requests.get(
+                f"{self.base_url}/logs",
+                headers=self._headers(),
+                params=params,
+                timeout=10
+            )
+            if resp.status_code == 200:
+                return resp.json().get("logs", [])
+            return None
+        except Exception as e:
+            logger.debug(f"Erreur récupération logs: {e}")
+            return None
 
     def send_trends(self, trends):
         """Envoie les relevés historiques au serveur maître."""
