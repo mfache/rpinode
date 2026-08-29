@@ -1,5 +1,6 @@
 import subprocess
 
+
 def get_sys(name=''):
     try:
         if name == "cpu_temp":

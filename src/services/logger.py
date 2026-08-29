@@ -1,15 +1,17 @@
-import time
-import logging
-import random
-import threading
-import subprocess
 import json
+import logging
 import os
+import random
+import subprocess
 import sys
+import threading
+import time
+
 from core.database import get_db_connection
 from core.paths import DATA_DIR
-from services.presence import get_current_site_name, is_current_site_provisional
 from services.fleet import fleet
+from services.presence import (get_current_site_name,
+                               is_current_site_provisional)
 
 logger = logging.getLogger(__name__)
 

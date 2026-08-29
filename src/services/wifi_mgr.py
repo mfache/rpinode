@@ -1,11 +1,12 @@
-import subprocess
 import logging
-import time
-import socket
 import shlex
-from services.network import get_interface_status
-from core.sys import ping_check
+import socket
+import subprocess
+import time
+
 from core.database import get_db_connection
+from core.sys import ping_check
+from services.network import get_interface_status
 
 logger = logging.getLogger(__name__)
 

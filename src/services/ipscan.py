@@ -2,16 +2,17 @@ import asyncio
 import datetime
 import ipaddress
 import json
+import logging
 import os
 import re
-import subprocess
-import logging
-import sqlite3
-import sys
 import socket
+import sqlite3
+import subprocess
+import sys
+
+from core.config import load_config, save_config
 from core.database import get_db_connection
 from core.paths import IPSCAN_RUNNING_FILE
-from core.config import load_config, save_config
 
 logger = logging.getLogger(__name__)
 

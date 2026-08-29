@@ -1,11 +1,12 @@
 import logging
 import threading
-from core.paths import DATA_DIR, LOG_FILE
+
 from core.database import init_db
-from services.tracker import start_tracker
-from services.wifi_mgr import run_wifi_manager
+from core.paths import DATA_DIR, LOG_FILE
 from services.logger import start_data_logger
 from services.reporter import reporter
+from services.tracker import start_tracker
+from services.wifi_mgr import run_wifi_manager
 from web.server import start_server
 
 # Configuration du logging (Fichier + Console)
@@ -27,7 +28,8 @@ def main():
     
     # Publication initiale des routes sur Tailscale
     try:
-        from services.network_config import publish_tailscale_routes, apply_site_network_profiles
+        from services.network_config import (apply_site_network_profiles,
+                                             publish_tailscale_routes)
         from services.presence import get_current_site_id
         
         logging.info("--- DEMARRAGE RPINODE ---")

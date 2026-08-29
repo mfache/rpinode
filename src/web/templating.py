@@ -1,6 +1,7 @@
-import string
 import html
 import logging
+import string
+
 from core.paths import TEMPLATES_DIR
 
 logger = logging.getLogger(__name__)

@@ -1,6 +1,6 @@
-import subprocess
 import json
 import logging
+import subprocess
 
 logger = logging.getLogger(__name__)
 

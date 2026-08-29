@@ -1,5 +1,6 @@
-import sqlite3
 import logging
+import sqlite3
+
 from .paths import DATABASE_FILE, SCHEMA_FILE
 
 logger = logging.getLogger(__name__)

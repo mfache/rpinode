@@ -34,8 +34,9 @@ def apply_site_network_profiles(site_id):
 
 def publish_tailscale_routes():
     """Publie les réseaux locaux sur Tailscale pour l'accès distant."""
-    from services.network import get_interface_status
     import ipaddress
+
+    from services.network import get_interface_status
     
     routes = []
     for iface in ["eth0", "wlan0"]:

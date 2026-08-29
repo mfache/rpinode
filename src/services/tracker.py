@@ -1,11 +1,12 @@
-import time
 import logging
 import socket
-from services.gsm import get_gsm_info
-from services.presence import label_current_location, get_current_site_name
-from services.network_config import apply_site_network_profiles
-from services.fleet import fleet
+import time
+
 from core.database import get_db_connection
+from services.fleet import fleet
+from services.gsm import get_gsm_info
+from services.network_config import apply_site_network_profiles
+from services.presence import get_current_site_name, label_current_location
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +37,8 @@ def check_and_update_site():
                     if row:
                         local_site_id = row["id"]
                         if "net_profiles" in sync_data:
-                            from services.network_config import save_site_network_profiles
+                            from services.network_config import \
+                                save_site_network_profiles
                             save_site_network_profiles(local_site_id, sync_data["net_profiles"])
                         apply_site_network_profiles(local_site_id)
             return

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-import sys
 import json
 import logging
+import sys
 
 # On essaie d'importer BAC0, mais on ne veut pas faire planter le script au démarrage
 # si la dépendance est absente (permet de rester "léger" au check initial).

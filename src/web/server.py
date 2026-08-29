@@ -1,22 +1,23 @@
 import json
 import logging
 import os
-import sys
-import subprocess
 import socket
+import subprocess
+import sys
 import time
-from http.server import HTTPServer, BaseHTTPRequestHandler
-from urllib.parse import urlparse, parse_qs
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from socketserver import ThreadingMixIn
+from urllib.parse import parse_qs, urlparse
 
-from core.paths import STATIC_DIR
 from core.config import load_config
 from core.database import get_db_connection
-from services.ipscan import load_ipscan_results, is_ipscan_running, start_ip_scan_in_background
+from core.paths import STATIC_DIR
 from services.fleet import fleet
 from services.gsm import get_gsm_info
-from web.templating import render, escape
+from services.ipscan import (is_ipscan_running, load_ipscan_results,
+                             start_ip_scan_in_background)
 from web.stream import handle_sse_stream
+from web.templating import escape, render
 
 logger = logging.getLogger(__name__)
 
@@ -232,10 +233,10 @@ class WebAdminHandler(BaseHTTPRequestHandler):
         hostname = socket.gethostname()
         version = str(int(time.time()))
 
-        from services.presence import get_current_site_name
+        from core.database import get_db_connection
         from services.network import get_interface_status
         from services.network_config import get_site_network_profile
-        from core.database import get_db_connection
+        from services.presence import get_current_site_name
         
         site_name = get_current_site_name()
         with get_db_connection() as conn:
@@ -297,9 +298,10 @@ class WebAdminHandler(BaseHTTPRequestHandler):
         post_data = self.rfile.read(content_length)
         try:
             data = json.loads(post_data)
-            from services.presence import get_current_site_name
-            from services.network_config import save_site_network_profiles, apply_site_network_profiles
             from core.database import get_db_connection
+            from services.network_config import (apply_site_network_profiles,
+                                                 save_site_network_profiles)
+            from services.presence import get_current_site_name
             
             site_name = get_current_site_name()
             if site_name == "Inconnu":
@@ -327,9 +329,9 @@ class WebAdminHandler(BaseHTTPRequestHandler):
         hostname = socket.gethostname()
         version = str(int(time.time()))
 
-        from services.presence import get_current_site_name
-        from services.modbus_mgr import get_all_templates, get_site_devices
         from core.database import get_db_connection
+        from services.modbus_mgr import get_all_templates, get_site_devices
+        from services.presence import get_current_site_name
         
         site_name = get_current_site_name()
         with get_db_connection() as conn:
@@ -392,9 +394,9 @@ class WebAdminHandler(BaseHTTPRequestHandler):
         hostname = socket.gethostname()
         version = str(int(time.time()))
 
-        from services.presence import get_current_site_name
-        from services.bacnet_mgr import get_all_templates, get_site_devices
         from core.database import get_db_connection
+        from services.bacnet_mgr import get_all_templates, get_site_devices
+        from services.presence import get_current_site_name
         
         site_name = get_current_site_name()
         with get_db_connection() as conn:
@@ -447,8 +449,8 @@ class WebAdminHandler(BaseHTTPRequestHandler):
         hostname = socket.gethostname()
         version = str(int(time.time()))
 
-        from services.presence import get_current_site_name
         from core.database import get_db_connection
+        from services.presence import get_current_site_name
         
         site_name = get_current_site_name()
         
@@ -623,9 +625,9 @@ class WebAdminHandler(BaseHTTPRequestHandler):
         post_data = self.rfile.read(content_length)
         try:
             data = json.loads(post_data)
-            from services.presence import get_current_site_name
-            from services.bacnet_mgr import add_device_to_site
             from core.database import get_db_connection
+            from services.bacnet_mgr import add_device_to_site
+            from services.presence import get_current_site_name
             site_name = get_current_site_name()
             with get_db_connection() as conn:
                 cursor = conn.cursor()
@@ -686,9 +688,9 @@ class WebAdminHandler(BaseHTTPRequestHandler):
         post_data = self.rfile.read(content_length)
         try:
             data = json.loads(post_data)
-            from services.presence import get_current_site_name
-            from services.modbus_mgr import add_device_to_site
             from core.database import get_db_connection
+            from services.modbus_mgr import add_device_to_site
+            from services.presence import get_current_site_name
             site_name = get_current_site_name()
             with get_db_connection() as conn:
                 cursor = conn.cursor()

@@ -1,5 +1,6 @@
 import json
 import logging
+
 from core.paths import CONFIG_FILE
 
 logger = logging.getLogger(__name__)
