@@ -163,6 +163,11 @@ def save_site_network_profiles(site_id, profiles_list):
             iface = p.get('interface') or p.get('iface')
             if not iface:
                 continue
+                
+            addresses = p.get('addresses')
+            if isinstance(addresses, list):
+                addresses = ",".join(addresses)
+                
             cursor.execute(
                 """
                 INSERT INTO site_network_profiles 
@@ -176,7 +181,7 @@ def save_site_network_profiles(site_id, profiles_list):
                     psk = excluded.psk,
                     updated_at = CURRENT_TIMESTAMP
                 """,
-                (site_id, iface, p.get('method', 'auto'), p.get('addresses'), 
+                (site_id, iface, p.get('method', 'auto'), addresses, 
                  p.get('gateway'), p.get('ssid'), p.get('psk'))
             )
         conn.commit()
