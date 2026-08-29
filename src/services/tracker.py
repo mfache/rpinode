@@ -1,5 +1,4 @@
 import logging
-import socket
 import time
 
 from core.database import get_db_connection
