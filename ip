@@ -1,0 +1,568 @@
+
+<!-- START layout.html -->
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#2c3e50">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>Scanner IP Local</title>
+    <link rel="manifest" href="/rpinode/manifest.json">
+    <link rel="stylesheet" href="/rpinode/static/style.css?v=1788001023">
+    <script>
+        // Configuration globale pour le JS
+        window.CONFIG = { baseUrl: "/rpinode", version: "1788001023" };
+
+        // Enregistrement du Service Worker pour la PWA
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('/rpinode/sw.js', { scope: '/rpinode/' })
+                    .then(reg => {
+                        console.log('Service Worker enregistré !', reg);
+                        // Force l'update si une nouvelle version est dispo
+                        reg.update();
+                    })
+                    .catch(err => console.log('Échec enregistrement SW', err));
+            });
+        }
+    </script>
+    <script src="/rpinode/static/app.js?v=1788001023" defer></script>
+</head>
+<body>
+    <header style="background: #2c3e50; color: white; padding: 10px 20px;">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+            <!-- Gauche : Menu Mobile, Logo et Hostname -->
+            <div style="display: flex; align-items: center; gap: 15px;">
+                <button class="menu-toggle" onclick="toggleSidebar()" title="Menu">☰</button>
+                <a href="/rpinode/">
+                    <img src="/rpinode/static/DELTA-Thermic-v3_reverse.png" alt="Deltathermic" style="height: 40px; display: block;">
+                </a>
+                <div style="border-left: 1px solid rgba(255,255,255,0.3); padding-left: 15px;">
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <h2 style="margin: 0; font-size: 1.2rem; letter-spacing: 1px;">rpi01</h2>
+                        <span id="heartbeat-dot" title="Flux de données actif" style="height: 10px; width: 10px; background-color: #2ecc71; border-radius: 50%; display: inline-block; opacity: 0;"></span>
+                        <span id="subt_sync_ok" title="Problème de synchronisation avec le serveur" style="height: 10px; width: 10px; background-color: #f39c12; border-radius: 50%; display: none;"></span>
+                        <span id="heartbeat-timer" style="font-family: monospace; font-size: 0.8rem; color: #e74c3c; display: none; font-weight: bold;"></span>
+                    </div>
+                    <div style="font-size: 0.8rem; opacity: 0.7;">
+                        CPU: <span id="subt_cpu_temp">--°C</span> | <span id="subt_update_time">--:--:--</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Droite : Lien Ancienne Version (Visible sur PC) -->
+            <div style="display: flex; align-items: center; gap: 8px;">
+                <a href="/" class="btn-old-version btn-label">
+                    Ancienne version
+                </a>
+            </div>
+        </div>
+    </header>
+
+    <div class="app-container">
+        <!-- Injection de la poupée russe Navigation -->
+        
+<!-- START nav.html -->
+<nav class="sidebar">
+    <ul class="nav-list">
+        <li>
+            <a href="/rpinode/" class="nav-item">🏠 Dashboard</a>
+        </li>
+        
+        <li class="nav-group">
+            <span class="nav-label">🌐 Réseau</span>
+            <ul class="sub-nav">
+                <li><a href="/rpinode/network/overview">Vue d'ensemble</a></li>
+                <li><a href="/rpinode/network/interfaces">Interfaces</a></li>
+                <li><a href="/rpinode/network/wifi">WiFi</a></li>
+                <li><a href="/rpinode/network/dhcp">DHCP</a></li>
+            </ul>
+        </li>
+
+        <li class="nav-group">
+            <span class="nav-label">🔍 Scanners</span>
+            <ul class="sub-nav">
+                <li><a href="/rpinode/scan/ip">IP Scan</a></li>
+                <li><a href="/rpinode/scan/modbus">Modbus</a></li>
+                <li><a href="/rpinode/scan/bacnet">BACnet</a></li>
+            </ul>
+        </li>
+
+        <li class="nav-group">
+            <span class="nav-label">💾 Stockage & USB</span>
+            <ul class="sub-nav">
+                <li><a href="/rpinode/storage/devices">Périphériques</a></li>
+                <li><a href="/rpinode/storage/explorer">Explorateur</a></li>
+                <li><a href="/rpinode/storage/share">Partages réseau</a></li>
+            </ul>
+        </li>
+
+        <li class="nav-group">
+            <span class="nav-label">📊 Monitoring</span>
+            <ul class="sub-nav">
+                <li><a href="/rpinode/monitor/suivi">Suivi des points</a></li>
+                <li><a href="/rpinode/monitor/system">État système</a></li>
+                <li><a href="/rpinode/monitor/logs">Journaux</a></li>
+            </ul>
+        </li>
+
+        <li class="nav-group">
+            <span class="nav-label">⚙️ Système</span>
+            <ul class="sub-nav">
+                <li><a href="#" onclick="restartServer(); return false;">🔄 Relancer Interface</a></li>
+                <li><a href="#" onclick="systemAction('reboot'); return false;">🔌 Reboot Système</a></li>
+                <li><a href="#" onclick="systemAction('shutdown'); return false;">⛔ Arrêter Système</a></li>
+            </ul>
+        </li>
+
+        <li class="nav-group mobile-only">
+            <span class="nav-label">⬅️ Navigation</span>
+            <ul class="sub-nav">
+                <li><a href="/">Ancienne version</a></li>
+            </ul>
+        </li>
+    </ul>
+</nav>
+
+<!-- END nav.html -->
+
+
+        <main>
+            <!-- Bannière de blocage si chantier provisoire -->
+            <div id="subt_is_provisional" style="display:none; background: #c62828; color: white; padding: 15px; margin: 15px; border-radius: 8px; text-align: center; font-weight: bold; border: 2px solid #ffeb3b; box-shadow: 0 4px 6px rgba(0,0,0,0.2);">
+                <div style="margin-bottom: 10px;">
+                    ⚠️ CHANTIER PROVISOIRE : Les services d'enregistrement et de synchronisation sont désactivés.
+                </div>
+                
+                <div id="site-selector" style="background: rgba(255,255,255,0.1); padding: 10px; border-radius: 5px;">
+                    <div id="fleet-unregistered-warning" style="display:none; margin-bottom: 10px; font-size: 0.85em; background: rgba(0,0,0,0.2); padding: 5px; border-radius: 4px;">
+                        Note : Boîtier non enregistré sur la flotte. Recherche distante désactivée.
+                    </div>
+                    <label for="site-search" style="display: block; margin-bottom: 5px; font-size: 0.9em;">Rechercher un chantier existant ou en créer un :</label>
+                    <div style="display: flex; gap: 10px; justify-content: center;">
+                        <input type="text" id="site-search" placeholder="Nom du chantier..." style="padding: 8px; border-radius: 4px; border: none; width: 60%; max-width: 300px; color: #333;">
+                        <button onclick="confirmNewSite()" style="padding: 8px 15px; background: #2ecc71; border: none; border-radius: 4px; color: white; cursor: pointer;">Valider</button>
+                    </div>
+                    <div id="site-results" style="margin-top: 10px; display: none; text-align: left; max-width: 400px; margin-left: auto; margin-right: auto; background: white; color: #333; border-radius: 4px; overflow: hidden; box-shadow: 0 2px 10px rgba(0,0,0,0.3);">
+                        <!-- Résultats de recherche ici -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- Injection "poupée russe" du contenu de la page -->
+            
+<!-- START ip_scan.html -->
+<section class="ip-scan">
+    <div class="header-with-actions">
+        <h2>Scanner IP Local</h2>
+        <div class="actions">
+            <span id="scan-status" class="status-badge ${running == 'true' ? 'running' : 'idle'}">
+                ${running == 'true' ? 'Scan en cours...' : 'Prêt'}
+            </span>
+            <button id="btn-start-scan" class="btn-primary" onclick="startIpScan()" ${running == 'true' ? 'disabled' : ''}>
+                🔍 Lancer un Scan
+            </button>
+        </div>
+    </div>
+
+    <div class="scan-info card">
+        <p>Dernier balayage : <b id="subt_ipscan_last_scan">2026-08-28 16:06:54</b></p>
+        <p class="help-text">Découverte des équipements via Ping Sweep (fping) et table ARP. Scanne les ports 80, 443, 502, 22, 23, 445.</p>
+    </div>
+
+    <div class="results-container card">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Adresse IP</th>
+                    <th>Adresse MAC</th>
+                    <th>Fabricant</th>
+                    <th>Ports Ouverts</th>
+                    <th>Annotations</th>
+                    <th>Interface</th>
+                </tr>
+            </thead>
+            <tbody id="ipscan-results-body">
+                
+                <tr>
+                    <td style='font-weight:bold;'>10.42.0.1</td>
+                    <td><span style='font-family:monospace; font-size:0.9em; opacity:0.8;'>dc:a6:32:c6:b0:88</span></td>
+                    <td>
+                        <div style='display: flex; align-items: center; gap: 5px;'>
+                            <span class='vendor-tag' id='vendor-dc:a6:32:c6:b0:88' onclick="editDevice('dc:a6:32:c6:b0:88', '10.42.0.1')" style='cursor:pointer;'>Raspberry Pi</span>
+                            
+                        </div>
+                    </td>
+                    <td>22</td>
+                    <td><div id='annots-dc:a6:32:c6:b0:88'></div></td>
+                    <td><small style='color:#999;'>wlan0</small></td>
+                </tr>
+                
+                <tr>
+                    <td style='font-weight:bold;'>10.42.0.244</td>
+                    <td><span style='font-family:monospace; font-size:0.9em; opacity:0.8;'>44:a3:bb:a5:d0:a7</span></td>
+                    <td>
+                        <div style='display: flex; align-items: center; gap: 5px;'>
+                            <span class='vendor-tag' id='vendor-44:a3:bb:a5:d0:a7' onclick="editDevice('44:a3:bb:a5:d0:a7', '10.42.0.244')" style='cursor:pointer;'>Inconnu</span>
+                            
+                        </div>
+                    </td>
+                    <td><span style='opacity:0.4;'>Aucun</span></td>
+                    <td><div id='annots-44:a3:bb:a5:d0:a7'></div></td>
+                    <td><small style='color:#999;'>wlan0</small></td>
+                </tr>
+                
+                <tr>
+                    <td style='font-weight:bold;'>192.168.0.100</td>
+                    <td><span style='font-family:monospace; font-size:0.9em; opacity:0.8;'>00:a0:03:3d:0f:bb</span></td>
+                    <td>
+                        <div style='display: flex; align-items: center; gap: 5px;'>
+                            <span class='vendor-tag' id='vendor-00:a0:03:3d:0f:bb' onclick="editDevice('00:a0:03:3d:0f:bb', '192.168.0.100')" style='cursor:pointer;'>Siemens</span>
+                            
+                        </div>
+                    </td>
+                    <td><a href='http://192.168.0.100' target='_blank' style='color: #3498db;'>80 (HTTP)</a>, <a href='https://192.168.0.100' target='_blank' style='color: #3498db;'>443 (HTTPS)</a>, <a href='/rpinode/scan/bacnet?ip=192.168.0.100' title='Gérer en BACnet' style='color: #e67e22; font-weight: bold;'>47808 (BACnet)</a> <small style='color:#e67e22'>(Inst: 25634, Fabricant #7)</small></td>
+                    <td><div id='annots-00:a0:03:3d:0f:bb'></div></td>
+                    <td><small style='color:#999;'>eth0</small></td>
+                </tr>
+                
+                <tr>
+                    <td style='font-weight:bold;'>192.168.0.101</td>
+                    <td><span style='font-family:monospace; font-size:0.9em; opacity:0.8;'>00:a0:03:3c:28:c0</span></td>
+                    <td>
+                        <div style='display: flex; align-items: center; gap: 5px;'>
+                            <span class='vendor-tag' id='vendor-00:a0:03:3c:28:c0' onclick="editDevice('00:a0:03:3c:28:c0', '192.168.0.101')" style='cursor:pointer;'>Siemens</span>
+                            
+                        </div>
+                    </td>
+                    <td><a href='http://192.168.0.101' target='_blank' style='color: #3498db;'>80 (HTTP)</a>, <a href='https://192.168.0.101' target='_blank' style='color: #3498db;'>443 (HTTPS)</a>, <a href='/rpinode/scan/bacnet?ip=192.168.0.101' title='Gérer en BACnet' style='color: #e67e22; font-weight: bold;'>47808 (BACnet)</a> <small style='color:#e67e22'>(Inst: 25890, Fabricant #7)</small></td>
+                    <td><div id='annots-00:a0:03:3c:28:c0'></div></td>
+                    <td><small style='color:#999;'>eth0</small></td>
+                </tr>
+                
+                <tr>
+                    <td style='font-weight:bold;'>192.168.0.102</td>
+                    <td><span style='font-family:monospace; font-size:0.9em; opacity:0.8;'>00:a0:03:3d:f5:b0</span></td>
+                    <td>
+                        <div style='display: flex; align-items: center; gap: 5px;'>
+                            <span class='vendor-tag' id='vendor-00:a0:03:3d:f5:b0' onclick="editDevice('00:a0:03:3d:f5:b0', '192.168.0.102')" style='cursor:pointer;'>Siemens</span>
+                            
+                        </div>
+                    </td>
+                    <td><a href='https://192.168.0.102' target='_blank' style='color: #3498db;'>443 (HTTPS)</a>, <a href='/rpinode/scan/bacnet?ip=192.168.0.102' title='Gérer en BACnet' style='color: #e67e22; font-weight: bold;'>47808 (BACnet)</a> <small style='color:#e67e22'>(Inst: 1221154, Fabricant #7)</small></td>
+                    <td><div id='annots-00:a0:03:3d:f5:b0'></div></td>
+                    <td><small style='color:#999;'>eth0</small></td>
+                </tr>
+                
+                <tr>
+                    <td style='font-weight:bold;'>192.168.0.110</td>
+                    <td><span style='font-family:monospace; font-size:0.9em; opacity:0.8;'>00:0a:5c:87:9c:78</span></td>
+                    <td>
+                        <div style='display: flex; align-items: center; gap: 5px;'>
+                            <span class='vendor-tag' id='vendor-00:0a:5c:87:9c:78' onclick="editDevice('00:0a:5c:87:9c:78', '192.168.0.110')" style='cursor:pointer;'>Carel s.p.a.</span>
+                            
+                        </div>
+                    </td>
+                    <td><a href='http://192.168.0.110' target='_blank' style='color: #3498db;'>80 (HTTP)</a>, <a href='https://192.168.0.110' target='_blank' style='color: #3498db;'>443 (HTTPS)</a>, <a href='/rpinode/scan/modbus?ip=192.168.0.110' title='Gérer en Modbus' style='color: #2ecc71; font-weight: bold;'>502 (Modbus)</a> <small style='color:#2ecc71'>(Units: 1, 255, 0)</small></td>
+                    <td><div id='annots-00:0a:5c:87:9c:78'></div></td>
+                    <td><small style='color:#999;'>eth0</small></td>
+                </tr>
+                
+                <tr>
+                    <td style='font-weight:bold;'>192.168.0.111</td>
+                    <td><span style='font-family:monospace; font-size:0.9em; opacity:0.8;'>00:0a:5c:88:19:cf</span></td>
+                    <td>
+                        <div style='display: flex; align-items: center; gap: 5px;'>
+                            <span class='vendor-tag' id='vendor-00:0a:5c:88:19:cf' onclick="editDevice('00:0a:5c:88:19:cf', '192.168.0.111')" style='cursor:pointer;'>Carel s.p.a.</span>
+                            
+                        </div>
+                    </td>
+                    <td><a href='http://192.168.0.111' target='_blank' style='color: #3498db;'>80 (HTTP)</a>, <a href='https://192.168.0.111' target='_blank' style='color: #3498db;'>443 (HTTPS)</a>, <a href='/rpinode/scan/modbus?ip=192.168.0.111' title='Gérer en Modbus' style='color: #2ecc71; font-weight: bold;'>502 (Modbus)</a> <small style='color:#2ecc71'>(Units: 1, 255, 0)</small>, <a href='/rpinode/scan/bacnet?ip=192.168.0.111' title='Gérer en BACnet' style='color: #e67e22; font-weight: bold;'>47808 (BACnet)</a> <small style='color:#e67e22'>(Inst: 2935074, Fabricant #77)</small></td>
+                    <td><div id='annots-00:0a:5c:88:19:cf'></div></td>
+                    <td><small style='color:#999;'>eth0</small></td>
+                </tr>
+                
+                <tr>
+                    <td style='font-weight:bold;'>192.168.0.112</td>
+                    <td><span style='font-family:monospace; font-size:0.9em; opacity:0.8;'>34:e3:da:00:65:e8</span></td>
+                    <td>
+                        <div style='display: flex; align-items: center; gap: 5px;'>
+                            <span class='vendor-tag' id='vendor-34:e3:da:00:65:e8' onclick="editDevice('34:e3:da:00:65:e8', '192.168.0.112')" style='cursor:pointer;'>Hoval Aktiengesellschaft</span>
+                            
+                        </div>
+                    </td>
+                    <td><a href='/rpinode/scan/modbus?ip=192.168.0.112' title='Gérer en Modbus' style='color: #2ecc71; font-weight: bold;'>502 (Modbus)</a></td>
+                    <td><div id='annots-34:e3:da:00:65:e8'></div></td>
+                    <td><small style='color:#999;'>eth0</small></td>
+                </tr>
+                
+                <tr>
+                    <td style='font-weight:bold;'>192.168.0.113</td>
+                    <td><span style='font-family:monospace; font-size:0.9em; opacity:0.8;'>00:0a:5c:96:8a:5f</span></td>
+                    <td>
+                        <div style='display: flex; align-items: center; gap: 5px;'>
+                            <span class='vendor-tag' id='vendor-00:0a:5c:96:8a:5f' onclick="editDevice('00:0a:5c:96:8a:5f', '192.168.0.113')" style='cursor:pointer;'>Carel s.p.a.</span>
+                            
+                        </div>
+                    </td>
+                    <td><a href='http://192.168.0.113' target='_blank' style='color: #3498db;'>80 (HTTP)</a>, <a href='https://192.168.0.113' target='_blank' style='color: #3498db;'>443 (HTTPS)</a>, 22, 23</td>
+                    <td><div id='annots-00:0a:5c:96:8a:5f'></div></td>
+                    <td><small style='color:#999;'>eth0</small></td>
+                </tr>
+                
+                <tr>
+                    <td style='font-weight:bold;'>192.168.0.114</td>
+                    <td><span style='font-family:monospace; font-size:0.9em; opacity:0.8;'>00:0a:5c:96:8a:55</span></td>
+                    <td>
+                        <div style='display: flex; align-items: center; gap: 5px;'>
+                            <span class='vendor-tag' id='vendor-00:0a:5c:96:8a:55' onclick="editDevice('00:0a:5c:96:8a:55', '192.168.0.114')" style='cursor:pointer;'>Carel s.p.a.</span>
+                            
+                        </div>
+                    </td>
+                    <td><a href='http://192.168.0.114' target='_blank' style='color: #3498db;'>80 (HTTP)</a>, <a href='https://192.168.0.114' target='_blank' style='color: #3498db;'>443 (HTTPS)</a>, <a href='/rpinode/scan/modbus?ip=192.168.0.114' title='Gérer en Modbus' style='color: #2ecc71; font-weight: bold;'>502 (Modbus)</a> <small style='color:#2ecc71'>(Units: 1, 255, 0)</small>, 22, 23</td>
+                    <td><div id='annots-00:0a:5c:96:8a:55'></div></td>
+                    <td><small style='color:#999;'>eth0</small></td>
+                </tr>
+                
+                <tr>
+                    <td style='font-weight:bold;'>192.168.0.115</td>
+                    <td><span style='font-family:monospace; font-size:0.9em; opacity:0.8;'>00:0a:5c:96:8a:64</span></td>
+                    <td>
+                        <div style='display: flex; align-items: center; gap: 5px;'>
+                            <span class='vendor-tag' id='vendor-00:0a:5c:96:8a:64' onclick="editDevice('00:0a:5c:96:8a:64', '192.168.0.115')" style='cursor:pointer;'>Carel s.p.a.</span>
+                            
+                        </div>
+                    </td>
+                    <td><a href='http://192.168.0.115' target='_blank' style='color: #3498db;'>80 (HTTP)</a>, <a href='https://192.168.0.115' target='_blank' style='color: #3498db;'>443 (HTTPS)</a>, <a href='/rpinode/scan/modbus?ip=192.168.0.115' title='Gérer en Modbus' style='color: #2ecc71; font-weight: bold;'>502 (Modbus)</a> <small style='color:#2ecc71'>(Units: 1, 255, 0)</small>, 22, 23</td>
+                    <td><div id='annots-00:0a:5c:96:8a:64'></div></td>
+                    <td><small style='color:#999;'>eth0</small></td>
+                </tr>
+                
+                <tr>
+                    <td style='font-weight:bold;'>192.168.0.254</td>
+                    <td><span style='font-family:monospace; font-size:0.9em; opacity:0.8;'>dc:a6:32:c6:b0:87</span></td>
+                    <td>
+                        <div style='display: flex; align-items: center; gap: 5px;'>
+                            <span class='vendor-tag' id='vendor-dc:a6:32:c6:b0:87' onclick="editDevice('dc:a6:32:c6:b0:87', '192.168.0.254')" style='cursor:pointer;'>Raspberry Pi</span>
+                            
+                        </div>
+                    </td>
+                    <td><a href='/rpinode/scan/bacnet?ip=192.168.0.254' title='Gérer en BACnet' style='color: #e67e22; font-weight: bold;'>47808 (BACnet)</a> <small style='color:#e67e22'>(Inst: 2224418, Fabricant #999)</small>, 22</td>
+                    <td><div id='annots-dc:a6:32:c6:b0:87'></div></td>
+                    <td><small style='color:#999;'>eth0</small></td>
+                </tr>
+                
+                <tr>
+                    <td style='font-weight:bold;'>Inconnu</td>
+                    <td><span style='font-family:monospace; font-size:0.9em; opacity:0.8;'>b0:25:aa:5e:5b:cc</span></td>
+                    <td>
+                        <div style='display: flex; align-items: center; gap: 5px;'>
+                            <span class='vendor-tag' id='vendor-b0:25:aa:5e:5b:cc' onclick="editDevice('b0:25:aa:5e:5b:cc', 'Inconnu')" style='cursor:pointer;'>Inconnu</span>
+                            
+                        </div>
+                    </td>
+                    <td><span style='opacity:0.4;'>Aucun</span></td>
+                    <td><div id='annots-b0:25:aa:5e:5b:cc'></div></td>
+                    <td><small style='color:#999;'>Inconnu</small></td>
+                </tr>
+                
+            </tbody>
+        </table>
+    </div>
+</section>
+
+<style>
+.header-with-actions {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+}
+.status-badge {
+    padding: 5px 12px;
+    border-radius: 20px;
+    font-size: 0.85em;
+    font-weight: bold;
+    margin-right: 10px;
+}
+.status-badge.idle { background: #eee; color: #666; }
+.status-badge.running { 
+    background: #e3f2fd; color: #1976d2; 
+    animation: pulse 1.5s infinite;
+}
+@keyframes pulse {
+    0% { opacity: 1; }
+    50% { opacity: 0.5; }
+    100% { opacity: 1; }
+}
+.card {
+    background: white;
+    padding: 15px;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    margin-bottom: 20px;
+}
+.help-text {
+    font-size: 0.85em;
+    color: #666;
+    margin-top: 5px;
+}
+.data-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+.data-table th {
+    text-align: left;
+    padding: 12px;
+    border-bottom: 2px solid #eee;
+    color: #666;
+    font-size: 0.9em;
+}
+.data-table td {
+    padding: 12px;
+    border-bottom: 1px solid #f5f5f5;
+    font-size: 0.95em;
+}
+.vendor-tag {
+    background: #f0f7ff;
+    color: #0056b3;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 0.85em;
+}
+.annot-tag {
+    background: #f8f9fa;
+    border: 1px solid #dee2e6;
+    color: #495057;
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-size: 0.8em;
+    margin-right: 4px;
+}
+.sync-pending {
+    color: #f39c12;
+    font-size: 1.1em;
+    cursor: help;
+    animation: bounce 2s infinite;
+}
+@keyframes bounce {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-3px); }
+}
+</style>
+
+<script>
+    async function startIpScan() {
+        const btn = document.getElementById('btn-start-scan');
+        const status = document.getElementById('scan-status');
+        
+        // On récupère le baseUrl dynamiquement
+        const baseUrl = window.CONFIG ? window.CONFIG.baseUrl : '/rpinode';
+        
+        btn.disabled = true;
+        status.textContent = 'Scan en cours...';
+        status.className = 'status-badge running';
+        
+        console.log("Lancement du scan IP via POST...");
+        try {
+            // Construction propre de l'URL
+            const url = (baseUrl + '/api/scan/ip/start').replace(/\/+/g, '/');
+            
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: { 'Accept': 'application/json' }
+            });
+            
+            if (!response.ok) {
+                const text = await response.text();
+                throw new Error(`Erreur ${response.status}: ${text.substring(0, 50)}`);
+            }
+
+            const result = await response.json();
+            if (result.status !== 'ok') {
+                throw new Error(result.message || 'Erreur inconnue');
+            }
+            console.log("Scan lancé avec succès");
+        } catch (e) {
+            console.error("Erreur scan:", e);
+            alert('Erreur : ' + e.message);
+            btn.disabled = false;
+            status.textContent = 'Erreur';
+            status.className = 'status-badge idle';
+        }
+    }
+
+    async function editDevice(mac, ip) {
+        const currentVendor = document.getElementById(`vendor-${mac}`).textContent;
+        const newVendor = prompt(`Fabricant pour ${ip} (${mac}) :`, currentVendor);
+        
+        if (newVendor === null) return;
+        
+        const currentAnnots = document.getElementById(`annots-${mac}`).textContent;
+        const annotStr = prompt(`Annotation (ex: "Pièce: Local Tech") :`, "");
+        
+        let annotations = null;
+        if (annotStr) {
+            const parts = annotStr.split(':');
+            if (parts.length >= 2) {
+                annotations = {};
+                annotations[parts[0].trim()] = parts.slice(1).join(':').trim();
+            }
+        }
+
+        try {
+            const baseUrl = window.CONFIG ? window.CONFIG.baseUrl : '/rpinode';
+            const url = (baseUrl + '/api/scan/ip/annotate').replace(/\/+/g, '/');
+            
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    mac: mac,
+                    vendor: newVendor,
+                    annotations: annotations
+                })
+            });
+            
+            if (response.ok) {
+                // Rafraîchissement local simple
+                if (newVendor) document.getElementById(`vendor-${mac}`).textContent = newVendor;
+                if (annotations) {
+                    const container = document.getElementById(`annots-${mac}`);
+                    for (const [k, v] of Object.entries(annotations)) {
+                        const span = document.createElement('span');
+                        span.className = 'annot-tag';
+                        span.textContent = `${k}: ${v}`;
+                        container.appendChild(span);
+                    }
+                }
+                
+                // Afficher l'indicateur de synchro en attente
+                const vendorCell = document.getElementById(`vendor-${mac}`).parentElement;
+                if (!vendorCell.querySelector('.sync-pending')) {
+                    const syncSpan = document.createElement('span');
+                    syncSpan.className = 'sync-pending';
+                    syncSpan.title = 'En attente de synchronisation';
+                    syncSpan.textContent = '☁️';
+                    vendorCell.appendChild(syncSpan);
+                }
+            } else {
+                alert("Erreur lors de l'enregistrement");
+            }
+        } catch (e) {
+            console.error(e);
+            alert("Erreur réseau");
+        }
+    }
+</script>
+
+<!-- END ip_scan.html -->
+
+        </main>
+    </div>
+</body>
+</html>
+
+<!-- END layout.html -->

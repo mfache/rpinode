@@ -71,9 +71,10 @@ class StatusReporter(threading.Thread):
         mqtt_client.publish("rpinode/status/gsm", gsm_payload)
 
         # Données Services
+        ipscan_info = load_ipscan_results()
         services_data = {
             "ipscan_running": is_ipscan_running(),
-            "ipscan_last_at": load_config().get("ipscan_last_at", ""),
+            "ipscan_last_at": ipscan_info.get("scanned_at", ""),
             "wifi_ap_ssid": ap_config["ssid"],
             "wifi_ap_pass": ap_config["password"]
         }

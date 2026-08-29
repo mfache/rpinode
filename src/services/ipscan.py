@@ -177,8 +177,6 @@ async def sweep_iface(iface, ip_str, prefix):
 
 def load_ipscan_results():
     """Charge les derniers résultats du scan depuis la base de données pour le site actuel."""
-    config = load_config()
-    last_at = config.get("ipscan_last_at", "Jamais")
     site_id = get_current_site_id()
     
     devices = []
@@ -187,6 +185,13 @@ def load_ipscan_results():
 
     try:
         with get_db_connection() as conn:
+            # On récupère le timestamp du dernier scan pour ce chantier
+            row_last = conn.execute(
+                "SELECT MAX(last_seen) as last_scan FROM discovered_devices WHERE site_id = ?",
+                (site_id,)
+            ).fetchone()
+            last_at = row_last["last_scan"] if row_last and row_last["last_scan"] else "Jamais"
+
             # On récupère les équipements vus pour le site actuel
             rows = conn.execute("""
                 SELECT * FROM discovered_devices 
@@ -201,6 +206,7 @@ def load_ipscan_results():
                 devices.append(d)
     except Exception as e:
         logger.error(f"Erreur load_ipscan_results : {e}")
+        last_at = "Erreur"
         
     return {
         "scanned_at": last_at,
@@ -295,12 +301,6 @@ def update_db_results(devices, ifaces=None):
                     d.get("bacnet_instance"), d.get("bacnet_name"), d.get("modbus_info")
                 ))
             conn.commit()
-            
-            # On stocke la date du scan dans la config pour l'UI
-            if ifaces:
-                config = load_config()
-                config["ipscan_last_at"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                save_config(config)
     except Exception as e:
         logger.error(f"Erreur update_db_results : {e}")
 
