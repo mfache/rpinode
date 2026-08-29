@@ -73,6 +73,11 @@ Ces tests vérifient :
 
 L'accès à sudo local est disponible.
 Lorsqu'une adaptation a eu lieu et qu'elle est fonctionnelle, il faut redémarrer le service pour que les modifications (notamment Python) soient prises en compte, puis pousser les changements sur GitHub.
+La commande suivante est ton amie :
+```bash
+find . -type f -iname "*.md"
+```
+Cette url est aussi ton amie : https://docs.deltathermic.be/reports/api/usage
 
 ### Redémarrage sécurisé du service
 Un script est disponible pour vérifier le code et redémarrer proprement le processus en arrière-plan :

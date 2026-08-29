@@ -1,7 +1,8 @@
 <div class="network-overview">
-    <h2>Vue d'ensemble Réseau</h2>
+    <div class="topology-section">
+        <h2>Vue d'ensemble Réseau</h2>
 
-    <div class="topology-container">
+        <div class="topology-container">
         <!-- Niveau 1 : Internet / 4G -->
         <div class="topology-level">
             <div id="node-wwan0" class="node">
@@ -45,6 +46,7 @@
                 </div>
             </div>
         </div>
+    </div>
     </div>
 
     <div class="network-details">
@@ -125,6 +127,16 @@
 </div>
 
 <style>
+.topology-section {
+    display: block;
+}
+
+@media (max-width: 768px) {
+    .topology-section {
+        display: none;
+    }
+}
+
 .network-details {
     margin-top: 40px;
 }

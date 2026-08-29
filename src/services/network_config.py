@@ -10,6 +10,7 @@ def apply_site_network_profiles(site_id):
     """
     Récupère et applique les profils réseau associés à un chantier.
     """
+    logger.info(f"Vérification des profils réseau pour le site {site_id}")
     with get_db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute(
@@ -23,14 +24,23 @@ def apply_site_network_profiles(site_id):
         _apply_eth0_profile("auto", None, None)
         return
 
+    # On suit les interfaces traitées
+    applied_ifaces = []
+
     for p in profiles:
         iface = p["interface"]
         method = p["method"]
+        applied_ifaces.append(iface)
         
         if iface == "eth0":
             _apply_eth0_profile(method, p["addresses"], p["gateway"])
         elif iface == "wlan0":
             _apply_wlan0_profile(method, p["ssid"], p["psk"], p["addresses"], p["gateway"])
+
+    # Si eth0 n'était pas dans les profils, on s'assure qu'il est en DHCP (reset)
+    if "eth0" not in applied_ifaces:
+        logger.info(f"Pas de profil spécifique pour eth0 sur le site {site_id}. Reset en DHCP.")
+        _apply_eth0_profile("auto", None, None)
 
 def publish_tailscale_routes():
     """Publie les réseaux locaux sur Tailscale pour l'accès distant."""
@@ -76,7 +86,12 @@ def _apply_eth0_profile(method, addresses, gateway):
             nm_cmd += f" ipv4.gateway '{gateway}'"
     
     try:
+        # 0. On désactive temporairement pour que NM lâche prise
+        subprocess.run(f"sudo nmcli con down '{con_name}'", shell=True, check=False, timeout=10)
+
         # 1. On vide radicalement les adresses pour éviter que l'ancienne IP (IEJN) ne reste
+        # On le fait deux fois pour être sûr, car NM peut réagir lentement
+        logger.info("Flush des adresses sur eth0...")
         subprocess.run(f"sudo ip addr flush dev eth0", shell=True, check=False)
         
         # 2. On modifie le profil NM
@@ -86,8 +101,11 @@ def _apply_eth0_profile(method, addresses, gateway):
         # On force la porteuse à être ignorée pour ne pas bloquer si pas de câble
         subprocess.run(f"sudo nmcli con mod '{con_name}' ipv4.never-default yes", shell=True, check=True)
         
-        res_up = subprocess.run(f"sudo nmcli con up '{con_name}'", shell=True, capture_output=True, text=True)
+        res_up = subprocess.run(f"sudo nmcli con up '{con_name}'", shell=True, capture_output=True, text=True, timeout=30)
+        
+        # 4. Flush de sécurité APRES le up si il a échoué (car il a pu remettre des IPs fantômes)
         if res_up.returncode != 0:
+            subprocess.run(f"sudo ip addr flush dev eth0", shell=True, check=False)
             if "no suitable device" in res_up.stderr.lower() or "no carrier" in res_up.stderr.lower():
                 logger.info("eth0 n'a pas de lien physique, le profil DHCP sera activé au branchement.")
             else:

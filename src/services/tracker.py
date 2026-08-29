@@ -28,18 +28,21 @@ def check_and_update_site():
             dist_name = chantier_distant.get("ref")
             dist_id = str(chantier_distant.get("id"))
             
-            if label_current_location(dist_name, is_provisional=False, external_id=dist_id):
-                with get_db_connection() as conn:
-                    cursor = conn.cursor()
-                    cursor.execute("SELECT id FROM sites WHERE external_id = ?", (dist_id,))
-                    row = cursor.fetchone()
-                    if row:
-                        local_site_id = row["id"]
-                        if "net_profiles" in sync_data:
-                            from services.network_config import \
-                                save_site_network_profiles
-                            save_site_network_profiles(local_site_id, sync_data["net_profiles"])
-                        apply_site_network_profiles(local_site_id)
+            current_site = get_current_site_name()
+            if dist_name != current_site:
+                logger.info(f"Nouveau chantier détecté via le serveur : {dist_name} (ID: {dist_id})")
+                if label_current_location(dist_name, is_provisional=False, external_id=dist_id):
+                    with get_db_connection() as conn:
+                        cursor = conn.cursor()
+                        cursor.execute("SELECT id FROM sites WHERE external_id = ?", (dist_id,))
+                        row = cursor.fetchone()
+                        if row:
+                            local_site_id = row["id"]
+                            if "net_profiles" in sync_data:
+                                from services.network_config import \
+                                    save_site_network_profiles
+                                save_site_network_profiles(local_site_id, sync_data["net_profiles"])
+                            apply_site_network_profiles(local_site_id)
             return
 
     if not gsm.get("mcc") or not gsm.get("enodeb"):
@@ -78,7 +81,14 @@ def check_and_update_site():
     current_site = get_current_site_name()
     if temp_name != current_site:
         logger.info(f"Nouvelle antenne détectée ({enodeb}). Création du chantier temporaire : {temp_name}")
-        label_current_location(temp_name, is_provisional=True)
+        if label_current_location(temp_name, is_provisional=True):
+            # Reset network to DHCP for temporary sites
+            with get_db_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT id FROM sites WHERE name = ?", (temp_name,))
+                row = cursor.fetchone()
+                if row:
+                    apply_site_network_profiles(row["id"])
 
 def start_tracker(interval=30):
     """
