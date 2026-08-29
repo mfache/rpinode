@@ -122,6 +122,8 @@ def handle_sse_stream(handler):
                 elif topic == "rpinode/status/gsm":
                     current_data["net"] = data.get("cell", "Pas de 4G")
                     current_data["gsm_cell"] = data.get("cell", "Pas de 4G")
+                elif topic == "rpinode/status/sync":
+                    current_data.update(data)
                 elif topic == "rpinode/status/services":
                     current_data.update(data)
                     # Ajout dynamique du mode wifi (pas forcément dans le payload MQTT)

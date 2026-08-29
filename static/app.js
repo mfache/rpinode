@@ -206,6 +206,15 @@ document.addEventListener("DOMContentLoaded", () => {
                         }
                     }
 
+                    // Traitement spécial pour le statut de synchronisation
+                    if (key === 'sync_ok') {
+                        const syncDot = document.getElementById('subt_sync_ok');
+                        if (syncDot) {
+                            syncDot.style.display = (value === true || value === "true") ? 'none' : 'inline-block';
+                        }
+                        continue;
+                    }
+
                     const targetKey = `subt_${key}`;
 
                     // 1. Chercher par ID

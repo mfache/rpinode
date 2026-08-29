@@ -7,6 +7,7 @@ import sqlite3
 
 import requests
 
+from services.mqtt_service import mqtt_client
 from core.config import load_config, save_config
 from core.database import get_db_connection
 
@@ -167,7 +168,10 @@ class FleetClient:
         try:
             response = requests.post(url, json=payload, headers=self._headers(), timeout=10)
             data = response.json()
-            if data.get("ok"):
+            success = data.get("ok", False)
+            mqtt_client.publish("rpinode/status/sync", {"sync_ok": success})
+
+            if success:
                 # 2. Traitement des annotations reçues (Pull)
                 received = data.get("annotations", [])
                 if received:
@@ -193,8 +197,10 @@ class FleetClient:
                         conn.commit()
                 
                 return data
+            return None
         except Exception as e:
             logger.error(f"Erreur lors de la synchronisation : {e}")
+            mqtt_client.publish("rpinode/status/sync", {"sync_ok": False})
         return None
 
     def _apply_annotations_pull(self, annotations):
@@ -321,12 +327,16 @@ class FleetClient:
                 headers=headers,
                 timeout=10
             )
+            success = False
             if resp.status_code == 200:
                 res = resp.json()
-                return res.get("ok", False)
-            return False
+                success = res.get("ok", False)
+            
+            mqtt_client.publish("rpinode/status/sync", {"sync_ok": success})
+            return success
         except Exception as e:
             logger.debug(f"Erreur envoi logs: {e}")
+            mqtt_client.publish("rpinode/status/sync", {"sync_ok": False})
             return False
 
     def get_logs(self, limit=50, level=None):
@@ -362,9 +372,12 @@ class FleetClient:
 
         try:
             response = requests.post(url, json=payload, headers=self._headers(), timeout=15)
-            return response.json().get("ok", False)
+            success = response.json().get("ok", False)
+            mqtt_client.publish("rpinode/status/sync", {"sync_ok": success})
+            return success
         except Exception as e:
             logger.error(f"Erreur lors de l'envoi des trends : {e}")
+            mqtt_client.publish("rpinode/status/sync", {"sync_ok": False})
             return False
 
     def sync_all(self):
