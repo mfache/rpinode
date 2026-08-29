@@ -5,6 +5,7 @@ from core.database import init_db
 from services.tracker import start_tracker
 from services.wifi_mgr import run_wifi_manager
 from services.logger import start_data_logger
+from services.reporter import reporter
 from web.server import start_server
 
 # Configuration du logging (Fichier + Console)
@@ -42,6 +43,9 @@ def main():
     # Démarrage du service d'enregistrement des données (Trends)
     logger_thread = threading.Thread(target=start_data_logger, kwargs={'interval': 60}, daemon=True)
     logger_thread.start()
+    
+    # Démarrage du reporter MQTT (Bridge données internes -> MQTT)
+    reporter.start()
     
     start_server()
 

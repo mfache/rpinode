@@ -112,6 +112,16 @@ class FleetClient:
                         "value": row["vendor"]
                     })
                 
+                # Fabricants BACnet globaux (bacnet_vendors)
+                rows = conn.execute("SELECT vendor_id, name FROM bacnet_vendors WHERE is_dirty = 1").fetchall()
+                for row in rows:
+                    dirty_annotations.append({
+                        "kind": "bacnet_vendor",
+                        "key": str(row["vendor_id"]),
+                        "field": "",
+                        "value": row["name"]
+                    })
+                
                 # Annotations spécifiques (discovered_devices)
                 rows = conn.execute("""
                     SELECT mac, vendor, annotations_json 
@@ -168,6 +178,11 @@ class FleetClient:
                         for p in prefixes:
                             conn.execute("UPDATE mac_vendors SET is_dirty = 0, sync_updated_at = CURRENT_TIMESTAMP WHERE prefix = ?", (p,))
                         
+                        # Marquer bacnet_vendors
+                        vendor_ids = [a["key"] for a in dirty_annotations if a["kind"] == "bacnet_vendor"]
+                        for vid in vendor_ids:
+                            conn.execute("UPDATE bacnet_vendors SET is_dirty = 0, sync_updated_at = CURRENT_TIMESTAMP WHERE vendor_id = ?", (vid,))
+                        
                         # Marquer discovered_devices
                         macs = list(set(a["key"] for a in dirty_annotations if a["kind"] in ("ip_device_vendor", "ip_annot")))
                         for mac in macs:
@@ -185,11 +200,11 @@ class FleetClient:
             with get_db_connection() as conn:
                 for a in annotations:
                     kind = a.get("kind")
-                    mac = a.get("key", "").lower()
+                    key = a.get("key", "").lower()
                     field = a.get("field", "")
                     value = a.get("value")
                     
-                    if not mac or kind not in ("ip_vendor", "ip_annot"):
+                    if not key or kind not in ("ip_vendor", "ip_annot", "ip_device_vendor", "bacnet_vendor"):
                         continue
                         
                     if kind == "ip_vendor":
@@ -202,7 +217,22 @@ class FleetClient:
                                 is_dirty = 0,
                                 updated_at = CURRENT_TIMESTAMP
                             WHERE is_dirty = 0 OR updated_at < EXCLUDED.updated_at
-                        """, (mac, value))
+                        """, (key, value))
+                    elif kind == "bacnet_vendor":
+                        # C'est un fabricant BACnet global
+                        try:
+                            vendor_id = int(key)
+                            conn.execute("""
+                                INSERT INTO bacnet_vendors (vendor_id, name, is_dirty, updated_at)
+                                VALUES (?, ?, 0, CURRENT_TIMESTAMP)
+                                ON CONFLICT(vendor_id) DO UPDATE SET
+                                    name = EXCLUDED.name,
+                                    is_dirty = 0,
+                                    updated_at = CURRENT_TIMESTAMP
+                                WHERE is_dirty = 0 OR updated_at < EXCLUDED.updated_at
+                            """, (vendor_id, value))
+                        except ValueError:
+                            continue
                     elif kind == "ip_device_vendor":
                         # C'est une annotation spécifique à un équipement
                         conn.execute("""
@@ -283,6 +313,10 @@ class FleetClient:
         except Exception as e:
             logger.error(f"Erreur lors de l'envoi des trends : {e}")
             return False
+
+    def sync_all(self):
+        """Force une synchronisation complète des connaissances (Fabricants, etc.)."""
+        return self.sync_location({}) # Appel avec cell vide pour juste tirer/pousser les données globales
 
 # Instance globale
 fleet = FleetClient()

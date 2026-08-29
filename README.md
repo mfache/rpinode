@@ -53,3 +53,15 @@ python src/main.py
 Ouvrir votre navigateur sur `http://localhost:8080`. Vous verrez :
 1. Le Layout englobant la Home englobant les Widgets.
 2. Le Widget CPU mis à jour dynamiquement toutes les 2 secondes par l'EventSource.
+
+## Pratique
+
+L'accès à sudo local est disponible.
+
+## Gestion de la flotte
+
+Le serveur de synchronisation est docs.deltathermic.be.
+Ce serveur est une VM fournie par le service informatique.
+Nous avons les pleins pouvoir sur ce serveur pour y installer ce que nous voulons.
+Nous n'avons pas la main sur les ouvertures de ports.
+Un accès ssh est disponible avec le user mariadb derrière le port 9922.

@@ -111,7 +111,28 @@ def get_device_info(addr):
                 
                 # On extrait les 22 bits de l'instance (0x3FFFFF)
                 instance = val & 0x3FFFFF
-                return {"instance": instance, "name": "Automate BACnet"}
+                
+                # Tentative d'extraction du Vendor ID (Tag 2: Unsigned Integer)
+                # Il arrive généralement après le Device ID, Max ADU et Segmentation.
+                # On cherche le tag 21 (Unsigned, length 1) ou 22 (Unsigned, length 2)
+                vendor_id = None
+                # On cherche après l'ID du device (6 octets après idx)
+                search_data = data[idx+6:]
+                # Le Vendor ID est souvent le dernier tag de type 2 (Unsigned)
+                # On cherche 21 XX (1 octet) ou 22 XX XX (2 octets)
+                vidx = search_data.find(b'\x21')
+                if vidx != -1 and len(search_data) >= vidx + 2:
+                    vendor_id = search_data[vidx+1]
+                else:
+                    vidx = search_data.find(b'\x22')
+                    if vidx != -1 and len(search_data) >= vidx + 3:
+                        vendor_id = struct.unpack(">H", search_data[vidx+1:vidx+3])[0]
+                
+                return {
+                    "instance": instance, 
+                    "vendor_id": vendor_id,
+                    "name": "Automate BACnet"
+                }
     except:
         pass
     finally:

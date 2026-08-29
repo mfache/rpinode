@@ -18,28 +18,28 @@ logger = logging.getLogger(__name__)
 def get_oui_vendor(mac):
     if not mac:
         return "Inconnu"
-    mac_lower = mac.lower()
+    mac_clean = mac.lower().replace(":", "")
     
-    # 1. Recherche d'un fabricant spécifique par MAC complète (prioritaire)
-    # 2. Recherche par préfixe OUI (8 chars: 00:00:00)
     try:
         with get_db_connection() as conn:
-            # On tente d'abord de voir si on a un préfixe correspondant dans mac_vendors
-            # On teste toutes les longueurs de préfixe possibles (généralement 8 chars)
-            oui_prefix = mac_lower[:8]
-            row = conn.execute(
-                "SELECT vendor FROM mac_vendors WHERE prefix = ?", 
-                (oui_prefix,)
-            ).fetchone()
-            if row:
-                return row["vendor"]
+            # 1. Recherche par préfixe OUI (longueurs décroissantes: 8 chars ex 00:a0:03, 6 chars ex 00a003)
+            # On teste d'abord les 8 premiers caractères (format avec colonnes)
+            # puis les 6 premiers (format brut)
+            prefixes = [mac.lower()[:8], mac_clean[:6]]
+            for p in prefixes:
+                row = conn.execute(
+                    "SELECT vendor FROM mac_vendors WHERE prefix = ?", 
+                    (p,)
+                ).fetchone()
+                if row:
+                    return row["vendor"]
             
-            # Repli sur discovered_devices pour une annotation spécifique à CET équipement
+            # 2. Repli sur discovered_devices pour une annotation spécifique à CETTE MAC
             row = conn.execute(
                 "SELECT vendor FROM discovered_devices WHERE mac = ?", 
-                (mac_lower,)
+                (mac.lower(),)
             ).fetchone()
-            if row and row["vendor"]:
+            if row and row["vendor"] and row["vendor"] != "Inconnu":
                 return row["vendor"]
     except sqlite3.Error:
         pass
@@ -268,7 +268,10 @@ def update_db_results(devices, ifaces=None):
                     )
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 1)
                     ON CONFLICT(mac) DO UPDATE SET
-                        vendor = COALESCE(discovered_devices.vendor, EXCLUDED.vendor),
+                        vendor = CASE 
+                            WHEN discovered_devices.vendor IS NULL OR discovered_devices.vendor = 'Inconnu' THEN EXCLUDED.vendor 
+                            ELSE discovered_devices.vendor 
+                        END,
                         last_ip = EXCLUDED.last_ip,
                         last_ports = EXCLUDED.last_ports,
                         last_iface = EXCLUDED.last_iface,
@@ -322,7 +325,24 @@ async def enrich_bacnet_device(d):
             info = json.loads(stdout.decode())
             if "instance" in info:
                 d["bacnet_instance"] = info["instance"]
-                d["bacnet_name"] = info.get("name")
+                        
+                # Résolution du fabricant BACnet via la base de connaissance
+                vendor_name = info.get("name", "Automate BACnet")
+                if info.get("vendor_id"):
+                    try:
+                        with get_db_connection() as conn:
+                            row = conn.execute(
+                                "SELECT name FROM bacnet_vendors WHERE vendor_id = ?", 
+                                (info["vendor_id"],)
+                            ).fetchone()
+                            if row:
+                                vendor_name = row["name"]
+                            else:
+                                vendor_name = f"Fabricant #{info['vendor_id']}"
+                    except:
+                        pass
+                        
+                d["bacnet_name"] = vendor_name
                 update_db_results([d])
     except Exception as e:
         logger.warning(f"Échec enrichissement BACnet pour {d['ip']}: {e}")
