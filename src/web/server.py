@@ -739,6 +739,11 @@ class WebAdminHandler(BaseHTTPRequestHandler):
             if not mac:
                 return self.send_json({"status": "error", "message": "MAC manquante"})
                 
+            from services.presence import get_current_site_id
+            site_id = get_current_site_id()
+            if not site_id:
+                return self.send_json({"status": "error", "message": "Aucun chantier actif"})
+
             with get_db_connection() as conn:
                 if vendor:
                     # 1. Mise à jour de la connaissance globale (OUI)
@@ -752,19 +757,16 @@ class WebAdminHandler(BaseHTTPRequestHandler):
                             updated_at = CURRENT_TIMESTAMP
                     """, (oui_prefix, vendor))
                     
-                    # 2. Mise à jour de l'équipement spécifique
+                    # 2. Mise à jour de l'équipement spécifique (pour TOUS les chantiers où il apparaît)
                     conn.execute("""
-                        INSERT INTO discovered_devices (mac, vendor, is_dirty, updated_at, last_seen)
-                        VALUES (?, ?, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-                        ON CONFLICT(mac) DO UPDATE SET
-                            vendor = EXCLUDED.vendor,
-                            is_dirty = 1,
-                            updated_at = CURRENT_TIMESTAMP,
-                            last_seen = CURRENT_TIMESTAMP
-                    """, (mac, vendor))
+                        UPDATE discovered_devices 
+                        SET vendor = ?, is_dirty = 1, updated_at = CURRENT_TIMESTAMP
+                        WHERE mac = ?
+                    """, (vendor, mac))
                 
                 if annotations is not None:
                     annotations_json = json.dumps(annotations) if isinstance(annotations, dict) else annotations
+                    # Les annotations sont liées à la MAC (pièce, usage) peu importe le chantier
                     conn.execute("""
                         UPDATE discovered_devices 
                         SET annotations_json = ?, is_dirty = 1, updated_at = CURRENT_TIMESTAMP

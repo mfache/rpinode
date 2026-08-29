@@ -12,7 +12,7 @@ import sys
 
 from core.config import load_config, save_config
 from core.database import get_db_connection
-from core.paths import IPSCAN_RUNNING_FILE
+from services.presence import get_current_site_id
 
 logger = logging.getLogger(__name__)
 
@@ -175,19 +175,23 @@ async def sweep_iface(iface, ip_str, prefix):
     return alive
 
 def load_ipscan_results():
-    """Charge les derniers résultats du scan depuis la base de données."""
+    """Charge les derniers résultats du scan depuis la base de données pour le site actuel."""
     config = load_config()
     last_at = config.get("ipscan_last_at", "Jamais")
+    site_id = get_current_site_id()
     
     devices = []
+    if not site_id:
+        return {"scanned_at": "Chantier inconnu", "devices": []}
+
     try:
         with get_db_connection() as conn:
-            # On récupère les équipements vus lors du dernier scan (ou les 100 derniers)
-            # Pour la fluidité, on prend tout ce qui a été vu depuis 'last_at' (ou tout court)
+            # On récupère les équipements vus pour le site actuel
             rows = conn.execute("""
                 SELECT * FROM discovered_devices 
+                WHERE site_id = ?
                 ORDER BY last_seen DESC, last_ip ASC
-            """).fetchall()
+            """, (site_id,)).fetchall()
             for row in rows:
                 d = dict(row)
                 d["ip"] = d.get("last_ip") or "Inconnu"
@@ -257,18 +261,23 @@ async def run_ip_scan():
             os.remove(IPSCAN_RUNNING_FILE)
 
 def update_db_results(devices, ifaces=None):
-    """Met à jour la base de données avec les résultats du scan."""
+    """Met à jour la base de données avec les résultats du scan pour le chantier actuel."""
+    site_id = get_current_site_id()
+    if not site_id:
+        logger.error("Impossible de mettre à jour les résultats : aucun chantier actif.")
+        return
+
     try:
         with get_db_connection() as conn:
             for d in devices:
                 ports_json = json.dumps(d.get("ports", []))
                 conn.execute("""
                     INSERT INTO discovered_devices (
-                        mac, vendor, last_ip, last_ports, last_iface, 
+                        site_id, mac, vendor, last_ip, last_ports, last_iface, 
                         bacnet_instance, bacnet_name, modbus_info, last_seen, updated_at, is_dirty
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 1)
-                    ON CONFLICT(mac) DO UPDATE SET
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 1)
+                    ON CONFLICT(site_id, mac) DO UPDATE SET
                         vendor = CASE 
                             WHEN discovered_devices.vendor IS NULL OR discovered_devices.vendor = 'Inconnu' THEN EXCLUDED.vendor 
                             ELSE discovered_devices.vendor 
@@ -281,7 +290,7 @@ def update_db_results(devices, ifaces=None):
                         modbus_info = COALESCE(EXCLUDED.modbus_info, discovered_devices.modbus_info),
                         last_seen = CURRENT_TIMESTAMP
                 """, (
-                    d["mac"].lower(), d["vendor"], d["ip"], ports_json, d["iface"],
+                    site_id, d["mac"].lower(), d["vendor"], d["ip"], ports_json, d["iface"],
                     d.get("bacnet_instance"), d.get("bacnet_name"), d.get("modbus_info")
                 ))
             conn.commit()

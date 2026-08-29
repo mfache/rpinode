@@ -77,7 +77,27 @@ CREATE TABLE IF NOT EXISTS site_network_profiles (
     UNIQUE(site_id, interface)
 );
 
--- Templates Modbus génériques (communs à la flotte)
+-- Équipements découverts sur le réseau (Scanner IP)
+-- On lie les découvertes à un chantier car les IPs/Ports peuvent changer.
+-- La MAC reste la clé pour persister les annotations globales.
+CREATE TABLE IF NOT EXISTS discovered_devices (
+    site_id INTEGER NOT NULL,
+    mac TEXT NOT NULL,
+    vendor TEXT,
+    last_ip TEXT,                       -- Dernière IP connue
+    last_ports TEXT,                    -- Ports ouverts (JSON: [80, 502, ...])
+    last_iface TEXT,                    -- Interface (eth0, wlan0)
+    bacnet_instance INTEGER,            -- Instance BACnet découverte
+    bacnet_name TEXT,                   -- Nom BACnet découvert
+    modbus_info TEXT,                   -- Infos Modbus découvertes (Unit IDs, etc.)
+    annotations_json TEXT,              -- JSON des champs personnalisés {"Pièce": "Local Tech", ...}
+    is_dirty BOOLEAN DEFAULT 1,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    sync_updated_at DATETIME,
+    last_seen DATETIME DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (site_id, mac),
+    FOREIGN KEY (site_id) REFERENCES sites(id) ON DELETE CASCADE
+);
 CREATE TABLE IF NOT EXISTS modbus_templates (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     external_id TEXT UNIQUE,            -- ID sur le serveur maître
@@ -127,51 +147,3 @@ CREATE TABLE IF NOT EXISTS bacnet_devices (
 );
 
 -- Historique des relevés (Trends)
-CREATE TABLE IF NOT EXISTS trends (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    site_id INTEGER NOT NULL,
-    protocol TEXT NOT NULL,             -- 'modbus' ou 'bacnet'
-    timestamp INTEGER NOT NULL,         -- Unix timestamp
-    device_id TEXT NOT NULL,            -- Identifiant de l'appareil
-    object_id TEXT NOT NULL,            -- Registre Modbus ou Objet BACnet
-    value TEXT,                         -- Valeur relevée
-    is_synced BOOLEAN DEFAULT 0,        -- 1 si envoyé au serveur maître
-    FOREIGN KEY (site_id) REFERENCES sites(id) ON DELETE CASCADE
-);
-
--- Base de connaissance des fabricants BACnet (ID -> Nom)
-CREATE TABLE IF NOT EXISTS bacnet_vendors (
-    vendor_id INTEGER PRIMARY KEY,
-    name TEXT NOT NULL,
-    is_dirty BOOLEAN DEFAULT 1,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    sync_updated_at DATETIME
-);
-
--- Base de connaissance des fabricants (OUI)
--- Partagée par toute la flotte pour identifier les équipements par leur MAC.
-CREATE TABLE IF NOT EXISTS mac_vendors (
-    prefix TEXT PRIMARY KEY,             -- Préfixe MAC (ex: "00:90:e8")
-    vendor TEXT NOT NULL,
-    is_dirty BOOLEAN DEFAULT 1,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    sync_updated_at DATETIME
-);
-
--- Équipements découverts sur le réseau (Scanner IP)
--- On utilise la MAC comme clé unique pour persister les annotations (pièce, usage, etc.)
-CREATE TABLE IF NOT EXISTS discovered_devices (
-    mac TEXT PRIMARY KEY,
-    vendor TEXT,
-    last_ip TEXT,                       -- Dernière IP connue
-    last_ports TEXT,                    -- Ports ouverts (JSON: [80, 502, ...])
-    last_iface TEXT,                    -- Interface (eth0, wlan0)
-    bacnet_instance INTEGER,            -- Instance BACnet découverte
-    bacnet_name TEXT,                   -- Nom BACnet découvert
-    modbus_info TEXT,                   -- Infos Modbus découvertes (Unit IDs, etc.)
-    annotations_json TEXT,              -- JSON des champs personnalisés {"Pièce": "Local Tech", ...}
-    is_dirty BOOLEAN DEFAULT 1,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    sync_updated_at DATETIME,
-    last_seen DATETIME DEFAULT CURRENT_TIMESTAMP
-);
