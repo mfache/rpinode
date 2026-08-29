@@ -1,6 +1,7 @@
-import subprocess
 import logging
 import shlex
+import subprocess
+
 from core.database import get_db_connection
 
 logger = logging.getLogger(__name__)
