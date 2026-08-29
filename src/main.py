@@ -1,4 +1,5 @@
 import logging
+from logging.handlers import RotatingFileHandler
 import threading
 
 from core.database import init_db
@@ -9,17 +10,25 @@ from services.tracker import start_tracker
 from services.wifi_mgr import run_wifi_manager
 from web.server import start_server
 
-# Configuration du logging (Fichier + Console)
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[
-        logging.FileHandler(LOG_FILE, encoding="utf-8"),
-        logging.StreamHandler()
-    ]
-)
-
 def main():
+    # Handler vers le serveur maître (Filtré sur WARNING par défaut pour ne pas spammer, ou INFO selon le besoin)
+    from services.remote_log import FleetLogHandler
+    fleet_handler = FleetLogHandler(batch_size=20, flush_interval=30)
+    fleet_handler.setLevel(logging.INFO)
+    # On simplifie le format pour l'API (le timestamp et le module sont déjà séparés)
+    fleet_handler.setFormatter(logging.Formatter("%(message)s"))
+
+    # Configuration du logging (Fichier rotatif + Console + Serveur distant)
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        handlers=[
+            RotatingFileHandler(LOG_FILE, maxBytes=2*1024*1024, backupCount=2, encoding="utf-8"),
+            logging.StreamHandler(),
+            fleet_handler
+        ]
+    )
+
     logging.info(f"Démarrage de rpinode. Dossier de données : {DATA_DIR}")
     logging.info(f"Logs enregistrés dans : {LOG_FILE}")
     

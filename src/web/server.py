@@ -785,9 +785,16 @@ class WebAdminHandler(BaseHTTPRequestHandler):
 
 def start_server():
     config = load_config()
-    port = config.get("port", 8081)
+    # On s'assure que le port est bien un entier (lit depuis JSON peut parfois poser souci si édité à la main)
+    port = int(config.get("port", 8081))
     server_address = ('', port)
+    
+    # allow_reuse_address permet de redémarrer le serveur immédiatement sans attendre le timeout TCP TIME_WAIT
+    ThreadingHTTPServer.allow_reuse_address = True
     httpd = ThreadingHTTPServer(server_address, WebAdminHandler)
+    
     logger.info(f"Serveur HTTP rpinode sur port {port}")
-    try: httpd.serve_forever()
-    except KeyboardInterrupt: httpd.server_close()
+    try:
+        httpd.serve_forever()
+    except KeyboardInterrupt:
+        httpd.server_close()
