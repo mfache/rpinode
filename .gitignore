@@ -16,3 +16,4 @@ log/*.log
 .zed/
 .vscode/
 .idea/
+test_*.py
