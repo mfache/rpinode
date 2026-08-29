@@ -5,25 +5,26 @@
         <h3>Interface Ethernet (eth0)</h3>
         <p class="help-text">Les réglages ci-dessous sont enregistrés spécifiquement pour ce chantier et seront restaurés automatiquement lors d'un retour sur site.</p>
         
-        <form id="form-eth0" onsubmit="saveEth0Config(event)">
+        <form id="form-eth0" onsubmit="saveConfig(event, 'eth0')">
+            <input type="hidden" name="interface" value="eth0">
             <div class="form-group">
                 <label>Méthode d'adressage :</label>
-                <select name="method" onchange="toggleEth0ManualFields(this.value)">
-                    <option value="auto" ${method_auto_selected}>Automatique (DHCP)</option>
-                    <option value="manual" ${method_manual_selected}>Statique (IP Fixe)</option>
+                <select name="method" onchange="toggleManualFields('eth0', this.value)">
+                    <option value="auto" ${eth0_method_auto_selected}>Automatique (DHCP)</option>
+                    <option value="manual" ${eth0_method_manual_selected}>Statique (IP Fixe)</option>
                 </select>
             </div>
 
-            <div id="eth0-manual-fields" style="display: ${manual_fields_display};">
-                <div id="addresses-container">
+            <div id="eth0-manual-fields" style="display: ${eth0_manual_fields_display};">
+                <div id="eth0-addresses-container">
                     <label>Adresses IP (CIDR, ex: 192.168.1.10/24) :</label>
-                    ${addresses_rows}
+                    ${eth0_addresses_rows}
                 </div>
-                <button type="button" class="btn-secondary" onclick="addAddressRow()">+ Ajouter une adresse</button>
+                <button type="button" class="btn-secondary" onclick="addAddressRow('eth0')">+ Ajouter une adresse</button>
                 
                 <div class="form-group mt-10">
                     <label>Passerelle (optionnel) :</label>
-                    <input type="text" name="gateway" value="${gateway}" placeholder="192.168.1.1">
+                    <input type="text" name="gateway" value="${eth0_gateway}" placeholder="192.168.1.1">
                 </div>
             </div>
 
@@ -34,21 +35,53 @@
     </div>
 
     <div class="card mt-20">
-        <h3>État actuel</h3>
-        <table class="data-table">
-            <tr>
-                <th>État :</th>
-                <td><span class="status-pill ${active_class}">${active_text}</span></td>
-            </tr>
-            <tr>
-                <th>Adresse IP actuelle :</th>
-                <td style="font-family: monospace; font-weight: bold;">${current_ip}</td>
-            </tr>
-            <tr>
-                <th>Adresse MAC :</th>
-                <td style="font-family: monospace;">${mac}</td>
-            </tr>
-        </table>
+        <h3>Interface WiFi (wlan0)</h3>
+        <p class="help-text">Configuration du WiFi client pour le chantier (ex: H66). Cette configuration est prioritaire sauf en cas de perte de connexion 4G où le mode RPIRESCUE ou AP local prend le relais.</p>
+        
+        <form id="form-wlan0" onsubmit="saveConfig(event, 'wlan0')">
+            <input type="hidden" name="interface" value="wlan0">
+            
+            <div class="form-group">
+                <label>SSID (Nom du réseau WiFi) :</label>
+                <div style="display: flex; gap: 10px;">
+                    <input type="text" name="ssid" id="wlan0-ssid" value="${wlan0_ssid}" placeholder="Ex: H66-WIFI" list="ssids-list">
+                    <datalist id="ssids-list"></datalist>
+                    <button type="button" class="btn-secondary" onclick="refreshSSIDs()" id="btn-refresh-ssids" title="Actualiser la liste">
+                        🔄
+                    </button>
+                </div>
+            </div>
+            
+            <div class="form-group">
+                <label>Mot de passe (Clé WPA) :</label>
+                <input type="password" name="psk" value="${wlan0_psk}" placeholder="********">
+            </div>
+
+            <div class="form-group">
+                <label>Méthode d'adressage IP :</label>
+                <select name="method" onchange="toggleManualFields('wlan0', this.value)">
+                    <option value="auto" ${wlan0_method_auto_selected}>Automatique (DHCP)</option>
+                    <option value="manual" ${wlan0_method_manual_selected}>Statique (IP Fixe)</option>
+                </select>
+            </div>
+
+            <div id="wlan0-manual-fields" style="display: ${wlan0_manual_fields_display};">
+                <div id="wlan0-addresses-container">
+                    <label>Adresses IP (CIDR) :</label>
+                    ${wlan0_addresses_rows}
+                </div>
+                <button type="button" class="btn-secondary" onclick="addAddressRow('wlan0')">+ Ajouter une adresse</button>
+                
+                <div class="form-group mt-10">
+                    <label>Passerelle (optionnel) :</label>
+                    <input type="text" name="gateway" value="${wlan0_gateway}" placeholder="192.168.1.1">
+                </div>
+            </div>
+
+            <div class="form-actions">
+                <button type="submit" class="btn-primary">Enregistrer et Appliquer</button>
+            </div>
+        </form>
     </div>
 </section>
 
@@ -96,17 +129,19 @@
 .help-text { font-size: 0.85em; color: #666; margin-bottom: 15px; }
 .form-actions { margin-top: 20px; border-top: 1px solid #eee; padding-top: 15px; text-align: right; }
 .data-table { width: 100%; border-collapse: collapse; }
-.data-table th { text-align: left; padding: 8px 0; color: #666; width: 200px; }
-.data-table td { padding: 8px 0; }
+.data-table th { text-align: left; padding: 4px 0; color: #666; width: 80px; font-size: 0.9em; }
+.data-table td { padding: 4px 0; }
+.status-pill.active { background: #e8f5e9; color: #2e7d32; padding: 2px 8px; border-radius: 12px; font-size: 0.8em; }
+.status-pill.inactive { background: #ffebee; color: #c62828; padding: 2px 8px; border-radius: 12px; font-size: 0.8em; }
 </style>
 
 <script>
-function toggleEth0ManualFields(val) {
-    document.getElementById('eth0-manual-fields').style.display = val === 'manual' ? 'block' : 'none';
+function toggleManualFields(iface, val) {
+    document.getElementById(iface + '-manual-fields').style.display = val === 'manual' ? 'block' : 'none';
 }
 
-function addAddressRow() {
-    const container = document.getElementById('addresses-container');
+function addAddressRow(iface) {
+    const container = document.getElementById(iface + '-addresses-container');
     const div = document.createElement('div');
     div.className = 'address-row';
     div.innerHTML = `
@@ -117,26 +152,63 @@ function addAddressRow() {
 }
 
 function removeAddressRow(btn) {
-    const rows = document.querySelectorAll('.address-row');
+    const row = btn.closest('.address-row');
+    const container = row.parentElement;
+    const rows = container.querySelectorAll('.address-row');
     if (rows.length > 1) {
-        btn.closest('.address-row').remove();
+        row.remove();
     } else {
-        btn.closest('.address-row').querySelector('input').value = '';
+        row.querySelector('input').value = '';
     }
 }
 
-async function saveEth0Config(event) {
+async function refreshSSIDs() {
+    const btn = document.getElementById('btn-refresh-ssids');
+    const datalist = document.getElementById('ssids-list');
+    const baseUrl = window.CONFIG ? window.CONFIG.baseUrl : '/rpinode';
+    
+    btn.textContent = '...';
+    btn.disabled = true;
+    
+    try {
+        const url = (baseUrl + '/api/network/wifi/list').replace(/\/+/g, '/');
+        const response = await fetch(url);
+        const ssids = await response.json();
+        
+        datalist.innerHTML = '';
+        ssids.forEach(ssid => {
+            const option = document.createElement('option');
+            option.value = ssid;
+            datalist.appendChild(option);
+        });
+    } catch (e) {
+        console.error('Erreur lors du rafraîchissement des SSIDs', e);
+    } finally {
+        btn.textContent = '🔄';
+        btn.disabled = false;
+    }
+}
+
+// Charger les SSIDs au chargement de la page
+document.addEventListener('DOMContentLoaded', refreshSSIDs);
+
+async function saveConfig(event, iface) {
     event.preventDefault();
     const formData = new FormData(event.target);
     
     const baseUrl = window.CONFIG ? window.CONFIG.baseUrl : '/rpinode';
     
     const data = {
-        interface: 'eth0',
+        interface: iface,
         method: formData.get('method'),
         gateway: formData.get('gateway'),
         addresses: formData.getAll('addresses').filter(a => a.trim() !== '').join(',')
     };
+    
+    if (iface === 'wlan0') {
+        data.ssid = formData.get('ssid');
+        data.psk = formData.get('psk');
+    }
     
     try {
         const url = (baseUrl + '/api/network/profile/save').replace(/\/+/g, '/');
@@ -150,7 +222,7 @@ async function saveEth0Config(event) {
         if (res.status === 'ok') {
             alert('Configuration enregistrée et en cours d\'application...');
             // On laisse un peu de temps à NetworkManager de redémarrer l'interface
-            setTimeout(() => window.location.reload(), 2000);
+            setTimeout(() => window.location.reload(), 3000);
         } else {
             alert('Erreur : ' + res.message);
         }

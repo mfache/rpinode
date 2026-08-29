@@ -231,21 +231,61 @@ document.addEventListener("DOMContentLoaded", () => {
                     }
 
                     // Traitement spécial pour les états actifs (couleurs des nodes et pills)
-                    if (key.endsWith('_active')) {
-                        const iface = key.replace('net_', '').replace('_active', '');
-                        const node = document.getElementById(`node-${iface}`);
-                        const pill = document.getElementById(`pill-${iface}`);
+                    if (key.endsWith('_active') || key.startsWith('net_eth0_')) {
                         
-                        const isActive = (value === true || value === "true");
-                        
-                        if (node) {
-                            if (isActive) node.classList.add('active');
-                            else node.classList.remove('active');
+                        // Stockage global de l'état eth0
+                        if (key.startsWith('net_eth0_')) {
+                            window.eth0State = window.eth0State || {};
+                            window.eth0State[key.replace('net_eth0_', '')] = value;
                         }
                         
-                        if (pill) {
-                            pill.textContent = isActive ? 'Connecté' : 'Coupé';
-                            pill.className = `status-pill ${isActive ? 'active' : 'inactive'}`;
+                        const isEth0Event = key.startsWith('net_eth0_') || key === 'net_eth0_active';
+                        
+                        if (isEth0Event) {
+                            const node = document.getElementById('node-eth0');
+                            const pill = document.getElementById('pill-eth0');
+                            const s = window.eth0State || {};
+                            
+                            const isActive = (s.active === true || s.active === "true");
+                            const hasCable = (s.cable === true || s.cable === "true");
+                            const isDhcp = (s.dhcp === true || s.dhcp === "true");
+                            const hasIp = (s.has_ip === true || s.has_ip === "true");
+                            
+                            if (node && pill) {
+                                if (!hasCable) {
+                                    node.classList.remove('active');
+                                    pill.textContent = 'Débranché';
+                                    pill.className = 'status-pill inactive';
+                                } else if (isActive && hasIp) {
+                                    node.classList.add('active');
+                                    pill.textContent = 'Connecté';
+                                    pill.className = 'status-pill active';
+                                } else if (isDhcp && !hasIp) {
+                                    node.classList.remove('active');
+                                    pill.textContent = "En attente";
+                                    pill.className = 'status-pill inactive';
+                                } else {
+                                    node.classList.remove('active');
+                                    pill.textContent = 'Coupé';
+                                    pill.className = 'status-pill inactive';
+                                }
+                            }
+                        } else if (key.endsWith('_active')) {
+                            const iface = key.replace('net_', '').replace('_active', '');
+                            const node = document.getElementById(`node-${iface}`);
+                            const pill = document.getElementById(`pill-${iface}`);
+                            
+                            const isActive = (value === true || value === "true");
+                            
+                            if (node) {
+                                if (isActive) node.classList.add('active');
+                                else node.classList.remove('active');
+                            }
+                            
+                            if (pill) {
+                                pill.textContent = isActive ? 'Connecté' : 'Coupé';
+                                pill.className = `status-pill ${isActive ? 'active' : 'inactive'}`;
+                            }
                         }
                     }
 
@@ -283,18 +323,78 @@ document.addEventListener("DOMContentLoaded", () => {
                             status.textContent = isRunning ? 'Scan en cours...' : 'Prêt';
                             status.className = `status-badge ${isRunning ? 'running' : 'idle'}`;
                             
-                            // Si le scan vient de se terminer, on rafraîchit la page pour voir les résultats
+                            // Si le scan vient de se terminer, on rafraîchit la table en arrière-plan
                             if (wasRunning && !isRunning && window.location.pathname.includes('/scan/ip')) {
-                                setTimeout(() => window.location.reload(), 500);
+                                setTimeout(async () => {
+                                    try {
+                                        const url = (baseUrl + '/api/scan/ip/results').replace(/\/+/g, '/');
+                                        const res = await fetch(url);
+                                        const data = await res.json();
+                                        
+                                        const tbody = document.getElementById('ipscan-results-body');
+                                        const lastScan = document.getElementById('subt_ipscan_last_scan');
+                                        
+                                        if (tbody && data.html) {
+                                            tbody.innerHTML = data.html;
+                                        }
+                                        if (lastScan && data.scanned_at) {
+                                            lastScan.textContent = data.scanned_at;
+                                        }
+                                        
+                                        // Réappliquer les filtres/tris/visibilités
+                                        if (typeof initColumnPicker === 'function') {
+                                            const hiddenColLabels = JSON.parse(localStorage.getItem('ipscan_hidden_labels') || '[]');
+                                            const table = document.getElementById("inventory-table");
+                                            const headers = table.querySelectorAll("thead th");
+                                            headers.forEach((th, index) => {
+                                                if (index === 0) return;
+                                                const label = th.textContent.replace(' ↕', '').replace('×', '').trim();
+                                                if (hiddenColLabels.includes(label)) {
+                                                    applyColumnVisibility(index, false);
+                                                }
+                                            });
+                                        }
+                                        if (typeof filterTable === 'function') filterTable();
+                                    } catch(e) {
+                                        console.error("Erreur lors du rafraîchissement du tableau:", e);
+                                    }
+                                }, 500);
                             }
                         }
                     }
                     if (key === 'ipscan_last_at') {
-                        // Si le scan a été mis à jour pendant qu'on regarde la page, on rafraîchit
+                        // Si le scan a été mis à jour pendant qu'on regarde la page, on rafraîchit (silencieusement)
                         if (window.location.pathname.includes('/scan/ip')) {
                             if (window.lastIpscanAt && window.lastIpscanAt !== value) {
                                 console.log("Mise à jour des résultats de scan détectée");
-                                window.location.reload();
+                                setTimeout(async () => {
+                                    try {
+                                        const url = (baseUrl + '/api/scan/ip/results').replace(/\/+/g, '/');
+                                        const res = await fetch(url);
+                                        const data = await res.json();
+                                        
+                                        const tbody = document.getElementById('ipscan-results-body');
+                                        const lastScan = document.getElementById('subt_ipscan_last_scan');
+                                        
+                                        if (tbody && data.html) tbody.innerHTML = data.html;
+                                        if (lastScan && data.scanned_at) lastScan.textContent = data.scanned_at;
+                                        
+                                        // Réappliquer les filtres/tris/visibilités
+                                        if (typeof initColumnPicker === 'function') {
+                                            const hiddenColLabels = JSON.parse(localStorage.getItem('ipscan_hidden_labels') || '[]');
+                                            const table = document.getElementById("inventory-table");
+                                            const headers = table.querySelectorAll("thead th");
+                                            headers.forEach((th, index) => {
+                                                if (index === 0) return;
+                                                const label = th.textContent.replace(' ↕', '').replace('×', '').trim();
+                                                if (hiddenColLabels.includes(label)) {
+                                                    applyColumnVisibility(index, false);
+                                                }
+                                            });
+                                        }
+                                        if (typeof filterTable === 'function') filterTable();
+                                    } catch(e) { console.error("Erreur de rafraîchissement:", e); }
+                                }, 500);
                             }
                             window.lastIpscanAt = value;
                         }

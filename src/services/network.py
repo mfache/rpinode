@@ -30,6 +30,56 @@ def get_interface_status(iface):
                 has_ip = True
                 break
         
+        cable = "NO-CARRIER" not in flags
+        
+        # Check DHCP & Profile IP
+        is_dhcp = False
+        con_name = None
+        try:
+            # Récupérer la connexion active
+            cmd_con = ["nmcli", "-t", "-f", "GENERAL.CONNECTION", "dev", "show", iface]
+            res_con = subprocess.run(cmd_con, capture_output=True, text=True)
+            if res_con.returncode == 0:
+                con_line = res_con.stdout.strip()
+                if con_line.startswith("GENERAL.CONNECTION:"):
+                    val = con_line.split(":", 1)[1]
+                    if val and val != "--":
+                        con_name = val
+
+            # Si le câble est débranché, NM peut cacher la connexion active.
+            # On tente de fallback sur le nom standard utilisé par l'app.
+            if not con_name and iface == "eth0":
+                con_name = "eth0-manual"
+
+            if con_name:
+                # Check method
+                cmd_meth = ["nmcli", "-t", "-f", "ipv4.method", "con", "show", con_name]
+                res_meth = subprocess.run(cmd_meth, capture_output=True, text=True)
+                if res_meth.returncode == 0:
+                    meth_line = res_meth.stdout.strip()
+                    if meth_line == "ipv4.method:auto":
+                        is_dhcp = True
+                    elif meth_line == "ipv4.method:manual":
+                        # Si pas d'IP détectée physiquement (ex: débranché), on lit le profil
+                        if not has_ip:
+                            cmd_ip = ["nmcli", "-t", "-f", "ipv4.addresses", "con", "show", con_name]
+                            res_ip = subprocess.run(cmd_ip, capture_output=True, text=True)
+                            if res_ip.returncode == 0:
+                                ip_line = res_ip.stdout.strip()
+                                if ip_line.startswith("ipv4.addresses:"):
+                                    static_ips = ip_line.split(":", 1)[1]
+                                    if static_ips:
+                                        ip = static_ips.split(",")[0]
+                                        # On ne met pas has_ip = True car il n'est pas "up" réseau,
+                                        # mais on a récupéré l'affichage.
+        except Exception:
+            pass
+
+        if cable and not has_ip and is_dhcp:
+            ip = "En attente d'attribution DHCP"
+        elif not cable and is_dhcp and not has_ip:
+            ip = "DHCP (Auto)"
+
         is_up = (operstate == "UP") or ("UP" in flags and has_ip)
         
         # 2. Infos de routage
@@ -49,13 +99,16 @@ def get_interface_status(iface):
 
         return {
             "active": is_up, 
+            "cable": cable,
+            "dhcp": is_dhcp,
+            "has_ip": has_ip,
             "ip": ip, 
             "mac": mac,
             "routes": routes
         }
     except Exception as e:
         logger.error(f"Erreur status {iface}: {e}")
-        return {"active": False, "ip": "Erreur", "mac": "-", "routes": []}
+        return {"active": False, "cable": False, "dhcp": False, "has_ip": False, "ip": "Erreur", "mac": "-", "routes": []}
 
 def get_tailscale_status():
     """Retourne les infos détaillées de Tailscale."""

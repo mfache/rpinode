@@ -258,11 +258,15 @@ async def run_ip_scan():
             # Persistance immédiate dans la base de données
             update_db_results(results, scanned_ifaces)
             
+            # On retire le lock du scan pour que l'UI réagisse plus vite
+            if os.path.exists(IPSCAN_RUNNING_FILE):
+                os.remove(IPSCAN_RUNNING_FILE)
+
             # Phase 2 : Enrichissement BACnet & Modbus (Différé)
             await enrich_results(results)
 
         logger.info("Scan IP terminé.")
-        
+
     finally:
         if os.path.exists(IPSCAN_RUNNING_FILE):
             os.remove(IPSCAN_RUNNING_FILE)
