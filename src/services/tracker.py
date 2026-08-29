@@ -88,7 +88,7 @@ def start_tracker(interval=30):
         try:
             check_and_update_site()
         except Exception as e:
-            logger.error(f"Erreur dans le tracker de localisation : {e}")
+            logger.exception(f"Erreur dans le tracker de localisation : {e}")
         time.sleep(interval)
 
 if __name__ == "__main__":
