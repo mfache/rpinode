@@ -152,6 +152,15 @@ class WebAdminHandler(BaseHTTPRequestHandler):
 
         self.send_response(200)
         self.send_header("Content-Type", content_type)
+        # Empêcher le cache navigateur pour sw.js afin que les mises à jour de la PWA soient immédiates
+        if filename == "sw.js":
+            self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
+            self.send_header("Pragma", "no-cache")
+            self.send_header("Expires", "0")
+        else:
+            # Cache d'une heure pour les autres assets statiques
+            self.send_header("Cache-Control", "public, max-age=3600")
+        
         self.end_headers()
 
         with open(file_path, "rb") as f:
