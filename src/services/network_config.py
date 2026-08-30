@@ -35,7 +35,12 @@ def apply_site_network_profiles(site_id):
         if iface == "eth0":
             _apply_eth0_profile(method, p["addresses"], p["gateway"])
         elif iface == "wlan0":
-            _apply_wlan0_profile(method, p["ssid"], p["psk"], p["addresses"], p["gateway"])
+            # Pour wlan0, on délègue au wifi_mgr qui gère les priorités (RPIRESCUE, AP, etc.)
+            try:
+                from services.wifi_mgr import manage_wifi
+                manage_wifi(force=True)
+            except Exception as e:
+                logger.error(f"Erreur lors de l'appel à manage_wifi: {e}")
 
     # Si eth0 n'était pas dans les profils, on s'assure qu'il est en DHCP (reset)
     if "eth0" not in applied_ifaces:
@@ -78,7 +83,15 @@ def _apply_eth0_profile(method, addresses, gateway):
     else:
         # Nettoyage des adresses. Pour nmcli, plusieurs adresses doivent être séparées par des virgules
         # dans une seule chaîne de caractères si on utilise 'con mod'.
-        addrs_nm = ",".join([a.strip() for a in addresses.split(",") if a.strip()])
+        import json
+        try:
+            addrs_list = json.loads(addresses) if addresses else []
+            if not isinstance(addrs_list, list):
+                addrs_list = [addresses]
+        except Exception:
+            addrs_list = [a.strip() for a in (addresses or "").split(",") if a.strip()]
+            
+        addrs_nm = ",".join(addrs_list)
         logger.info(f"Paramètres NM pour eth0: method={method}, addresses='{addrs_nm}', gateway='{gateway}'")
         
         nm_cmd = f"sudo nmcli con mod '{con_name}' ipv4.method manual ipv4.addresses '{addrs_nm}'"
@@ -129,46 +142,9 @@ def get_site_network_profile(site_id, interface="eth0"):
         row = cursor.fetchone()
         return dict(row) if row else None
 
-def _apply_wlan0_profile(method, ssid, psk, addresses, gateway):
-    """Applique la config WiFi sur wlan0 via nmcli."""
-    if not ssid:
-        return
 
-    logger.info(f"Application profil wlan0 (SSID: {ssid}, Method: {method})")
-    con_name = "wlan0-manual"
-    
-    # Construction de la commande de modification ou ajout
-    opts = f"802-11-wireless.ssid {shlex.quote(ssid)} connection.autoconnect yes "
-    if psk:
-        opts += f"wifi-sec.key-mgmt wpa-psk wifi-sec.psk {shlex.quote(psk)} "
-    else:
-        opts += "wifi-sec.key-mgmt none "
 
-    if method == "manual":
-        opts += f"ipv4.method manual ipv4.addresses {shlex.quote(addresses)} "
-        if gateway:
-            opts += f"ipv4.gateway {shlex.quote(gateway)} "
-    else:
-        opts += "ipv4.method auto "
-
-    # Vérifier si la connexion existe
-    check_cmd = f"nmcli con show '{con_name}'"
-    exists = subprocess.run(check_cmd, shell=True, capture_output=True).returncode == 0
-
-    if exists:
-        full_cmd = f"sudo nmcli con mod '{con_name}' {opts}"
-    else:
-        full_cmd = f"sudo nmcli con add type wifi ifname wlan0 con-name '{con_name}' {opts}"
-
-    try:
-        subprocess.run("sudo nmcli radio wifi on", shell=True, check=True)
-        subprocess.run(full_cmd, shell=True, check=True)
-        subprocess.run(f"sudo nmcli con up '{con_name}'", shell=True, check=True)
-        logger.info(f"Profil wlan0 appliqué avec succès.")
-    except subprocess.CalledProcessError as e:
-        logger.error(f"Erreur lors de l'application du profil wlan0: {e}")
-
-def save_site_network_profiles(site_id, profiles_list):
+def save_site_network_profiles(site_id, profiles_list, is_dirty=True):
     """
     Enregistre une liste de profils réseau pour un chantier.
     profiles_list: liste de dict [{interface, method, addresses, gateway, ssid, psk}]
@@ -184,24 +160,33 @@ def save_site_network_profiles(site_id, profiles_list):
             if not iface:
                 continue
                 
+            import json
             addresses = p.get('addresses')
             if isinstance(addresses, list):
-                addresses = ",".join(addresses)
+                addresses = json.dumps(addresses)
+            elif isinstance(addresses, str):
+                try:
+                    # check if it's already a valid json
+                    json.loads(addresses)
+                except Exception:
+                    # convert comma separated string to JSON list
+                    addresses = json.dumps([a.strip() for a in addresses.split(',') if a.strip()])
                 
             cursor.execute(
                 """
                 INSERT INTO site_network_profiles 
-                (site_id, interface, method, addresses, gateway, ssid, psk)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                (site_id, interface, method, addresses, gateway, ssid, psk, is_dirty)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(site_id, interface) DO UPDATE SET
                     method = excluded.method,
                     addresses = excluded.addresses,
                     gateway = excluded.gateway,
                     ssid = excluded.ssid,
                     psk = excluded.psk,
+                    is_dirty = excluded.is_dirty,
                     updated_at = CURRENT_TIMESTAMP
                 """,
                 (site_id, iface, p.get('method', 'auto'), addresses, 
-                 p.get('gateway'), p.get('ssid'), p.get('psk'))
+                 p.get('gateway'), p.get('ssid'), p.get('psk'), 1 if is_dirty else 0)
             )
         conn.commit()

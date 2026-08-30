@@ -105,3 +105,6 @@ Ce serveur est une VM fournie par le service informatique.
 Nous avons les pleins pouvoir sur ce serveur pour y installer ce que nous voulons.
 Nous n'avons pas la main sur les ouvertures de ports.
 Un accès ssh est disponible avec le user mariadb derrière le port 9922.
+Il y a une base de donnés mariadb, les accès sont dans /etc/boitier-fleet/db.env sur le serveur distant.
+Le script api distant se trouve là : /var/www/reports/api.py
+Il y a un script de redémarrage des services là : /home/mariadb/bin/https

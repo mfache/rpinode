@@ -1,13 +1,27 @@
+import re
 import socket
 import struct
-import re
+import threading
+import time
 
 # Constantes Modbus
-READ_TIMEOUT = 1.0
+READ_TIMEOUT = 1.5
 SCAN_TIMEOUT = 0.5
 MIN_TIMEOUT = 0.2
 MAX_TIMEOUT = 30.0
 MAX_SCAN_TIMEOUT = 15.0
+
+# Synchronisation et gestion de concurrence pour bus RS485 / passerelles
+_GATEWAY_LOCKS = {}
+_GATEWAY_LOCKS_MUTEX = threading.Lock()
+_LAST_TXN_TIME = {}
+
+def _get_gateway_lock(address, port):
+    key = f"{address}:{port}"
+    with _GATEWAY_LOCKS_MUTEX:
+        if key not in _GATEWAY_LOCKS:
+            _GATEWAY_LOCKS[key] = threading.Lock()
+        return _GATEWAY_LOCKS[key], key
 
 MAX_REGISTERS = 125
 MAX_BITS = 2000
@@ -80,12 +94,108 @@ def _tcp_transaction(ip, port, unit, pdu, timeout, tid):
     except OSError as exc:
         raise ModbusError(f"Connexion impossible : {exc}")
 
-def transaction(protocol, address, port, unit, pdu, timeout=READ_TIMEOUT, tid=1):
-    """Joue une transaction Modbus (TCP ou RTU) et referme la connexion."""
-    if protocol == "mstp" or protocol == "rtu":
-        raise ModbusError("Support RTU non encore complètement importé dans modbus_tools.")
-        # return _rtu_transaction(conn, unit, pdu, timeout)
-    return _tcp_transaction(address, port, unit, pdu, timeout, tid)
+def crc16(data: bytes) -> int:
+    """Calcule le CRC16 Modbus (polynôme 0xA001)."""
+    crc = 0xFFFF
+    for byte in data:
+        crc ^= byte
+        for _ in range(8):
+            if crc & 1:
+                crc = (crc >> 1) ^ 0xA001
+            else:
+                crc >>= 1
+    return crc
+
+def _rtu_over_tcp_transaction(ip, port, unit, pdu, timeout):
+    raw_req = struct.pack(">B", unit & 0xFF) + pdu
+    crc = crc16(raw_req)
+    req = raw_req + struct.pack("<H", crc)
+    
+    try:
+        with socket.create_connection((ip, port), timeout=timeout) as s:
+            s.settimeout(timeout)
+            s.sendall(req)
+            
+            hdr = _recv_exact(s, 2)
+            resp_unit, resp_fc = hdr[0], hdr[1]
+            
+            if resp_fc & 0x80:
+                rest = _recv_exact(s, 3)
+                full_resp = hdr + rest
+            elif resp_fc in (1, 2, 3, 4):
+                bc_byte = _recv_exact(s, 1)
+                byte_count = bc_byte[0]
+                rest = _recv_exact(s, byte_count + 2)
+                full_resp = hdr + bc_byte + rest
+            elif resp_fc in (5, 6, 15, 16):
+                rest = _recv_exact(s, 6)
+                full_resp = hdr + rest
+            else:
+                rest = s.recv(1024)
+                full_resp = hdr + rest
+    except ModbusError:
+        raise
+    except socket.timeout:
+        raise ModbusError(f"Délai dépassé ({timeout:g} s) : pas de réponse.")
+    except OSError as exc:
+        raise ModbusError(f"Connexion impossible : {exc}")
+        
+    if len(full_resp) < 4:
+        raise ModbusError("Réponse RTU trop courte.")
+        
+    resp_crc = struct.unpack("<H", full_resp[-2:])[0]
+    calc_crc = crc16(full_resp[:-2])
+    if resp_crc != calc_crc:
+        raise ModbusError(f"Erreur de contrôle CRC RTU (reçu 0x{resp_crc:04x}, attendu 0x{calc_crc:04x}).")
+        
+    body = full_resp[1:-2]
+    if not body:
+        raise ModbusError("Réponse vide.")
+    func = body[0]
+    if func & 0x80:
+        code = body[1] if len(body) > 1 else 0
+        name = EXCEPTION_NAMES.get(code, f"Code exception {code}")
+        raise ModbusError(f"Exception Modbus : {name}")
+    return body
+
+def transaction(protocol, address, port, unit, pdu, timeout=READ_TIMEOUT, tid=1, retries=2):
+    """Joue une transaction Modbus (TCP ou RTU) avec gestion de concurrence (Mutex), espacement inter-trame et réessai."""
+    lock, key = _get_gateway_lock(address, port or 502)
+    with lock:
+        # Espacement minimal de 60ms pour laisser le bus RS485 et les transceivers se réinitialiser
+        now = time.time()
+        elapsed = now - _LAST_TXN_TIME.get(key, 0)
+        if elapsed < 0.060:
+            time.sleep(0.060 - elapsed)
+            
+        last_error = None
+        for attempt in range(retries + 1):
+            try:
+                if protocol in ("rtu_over_tcp", "rtu", "mstp"):
+                    if re.match(r"^(\d{1,3}\.){3}\d{1,3}$", str(address)):
+                        res = _rtu_over_tcp_transaction(address, port or 502, unit, pdu, timeout)
+                    else:
+                        raise ModbusError("Liaison série directe (port COM) non encore configurée.")
+                else:
+                    res = _tcp_transaction(address, port, unit, pdu, timeout, tid)
+                _LAST_TXN_TIME[key] = time.time()
+                return res
+            except ModbusError as e:
+                _LAST_TXN_TIME[key] = time.time()
+                # Si c'est une exception applicative Modbus (ex: 02 Adresse illégale), on ne retente pas inutilement
+                if "Exception Modbus" in str(e):
+                    raise
+                last_error = e
+                if attempt < retries:
+                    time.sleep(0.15)  # 150ms de purge du buffer série avant réessai
+            except Exception as e:
+                _LAST_TXN_TIME[key] = time.time()
+                last_error = ModbusError(str(e))
+                if attempt < retries:
+                    time.sleep(0.15)
+                    
+        _LAST_TXN_TIME[key] = time.time()
+        raise last_error or ModbusError("Échec de la transaction Modbus.")
 
 # ---------------------------------------------------------------------------
 # Fonctions Modbus applicatives.

@@ -117,7 +117,7 @@ async def scan_host(ip, mac, iface, scan_timestamp, delay_ms=0):
     if delay_ms > 0:
         await asyncio.sleep(delay_ms / 1000.0)
         
-    ports_to_check = [80, 443, 502, 47808, 22, 23, 445]
+    ports_to_check = [80, 443, 502, 4196, 47808, 22, 23, 445]
     tasks = [check_port(ip, p) for p in ports_to_check]
     results = await asyncio.gather(*tasks)
     open_ports = [p for p in results if p is not None]
@@ -169,12 +169,10 @@ async def sweep_iface(iface, ip_str, prefix):
                     ipaddress.IPv4Address(ip_h)
                     if "lladdr" in parts:
                         mac_h = parts[parts.index("lladdr") + 1]
-                        if mac_h != "<incomplete>":
+                        if mac_h and mac_h != "<incomplete>":
                             alive.append((ip_h, mac_h))
                 except (ValueError, IndexError):
                     pass
-                if mac_h and mac_h != "<incomplete>":
-                    alive.append((ip_h, mac_h))
 
     # Ajouter l'IP du boîtier lui-même si on l'a vu (ou par sécurité)
     try:
@@ -392,13 +390,14 @@ async def enrich_modbus_device(d):
         import socket
         import struct
         
+        target_port = 502 if 502 in d.get("ports", []) else (4196 if 4196 in d.get("ports", []) else 502)
         found_units = []
-        # On teste les Unit IDs les plus courants: 1, 255, 0
-        for unit in [1, 255, 0]:
+        # On teste les Unit IDs les plus courants: 1, 2, 3, 255, 0
+        for unit in [1, 2, 3, 255, 0]:
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             sock.settimeout(1.0)
             try:
-                sock.connect((d["ip"], 502))
+                sock.connect((d["ip"], target_port))
                 # Transaction ID: 1, Protocol: 0, Length: 6, Unit: <unit>, Func: 3, Addr: 0, Count: 1
                 # Format: >HHHBBHH
                 req = struct.pack(">HHHBBHH", 1, 0, 6, unit, 3, 0, 1)

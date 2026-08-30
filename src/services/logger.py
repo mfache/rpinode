@@ -10,6 +10,8 @@ import time
 from core.database import get_db_connection
 from core.paths import DATA_DIR
 from services.fleet import fleet
+from services.modbus_mgr import get_site_modbus_points, read_point_value
+from services.mqtt_service import mqtt_client
 from services.presence import (get_current_site_name,
                                is_current_site_provisional)
 
@@ -18,74 +20,195 @@ logger = logging.getLogger(__name__)
 # Fichier optionnel pour forcer des points BACnet spécifiques (compatibilité ancien système)
 BACNET_POINTS_FILE = DATA_DIR / "bacnet_points.json"
 
-def start_data_logger(interval=60):
+CADENCE_MAP = {
+    "max": 2,
+    "5s": 5,
+    "10s": 10,
+    "30s": 30,
+    "1m": 60,
+    "5m": 300,
+}
+HEARTBEAT_SECONDS = 900  # 15 min
+
+def start_data_logger(interval=1):
     """
     Démarre la boucle d'enregistrement des données.
+    Tourne avec un tick rapide (1s) pour respecter les cadences (5s, 10s, 30s, 1m, 5m).
     """
-    logger.info(f"Démarrage du service d'enregistrement des données (intervalle: {interval}s)")
+    logger.info("Démarrage du service d'enregistrement des données (Trends & Suivi)")
     
+    last_poll_times = {}       # {point_id: timestamp}
+    last_recorded_values = {}  # {point_id: val_str}
+    last_store_ts = {}         # {point_id: timestamp}
+    consecutive_errors = {}    # {point_id: error_count}
+    last_bacnet_time = 0
+    last_fleet_sync = 0
+
     while True:
         try:
             if not is_current_site_provisional():
-                run_logging_cycle()
+                now = time.time()
+                
+                # 1. Cycle Modbus (enregistrements selon cadence individuelle)
+                run_modbus_logging_cycle(now, last_poll_times, last_recorded_values, last_store_ts, consecutive_errors)
+                
+                # 2. Cycle BACnet (toutes les 60s)
+                if now - last_bacnet_time >= 60:
+                    run_bacnet_logging_cycle(int(now))
+                    last_bacnet_time = now
+                    
+                # 3. Synchronisation flotte (toutes les 30s)
+                if now - last_fleet_sync >= 30:
+                    if fleet.is_registered():
+                        sync_trends_to_fleet()
+                    last_fleet_sync = now
             else:
                 logger.debug("Logging ignoré : le chantier est en mode provisoire.")
         except Exception as e:
             logger.error(f"Erreur dans le cycle d'enregistrement : {e}")
         
-        time.sleep(interval)
+        time.sleep(1)
 
-def run_logging_cycle():
-    """
-    Effectue un cycle de lecture sur tous les appareils du chantier actuel.
-    """
+def run_modbus_logging_cycle(now, last_poll_times, last_recorded_values, last_store_ts, consecutive_errors=None):
+    """Effectue un tick de lecture/enregistrement pour les points Modbus avec tolérance sur 3 cycles en cas d'erreur."""
+    if consecutive_errors is None:
+        consecutive_errors = {}
     site_name = get_current_site_name()
-    
+    if not site_name or site_name == "Inconnu":
+        return
+
     with get_db_connection() as conn:
         cursor = conn.cursor()
-        
-        # Récupérer l'ID du site
-        try:
-            cursor.execute("SELECT id, external_id FROM sites WHERE name = ?", (site_name,))
-            site_row = cursor.fetchone()
-            if not site_row:
-                return
-            
-            site_id = site_row["id"]
-            external_site_id = site_row["external_id"] or str(site_id)
-        except Exception as e:
-            logger.error(f"Erreur accès base de données sites : {e}")
+        cursor.execute("SELECT id FROM sites WHERE name = ?", (site_name,))
+        site_row = cursor.fetchone()
+        if not site_row:
             return
+        site_id = site_row["id"]
         
-        timestamp = int(time.time())
+        # Récupérer tous les points suivis (Live) et/ou enregistrés (Historique)
+        cursor.execute(
+            """
+            SELECT p.*, d.name as device_name, d.protocol, d.address, d.port,
+                   COALESCE(p.slave_unit, d.slave_unit, 1) as slave_unit
+            FROM modbus_points p
+            JOIN modbus_devices d ON p.device_id = d.id
+            WHERE p.site_id = ? AND (p.is_monitored = 1 OR p.is_recorded = 1)
+            """,
+            (site_id,)
+        )
+        points = [dict(r) for r in cursor.fetchall()]
         
-        # 1. Modbus (Simulation pour le moment)
-        try:
-            cursor.execute(
-                """
-                SELECT d.*, t.registers_json 
-                FROM modbus_devices d
-                JOIN modbus_templates t ON d.template_id = t.id
-                WHERE d.site_id = ?
-                """,
-                (site_id,)
-            )
-            for dev in cursor.fetchall():
-                registers = json_loads(dev["registers_json"])
-                for reg in registers:
-                    value = simulate_value(reg["name"])
-                    record_trend(cursor, site_id, "modbus", timestamp, dev["address"], str(reg["reg"]), value)
-        except Exception as e:
-            logger.error(f"Erreur cycle Modbus : {e}")
+        for p in points:
+            pid = p["id"]
+            # Si le point est enregistré, respecter sa cadence, sinon cadence par défaut 5s pour le live
+            if p.get("is_recorded"):
+                interval = CADENCE_MAP.get(p.get("cadence", "1m"), 60)
+            else:
+                interval = 5
+            
+            if now - last_poll_times.get(pid, 0) < interval:
+                continue
+            last_poll_times[pid] = now
+            
+            protocol = p["protocol"]
+            address = p["address"]
+            port = p["port"] or 502
+            unit = p.get("slave_unit") or (int(address) if protocol == "mstp" else 1)
+            func = p["function"]
+            reg = p["reg"]
+            base = p.get("base", 0)
+            type_str = p["type"]
+            scale = p["scale"]
+            unit_str = f" {p['unit']}" if p.get("unit") else ""
+            
+            try:
+                val_str, disp_val = read_point_value(protocol, address, port, unit, func, reg, type_str, scale, base=base, timeout=1.2)
+                if val_str is None:
+                    continue
+                
+                # Réinitialiser le compteur d'erreurs en cas de succès
+                consecutive_errors[pid] = 0
+                
+                # Mise à jour last_value en base
+                cursor.execute(
+                    "UPDATE modbus_points SET last_value = ?, last_read_ts = ? WHERE id = ?",
+                    (val_str, int(now), pid)
+                )
 
-        # 2. BACnet (Lecture Réelle via script externe)
-        run_bacnet_cycle(cursor, site_id, timestamp)
-        
+                # Publication temps réel vers le broker MQTT local pour le flux SSE
+                full_display = f"{disp_val}{unit_str}"
+                mqtt_payload = {
+                    "point_id": pid,
+                    "value": val_str,
+                    "display": full_display,
+                    "name": p.get("name"),
+                    "device_name": p.get("device_name"),
+                    "ts": int(now),
+                    "error": None
+                }
+                mqtt_client.publish(f"rpinode/modbus/point/{pid}", mqtt_payload)
+                
+                # Enregistrement dans les tendances (si le point est coché pour enregistrement)
+                if p.get("is_recorded"):
+                    changed = (val_str != last_recorded_values.get(pid))
+                    heartbeat_due = (now - last_store_ts.get(pid, 0)) >= HEARTBEAT_SECONDS
+                    
+                    if changed or heartbeat_due:
+                        ts = int(now)
+                        obj_id = f"FC{func:02d}_{reg}"
+                        record_trend(cursor, site_id, "modbus", ts, p["device_name"], obj_id, val_str)
+                        last_recorded_values[pid] = val_str
+                        last_store_ts[pid] = ts
+            except Exception as e:
+                err_count = consecutive_errors.get(pid, 0) + 1
+                consecutive_errors[pid] = err_count
+                
+                # Tolérance : on conserve la dernière valeur connue pendant les 2 premiers cycles d'échec
+                if err_count < 3 and p.get("last_value") is not None:
+                    logger.debug(f"Modbus logger: Échec cycle {err_count}/3 pour {pid} ({p.get('name')}), dernière valeur conservée.")
+                    full_display = f"{p['last_value']}{unit_str}"
+                    mqtt_payload = {
+                        "point_id": pid,
+                        "value": p["last_value"],
+                        "display": full_display,
+                        "name": p.get("name"),
+                        "device_name": p.get("device_name"),
+                        "ts": int(now),
+                        "error": None,
+                        "retained": True
+                    }
+                    mqtt_client.publish(f"rpinode/modbus/point/{pid}", mqtt_payload)
+                elif err_count >= 3:
+                    logger.warning(f"Modbus logger: Échec confirmé ({err_count}/3) pour {pid} ({p.get('name')}) : {e}")
+                    mqtt_payload = {
+                        "point_id": pid,
+                        "value": None,
+                        "display": "—",
+                        "name": p.get("name"),
+                        "device_name": p.get("device_name"),
+                        "ts": int(now),
+                        "error": str(e)
+                    }
+                    mqtt_client.publish(f"rpinode/modbus/point/{pid}", mqtt_payload)
+
         conn.commit()
+
+def run_bacnet_logging_cycle(timestamp):
+    """Gère la lecture et l'enregistrement des points BACnet."""
+    site_name = get_current_site_name()
+    if not site_name or site_name == "Inconnu":
+        return
+
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT id FROM sites WHERE name = ?", (site_name,))
+        site_row = cursor.fetchone()
+        if not site_row:
+            return
+        site_id = site_row["id"]
         
-        # 3. Tentative de synchronisation avec la flotte
-        if fleet.is_registered():
-            sync_trends_to_fleet(site_id, external_site_id)
+        run_bacnet_cycle(cursor, site_id, timestamp)
+        conn.commit()
 
 def run_bacnet_cycle(cursor, site_id, timestamp):
     """Gère la lecture des points BACnet via le script services/bacnet_reader.py"""
@@ -191,10 +314,24 @@ def record_trend(cursor, site_id, protocol, timestamp, device_id, object_id, val
         (site_id, protocol, timestamp, device_id, object_id, value)
     )
 
-def sync_trends_to_fleet(site_id, external_site_id):
+def sync_trends_to_fleet(site_id=None, external_site_id=None):
     """Envoie les relevés non synchronisés au serveur maître."""
     with get_db_connection() as conn:
         cursor = conn.cursor()
+        
+        if not site_id:
+            site_name = get_current_site_name()
+            cursor.execute("SELECT id, external_id FROM sites WHERE name = ?", (site_name,))
+            row = cursor.fetchone()
+            if not row:
+                return
+            site_id = row["id"]
+            external_site_id = row["external_id"] or str(site_id)
+        elif not external_site_id:
+            cursor.execute("SELECT external_id FROM sites WHERE id = ?", (site_id,))
+            row = cursor.fetchone()
+            external_site_id = row["external_id"] if row and row["external_id"] else str(site_id)
+            
         cursor.execute(
             "SELECT * FROM trends WHERE site_id = ? AND is_synced = 0 LIMIT 100",
             (site_id,)

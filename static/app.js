@@ -229,6 +229,32 @@ document.addEventListener("DOMContentLoaded", () => {
         } catch (err) { console.error("Erreur SSE host_ready:", err); }
     });
 
+    // Événement SSE Modbus en direct (poussé par MQTT)
+    evtSource.addEventListener('modbus_point', (e) => {
+        try {
+            const data = JSON.parse(e.data);
+            const el = document.getElementById(`val-${data.point_id}`);
+            if (!el) return;
+
+            const newDisplay = data.display || "—";
+            if (data.error) {
+                el.className = "live-val badge-error";
+                el.textContent = "Err";
+                el.title = data.error;
+            } else {
+                el.className = "live-val badge-success";
+                el.textContent = newDisplay;
+                el.title = `Mis à jour à ${new Date(data.ts * 1000).toLocaleTimeString()}`;
+
+                el.classList.remove("suivi-flash");
+                void el.offsetWidth;
+                el.classList.add("suivi-flash");
+            }
+        } catch (err) {
+            console.error("Erreur SSE modbus_point:", err);
+        }
+    });
+
     evtSource.onmessage = function(event) {
         try {
             // Réinitialisation du "watchdog" et du compteur

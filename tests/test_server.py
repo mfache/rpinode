@@ -61,5 +61,49 @@ class TestServer(unittest.TestCase):
         except Exception as e:
             self.fail(f"Le fichier statique n'est pas accessible : {e}")
 
+    def test_modbus_suivi_page(self):
+        """Vérifie que la page /modbus/suivi est servie."""
+        url = f"http://localhost:{self.test_port}/modbus/suivi"
+        try:
+            response = urllib.request.urlopen(url, timeout=5)
+            self.assertEqual(response.getcode(), 200)
+            content = response.read().decode('utf-8')
+            self.assertIn("Points Modbus Suivis", content)
+        except Exception as e:
+            self.fail(f"La page /modbus/suivi n'a pas répondu : {e}")
+
+    def test_modbus_suivi_api(self):
+        """Vérifie que l'API /api/modbus/suivi/values répond en JSON."""
+        url = f"http://localhost:{self.test_port}/api/modbus/suivi/values"
+        try:
+            with unittest.mock.patch('services.modbus_mgr.read_site_monitored_points_live', return_value={'1': {'value': '21.0', 'display': '21.0 °C', 'error': None, 'ts': 12345}}):
+                response = urllib.request.urlopen(url, timeout=5)
+                self.assertEqual(response.getcode(), 200)
+                self.assertIn("application/json", response.getheader("Content-Type"))
+        except Exception as e:
+            self.fail(f"L'API /api/modbus/suivi/values n'a pas répondu : {e}")
+
+    def test_monitor_suivi_page(self):
+        """Vérifie que la page /monitor/suivi est servie."""
+        url = f"http://localhost:{self.test_port}/monitor/suivi"
+        try:
+            response = urllib.request.urlopen(url, timeout=5)
+            self.assertEqual(response.getcode(), 200)
+            content = response.read().decode('utf-8')
+            self.assertIn("Suivi Global des Points", content)
+        except Exception as e:
+            self.fail(f"La page /monitor/suivi n'a pas répondu : {e}")
+
+    def test_monitor_suivi_api(self):
+        """Vérifie que l'API /api/monitor/suivi/values répond en JSON."""
+        url = f"http://localhost:{self.test_port}/api/monitor/suivi/values"
+        try:
+            with unittest.mock.patch('services.modbus_mgr.read_site_monitored_points_live', return_value={'1': {'value': '21.0', 'display': '21.0 °C', 'error': None, 'ts': 12345}}):
+                response = urllib.request.urlopen(url, timeout=5)
+                self.assertEqual(response.getcode(), 200)
+                self.assertIn("application/json", response.getheader("Content-Type"))
+        except Exception as e:
+            self.fail(f"L'API /api/monitor/suivi/values n'a pas répondu : {e}")
+
 if __name__ == '__main__':
     unittest.main()

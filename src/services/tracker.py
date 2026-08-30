@@ -41,7 +41,7 @@ def check_and_update_site():
                             if "net_profiles" in sync_data:
                                 from services.network_config import \
                                     save_site_network_profiles
-                                save_site_network_profiles(local_site_id, sync_data["net_profiles"])
+                                save_site_network_profiles(local_site_id, sync_data["net_profiles"], is_dirty=False)
                             apply_site_network_profiles(local_site_id)
             return
 

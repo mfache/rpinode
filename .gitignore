@@ -10,7 +10,9 @@ data/*.tmp
 data/config.json
 
 # Logs
-log/*.log
+log/
+*.log
+*.log.*
 
 # IDE
 .zed/

@@ -5,7 +5,7 @@ import time
 from core.config import load_config
 from core.sys import get_sys
 from services.gsm import get_gsm_info
-from services.ipscan import is_ipscan_running
+from services.ipscan import is_ipscan_running, load_ipscan_results
 from services.mqtt_service import mqtt_client
 from services.network import get_network_overview
 from services.presence import (get_current_site_name,

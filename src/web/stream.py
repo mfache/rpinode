@@ -81,6 +81,7 @@ def handle_sse_stream(handler):
         client.connect("127.0.0.1", 1883, 60)
         client.subscribe("rpinode/status/#")
         client.subscribe("rpinode/ipscan/#")
+        client.subscribe("rpinode/modbus/#")
         client.loop_start()
 
         last_data = {}
@@ -93,6 +94,13 @@ def handle_sse_stream(handler):
                 if topic == "rpinode/ipscan/host_ready":
                     # Bypass le get_changed_items pour ce topic événementiel
                     message = f"event: host_ready\ndata: {json.dumps(data)}\n\n"
+                    handler.wfile.write(message.encode("utf-8"))
+                    handler.wfile.flush()
+                    continue
+
+                if topic.startswith("rpinode/modbus/point/"):
+                    # Événement Modbus temps réel pour le suivi Live
+                    message = f"event: modbus_point\ndata: {json.dumps(data)}\n\n"
                     handler.wfile.write(message.encode("utf-8"))
                     handler.wfile.flush()
                     continue

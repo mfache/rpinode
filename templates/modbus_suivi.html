@@ -1,10 +1,10 @@
-<section class="monitor-suivi-view">
+<section class="modbus-suivi-view">
     <div class="header-with-actions" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 10px;">
         <div>
-            <h2>Suivi Global des Points (Live)</h2>
-            <p class="hint">Chantier : <strong>${site_name}</strong> | Vue unifiée de l'ensemble des points supervisés (Modbus, BACnet, MBus...)</p>
+            <h2>Points Modbus Suivis (Live)</h2>
+            <p class="hint">Chantier : <strong>${site_name}</strong> | Mise à jour automatique des valeurs en temps réel</p>
         </div>
-        <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+        <div style="display: flex; gap: 10px; align-items: center;">
             <label style="display: flex; align-items: center; gap: 6px; font-size: 0.9em; cursor: pointer; background: white; padding: 6px 12px; border-radius: 6px; border: 1px solid #ddd;">
                 <input type="checkbox" id="auto-refresh-toggle" checked onchange="toggleAutoRefresh(this.checked)">
                 <span>Auto-refresh (5s)</span>
@@ -12,31 +12,26 @@
             <button class="btn-primary" onclick="refreshLiveValues(true)" id="btn-refresh-manual">
                 <span>🔄</span> Rafraîchir
             </button>
-            <a href="${base_url}/modbus/devices" class="btn-secondary">Appareils Modbus</a>
-        </div>
-    </div>
-
-    <!-- Filtres rapides -->
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 10px;">
-        <div class="protocol-filters" style="display: flex; gap: 6px;">
-            <button class="filter-btn active" onclick="filterProtocol('all', this)">Tous</button>
-            <button class="filter-btn" onclick="filterProtocol('modbus-tcp', this)">Modbus TCP</button>
-            <button class="filter-btn" onclick="filterProtocol('modbus-mstp', this)">Modbus RTU / MSTP</button>
-            <button class="filter-btn" onclick="filterProtocol('bacnet', this)">BACnet</button>
-        </div>
-        <div style="font-size: 0.85em; color: #666;" id="points-count-display">
-            <!-- Rempli en JS -->
+            <a href="${base_url}/modbus/devices" class="btn-secondary">Gérer les appareils</a>
         </div>
     </div>
 
     <div class="card">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 10px;">
+            <div style="font-size: 0.9em; color: #555;">
+                Cochez <strong>Enregistrer</strong> pour historiser les données dans les tendances (Trends).
+            </div>
+            <div style="display: flex; gap: 8px;">
+                <button type="button" class="btn-secondary btn-sm" onclick="toggleAllRecords(true)">Tout cocher</button>
+                <button type="button" class="btn-secondary btn-sm" onclick="toggleAllRecords(false)">Tout décocher</button>
+            </div>
+        </div>
         <table class="data-table">
             <thead>
                 <tr>
-                    <th>Protocole</th>
                     <th>Appareil</th>
                     <th>Point</th>
-                    <th>Nom du point</th>
+                    <th>Nom du registre</th>
                     <th>Valeur Live</th>
                     <th>Enregistrement</th>
                     <th>Cadence</th>
@@ -44,7 +39,7 @@
                 </tr>
             </thead>
             <tbody id="suivi-tbody">
-                ${trends_rows_html}
+                ${suivi_rows_html}
             </tbody>
         </table>
     </div>
@@ -56,21 +51,6 @@
 .data-table { width: 100%; border-collapse: collapse; margin-top: 10px; }
 .data-table th, .data-table td { padding: 10px 12px; border-bottom: 1px solid #eee; text-align: left; vertical-align: middle; }
 .data-table th { background: #fafafa; font-size: 0.85em; color: #555; text-transform: uppercase; }
-
-.badge-protocol {
-    display: inline-block;
-    padding: 3px 7px;
-    border-radius: 4px;
-    font-size: 0.75em;
-    font-weight: bold;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-}
-.proto-modbus-tcp { background: #e3f2fd; color: #1565c0; border: 1px solid #bbdefb; }
-.proto-modbus-mstp { background: #e8eaf6; color: #3949ab; border: 1px solid #c5cae9; }
-.proto-bacnet { background: #f3e5f5; color: #7b1fa2; border: 1px solid #e1bee7; }
-.proto-mbus { background: #e0f2f1; color: #00695c; border: 1px solid #b2dfdb; }
-
 .badge-gray { background: #eee; color: #555; padding: 4px 8px; border-radius: 4px; font-family: monospace; font-size: 0.95em; }
 .badge-success { background: #e8f8f5; color: #16a085; padding: 4px 8px; border-radius: 4px; font-family: monospace; font-weight: bold; font-size: 0.95em; }
 .badge-error { background: #fdedec; color: #c0392b; padding: 4px 8px; border-radius: 4px; font-family: monospace; font-size: 0.9em; }
@@ -95,53 +75,12 @@
     border-radius: 4px;
     font-size: 0.85em;
 }
-
-.filter-btn {
-    padding: 5px 12px;
-    background: white;
-    border: 1px solid #ddd;
-    border-radius: 6px;
-    font-size: 0.85em;
-    cursor: pointer;
-    color: #555;
-    transition: all 0.2s;
-}
-.filter-btn:hover { background: #f5f5f5; }
-.filter-btn.active {
-    background: #007bff;
-    color: white;
-    border-color: #007bff;
-}
 </style>
 
 <script>
 const baseUrl = window.CONFIG ? window.CONFIG.baseUrl : '/rpinode';
 let autoRefreshTimer = null;
 let lastValues = {};
-
-function updatePointsCount() {
-    const rows = document.querySelectorAll('#suivi-tbody tr[data-proto]');
-    const visibleRows = Array.from(rows).filter(r => r.style.display !== 'none');
-    const display = document.getElementById('points-count-display');
-    if (display) {
-        display.textContent = `${visibleRows.length} point(s) affiché(s)`;
-    }
-}
-
-function filterProtocol(proto, btn) {
-    document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
-    if (btn) btn.classList.add('active');
-
-    const rows = document.querySelectorAll('#suivi-tbody tr[data-proto]');
-    rows.forEach(r => {
-        if (proto === 'all' || r.getAttribute('data-proto') === proto) {
-            r.style.display = '';
-        } else {
-            r.style.display = 'none';
-        }
-    });
-    updatePointsCount();
-}
 
 function seedInitialValues() {
     document.querySelectorAll("[data-suivi-key]").forEach(el => {
@@ -155,7 +94,7 @@ async function refreshLiveValues(isManual = false) {
     if (isManual && btn) btn.disabled = true;
 
     try {
-        const url = (baseUrl + '/api/monitor/suivi/values').replace(/\/+/g, '/');
+        const url = (baseUrl + '/api/modbus/suivi/values').replace(/\/+/g, '/');
         const res = await fetch(url);
         const data = await res.json();
 
@@ -185,7 +124,7 @@ async function refreshLiveValues(isManual = false) {
             });
         }
     } catch (err) {
-        console.error("Erreur refresh suivi:", err);
+        console.error("Erreur refresh modbus suivi:", err);
     } finally {
         if (isManual && btn) btn.disabled = false;
     }
@@ -214,6 +153,38 @@ function toggleAutoRefresh(enabled) {
         refreshLiveValues(false);
     } else {
         stopAutoRefreshLoop();
+    }
+}
+
+async function toggleAllRecords(checked) {
+    const checkboxes = document.querySelectorAll('.cb-record');
+    const promises = [];
+    checkboxes.forEach(cb => {
+        if (cb.checked !== checked) {
+            cb.checked = checked;
+            const pid = cb.getAttribute('data-point-id');
+            const cadenceEl = document.getElementById(`cadence-${pid}`);
+            if (cadenceEl) cadenceEl.disabled = !checked;
+            const cadence = cadenceEl ? cadenceEl.value : '1m';
+            promises.push(
+                fetch((baseUrl + '/api/modbus/point/update').replace(/\/+/g, '/'), {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        point_id: pid,
+                        is_recorded: checked ? 1 : 0,
+                        cadence: cadence
+                    })
+                })
+            );
+        }
+    });
+    if (promises.length > 0) {
+        try {
+            await Promise.all(promises);
+        } catch (e) {
+            console.error("Erreur mise à jour globale:", e);
+        }
     }
 }
 
@@ -272,7 +243,6 @@ async function removePoint(pointId) {
         if (data.status === 'ok') {
             const row = document.getElementById(`suivi-row-${pointId}`);
             if (row) row.remove();
-            updatePointsCount();
         } else {
             alert("Erreur: " + data.message);
         }
@@ -283,8 +253,8 @@ async function removePoint(pointId) {
 
 document.addEventListener("DOMContentLoaded", () => {
     seedInitialValues();
-    updatePointsCount();
     startAutoRefreshLoop();
+    // Rafraîchir tout de suite les valeurs live
     setTimeout(() => refreshLiveValues(false), 500);
 });
 </script>

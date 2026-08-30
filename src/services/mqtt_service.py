@@ -26,7 +26,7 @@ class MqttClient:
         else:
             logger.error(f"Erreur de connexion MQTT, code: {rc}")
 
-    def _on_disconnect(self, client, userdata, rc, properties=None):
+    def _on_disconnect(self, *args, **kwargs):
         logger.warning("Déconnecté du broker MQTT")
 
     def connect(self):

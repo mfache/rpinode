@@ -102,10 +102,20 @@ class FleetClient:
         if not self.is_registered():
             return None
 
-        # 1. Collecte des annotations "dirty" à pousser
+        # 1. Collecte des annotations "dirty" et colonnes à pousser
         dirty_annotations = []
+        table_columns_to_push = []
         try:
             with get_db_connection() as conn:
+                # Colonnes personnalisées
+                rows = conn.execute("SELECT table_id, column_key, column_label FROM custom_column_definitions").fetchall()
+                for row in rows:
+                    table_columns_to_push.append({
+                        "table_id": row["table_id"],
+                        "column_key": row["column_key"],
+                        "column_label": row["column_label"]
+                    })
+
                 # Fabricants globaux (mac_vendors)
                 rows = conn.execute("SELECT prefix, vendor FROM mac_vendors WHERE is_dirty = 1").fetchall()
                 for row in rows:
@@ -150,6 +160,53 @@ class FleetClient:
                                 "field": k,
                                 "value": v
                             })
+                
+                # Profils réseau "dirty"
+                net_profiles_to_push = []
+                rows = conn.execute("SELECT * FROM site_network_profiles WHERE is_dirty = 1").fetchall()
+                for row in rows:
+                    try:
+                        addrs = json.loads(row["addresses"]) if row["addresses"] else []
+                        if not isinstance(addrs, list):
+                            addrs = [str(addrs)]
+                    except Exception:
+                        addrs = [a.strip() for a in (row["addresses"] or "").split(",") if a.strip()]
+                        
+                    net_profiles_to_push.append({
+                        "name": f"Config {row['interface']} ({socket.gethostname()})",
+                        "iface": row["interface"],
+                        "method": row["method"],
+                        "addresses": addrs,
+                        "wifi_ssid": row["ssid"],
+                        "wifi_psk": row["psk"],
+                        "updated_by": socket.gethostname()
+                    })
+
+                # Télémétrie d'usage des templates Modbus
+                template_usages = []
+                try:
+                    usage_rows = conn.execute("""
+                        SELECT d.name as device_name, d.site_id, s.external_id as site_external_id,
+                               t.template_uuid, t.revision_uuid, t.name as template_name
+                        FROM modbus_devices d
+                        JOIN modbus_templates t ON d.template_id = t.id
+                        LEFT JOIN sites s ON d.site_id = s.id
+                    """).fetchall()
+                    for r in usage_rows:
+                        if r["template_uuid"] and r["revision_uuid"]:
+                            c_id = r["site_external_id"]
+                            try:
+                                c_id = int(c_id) if c_id else 0
+                            except (ValueError, TypeError):
+                                c_id = 0
+                            template_usages.append({
+                                "template_uuid": r["template_uuid"],
+                                "revision_uuid": r["revision_uuid"],
+                                "device_name": r["device_name"] or r["template_name"],
+                                "chantier_id": c_id
+                            })
+                except Exception as e:
+                    logger.debug(f"Erreur collecte usage templates : {e}")
         except Exception as e:
             logger.error(f"Erreur lors de la lecture des annotations dirty : {e}")
 
@@ -160,7 +217,10 @@ class FleetClient:
                 "mnc": gsm_info.get("mnc"),
                 "enodeb": gsm_info.get("enodeb")
             },
-            "annotations": dirty_annotations
+            "annotations": dirty_annotations,
+            "table_columns": table_columns_to_push,
+            "net_profiles": net_profiles_to_push,
+            "template_usage": template_usages
         }
         if site_hint_name:
             payload["site_hint_name"] = site_hint_name
@@ -172,10 +232,14 @@ class FleetClient:
             mqtt_client.publish("rpinode/status/sync", {"sync_ok": success})
 
             if success:
-                # 2. Traitement des annotations reçues (Pull)
-                received = data.get("annotations", [])
-                if received:
-                    self._apply_annotations_pull(received)
+                # 2. Traitement des retours (Pull)
+                received_annots = data.get("annotations", [])
+                if received_annots:
+                    self._apply_annotations_pull(received_annots)
+                
+                received_cols = data.get("table_columns", [])
+                if received_cols:
+                    self._apply_columns_pull(received_cols)
                 
                 # 3. Marquer les locales comme synchronisées
                 if dirty_annotations:
@@ -194,6 +258,10 @@ class FleetClient:
                         macs = list(set(a["key"] for a in dirty_annotations if a["kind"] in ("ip_device_vendor", "ip_annot")))
                         for mac in macs:
                             conn.execute("UPDATE discovered_devices SET is_dirty = 0, sync_updated_at = CURRENT_TIMESTAMP WHERE mac = ?", (mac,))
+                        
+                        # Marquer les profils réseau
+                        conn.execute("UPDATE site_network_profiles SET is_dirty = 0, updated_at = CURRENT_TIMESTAMP WHERE is_dirty = 1")
+                        
                         conn.commit()
                 
                 return data
@@ -219,60 +287,111 @@ class FleetClient:
                     if kind == "ip_vendor":
                         # C'est un préfixe constructeur global
                         conn.execute("""
-                            INSERT INTO mac_vendors (prefix, vendor, is_dirty, updated_at)
+                            INSERT INTO mac_vendors (prefix, vendor, is_dirty, sync_updated_at)
                             VALUES (?, ?, 0, CURRENT_TIMESTAMP)
                             ON CONFLICT(prefix) DO UPDATE SET
                                 vendor = EXCLUDED.vendor,
                                 is_dirty = 0,
-                                updated_at = CURRENT_TIMESTAMP
-                            WHERE is_dirty = 0 OR updated_at < EXCLUDED.updated_at
+                                sync_updated_at = CURRENT_TIMESTAMP
+                            WHERE is_dirty = 0
                         """, (key, value))
                     elif kind == "bacnet_vendor":
                         # C'est un fabricant BACnet global
                         try:
                             vendor_id = int(key)
                             conn.execute("""
-                                INSERT INTO bacnet_vendors (vendor_id, name, is_dirty, updated_at)
+                                INSERT INTO bacnet_vendors (vendor_id, name, is_dirty, sync_updated_at)
                                 VALUES (?, ?, 0, CURRENT_TIMESTAMP)
                                 ON CONFLICT(vendor_id) DO UPDATE SET
                                     name = EXCLUDED.name,
                                     is_dirty = 0,
-                                    updated_at = CURRENT_TIMESTAMP
-                                WHERE is_dirty = 0 OR updated_at < EXCLUDED.updated_at
+                                    sync_updated_at = CURRENT_TIMESTAMP
+                                WHERE is_dirty = 0
                             """, (vendor_id, value))
                         except ValueError:
                             continue
                     elif kind == "ip_device_vendor":
                         # C'est une annotation spécifique à un équipement
                         conn.execute("""
-                            INSERT INTO discovered_devices (mac, vendor, is_dirty, updated_at)
-                            VALUES (?, ?, 0, CURRENT_TIMESTAMP)
-                            ON CONFLICT(mac) DO UPDATE SET
-                                vendor = EXCLUDED.vendor,
-                                is_dirty = 0,
-                                updated_at = CURRENT_TIMESTAMP
-                            WHERE is_dirty = 0 OR updated_at < EXCLUDED.updated_at
-                        """, (mac, value))
+                            UPDATE discovered_devices SET 
+                                vendor = ?, 
+                                is_dirty = 0, 
+                                sync_updated_at = CURRENT_TIMESTAMP
+                            WHERE mac = ? AND is_dirty = 0
+                        """, (value, key))
                     elif kind == "ip_annot":
                         # Pour les annotations JSON, c'est plus délicat car on stocke tout dans un champ
-                        # On récupère l'existant
-                        row = conn.execute("SELECT annotations_json FROM discovered_devices WHERE mac = ?", (mac,)).fetchone()
-                        annots = json.loads(row["annotations_json"]) if row and row["annotations_json"] else {}
-                        
-                        if annots.get(field) != value:
-                            annots[field] = value
-                            conn.execute("""
-                                INSERT INTO discovered_devices (mac, annotations_json, is_dirty, updated_at)
-                                VALUES (?, ?, 0, CURRENT_TIMESTAMP)
-                                ON CONFLICT(mac) DO UPDATE SET
-                                    annotations_json = EXCLUDED.annotations_json,
-                                    is_dirty = 0,
-                                    updated_at = CURRENT_TIMESTAMP
-                                WHERE is_dirty = 0 OR updated_at < EXCLUDED.updated_at
-                            """, (mac, json.dumps(annots)))
+                        # On récupère tous les enregistrements pour cette MAC (sur tous les sites)
+                        rows = conn.execute("SELECT site_id, annotations_json FROM discovered_devices WHERE mac = ? AND is_dirty = 0", (key,)).fetchall()
+                        for row in rows:
+                            annots = json.loads(row["annotations_json"]) if row["annotations_json"] else {}
+                            if annots.get(field) != value:
+                                annots[field] = value
+                                conn.execute("""
+                                    UPDATE discovered_devices SET 
+                                        annotations_json = ?, 
+                                        is_dirty = 0, 
+                                        sync_updated_at = CURRENT_TIMESTAMP 
+                                    WHERE site_id = ? AND mac = ?
+                                """, (json.dumps(annots), row["site_id"], key))
                 conn.commit()
         except Exception as e:
             logger.error(f"Erreur lors de l'application des annotations reçues : {e}")
+
+    def _apply_columns_pull(self, columns):
+        """Met à jour les définitions de colonnes locales avec celles du serveur."""
+        try:
+            with get_db_connection() as conn:
+                # 1. Mise à jour / Insertion
+                received_keys = []
+                for col in columns:
+                    table_id = col.get("table_id")
+                    key = col.get("column_key")
+                    label = col.get("column_label")
+                    if not table_id or not key or not label:
+                        continue
+                    
+                    received_keys.append((table_id, key))
+                        
+                    conn.execute("""
+                        INSERT INTO custom_column_definitions (table_id, column_key, column_label)
+                        VALUES (?, ?, ?)
+                        ON CONFLICT(table_id, column_key) DO UPDATE SET
+                            column_label = EXCLUDED.column_label
+                    """, (table_id, key, label))
+                
+                # 2. Réconciliation (Suppression locale si absent du serveur)
+                # On ne le fait que si on a reçu au moins une colonne (pour éviter de tout vider en cas d'erreur API vide)
+                # Ou alors on vérifie par table_id.
+                if received_keys:
+                    local_cols = conn.execute("SELECT table_id, column_key FROM custom_column_definitions").fetchall()
+                    for lc in local_cols:
+                        if (lc["table_id"], lc["column_key"]) not in received_keys:
+                            logger.info(f"Suppression locale de la colonne {lc['table_id']}:{lc['column_key']} (absente du serveur)")
+                            conn.execute("DELETE FROM custom_column_definitions WHERE table_id = ? AND column_key = ?", 
+                                         (lc["table_id"], lc["column_key"]))
+
+                conn.commit()
+        except Exception as e:
+            logger.error(f"Erreur lors de l'application des colonnes reçues : {e}")
+
+    def delete_table_column(self, table_id, column_key):
+        """Informe le serveur de la suppression d'une colonne."""
+        if not self.is_registered():
+            return False
+            
+        url = f"{self.base_url}/table/column/delete"
+        payload = {
+            "table_id": table_id,
+            "column_key": column_key,
+            "hostname": socket.gethostname()
+        }
+        try:
+            response = requests.post(url, json=payload, headers=self._headers(), timeout=10)
+            return response.json().get("ok", False)
+        except Exception as e:
+            logger.error(f"Erreur suppression colonne fleet: {e}")
+            return False
 
     def rename_chantier(self, external_id, new_name):
         """Informe le serveur du renommage d'un chantier."""
@@ -293,13 +412,30 @@ class FleetClient:
             logger.error(f"Erreur lors du renommage sur le serveur : {e}")
         return False
 
+    def get_remote_templates(self):
+        """Récupère la bibliothèque de templates Modbus disponible sur le serveur central."""
+        if not self.is_registered():
+            return {}
+        try:
+            resp = requests.post(f"{self.base_url}/sync", json={}, headers=self._headers(), timeout=10)
+            if resp.status_code == 200:
+                data = resp.json()
+                if data.get("ok"):
+                    return data.get("modbus_templates", {})
+        except Exception as e:
+            logger.error(f"Erreur lors de la récupération des templates distants : {e}")
+        return {}
+
     def sync_modbus_templates(self, templates):
-        """Envoie les templates Modbus locaux au serveur."""
+        """Envoie des templates Modbus locaux au serveur maître."""
         if not self.is_registered():
             return False
 
-        url = f"{self.base_url}/modbus-templates"
-        payload = {"templates": templates}
+        url = f"{self.base_url}/sync"
+        payload = {
+            "modbus_templates": templates,
+            "hostname": socket.gethostname()
+        }
 
         try:
             response = requests.post(url, json=payload, headers=self._headers(), timeout=10)

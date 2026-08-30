@@ -33,12 +33,12 @@ def run_wifi_manager():
     
     while True:
         try:
-            manage_wifi()
+            manage_wifi(force=False)
         except Exception as e:
             logger.error(f"Erreur dans manage_wifi: {e}")
         time.sleep(60) # Vérification toutes les minutes
 
-def manage_wifi():
+def manage_wifi(force=False):
     """Applique la logique de décision WiFi."""
     # 1. État de la 4G
     wwan_alive = ping_check(interface="wwan0")
@@ -57,7 +57,7 @@ def manage_wifi():
         logger.warning("wwan0 (4G) hors ligne. Tentative de secours...")
         if _is_ssid_visible(RESCUE_SSID):
             logger.info(f"SSID {RESCUE_SSID} détecté. Activation du mode secours.")
-            _ensure_client_mode(RESCUE_CON_NAME)
+            _ensure_client_mode(RESCUE_CON_NAME, force=force)
             return
         else:
             logger.info(f"Secours {RESCUE_SSID} non détecté. Passage en mode AP pour accès local.")
@@ -69,7 +69,15 @@ def manage_wifi():
         logger.info(f"wwan0 OK. Application de la config WiFi chantier: {wifi_config['ssid']}")
         # On utilise une connexion nommée d'après le chantier pour nmcli
         con_name = f"site-{site_id}-wifi"
-        _ensure_client_mode(con_name, wifi_config['ssid'], wifi_config['psk'])
+        _ensure_client_mode(
+            con_name, 
+            wifi_config['ssid'], 
+            wifi_config['psk'],
+            method=wifi_config['method'],
+            addresses=wifi_config['addresses'],
+            gateway=wifi_config['gateway'],
+            force=force
+        )
     else:
         # RÈGLE C: Pas de config chantier, on se comporte en AP
         logger.info("wwan0 OK mais pas de config WiFi chantier. Passage en mode AP.")
@@ -101,6 +109,37 @@ def _get_site_wifi_config(site_id):
         )
         return cursor.fetchone()
 
+def get_visible_ssids():
+    """Retourne une liste des SSIDs visibles sans doublons."""
+    try:
+        # On force un rescan léger
+        subprocess.run(["sudo", "nmcli", "device", "wifi", "rescan"], timeout=5, capture_output=True)
+        
+        # On récupère la liste (SSID, BSSID, SIGNAL, BARS, SECURITY)
+        # Mais on ne garde que le SSID pour la liste de choix
+        cmd = ["nmcli", "-t", "-f", "SSID,SIGNAL", "dev", "wifi", "list"]
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+        
+        ssids = {}
+        for line in res.stdout.splitlines():
+            parts = line.split(':')
+            if len(parts) >= 2:
+                ssid = parts[0].strip()
+                try:
+                    signal = int(parts[1])
+                except:
+                    signal = 0
+                
+                if ssid and (ssid not in ssids or signal > ssids[ssid]):
+                    ssids[ssid] = signal
+        
+        # Tri par signal décroissant
+        sorted_ssids = sorted(ssids.keys(), key=lambda x: ssids[x], reverse=True)
+        return sorted_ssids
+    except Exception as e:
+        logger.error(f"Erreur lors de la récupération des SSIDs: {e}")
+        return []
+
 def _is_ssid_visible(ssid):
     try:
         subprocess.run(["sudo", "nmcli", "device", "wifi", "rescan"], timeout=5, capture_output=True)
@@ -110,14 +149,14 @@ def _is_ssid_visible(ssid):
     except:
         return False
 
-def _ensure_client_mode(con_name, ssid=None, psk=None):
+def _ensure_client_mode(con_name, ssid=None, psk=None, method="auto", addresses=None, gateway=None, force=False):
     """S'assure que wlan0 est connecté à l'AP spécifié."""
     # 1. Vérifier si déjà connecté à cette connexion
     status = subprocess.run(["nmcli", "-t", "-f", "DEVICE,CONNECTION", "dev", "status"], capture_output=True, text=True)
-    if f"wlan0:{con_name}" in status.stdout:
-        return # Déjà OK
+    if f"wlan0:{con_name}" in status.stdout and not force:
+        return # Déjà OK et pas de forçage
 
-    logger.info(f"Activation de la connexion client: {con_name}")
+    logger.info(f"Configuration/Activation de la connexion client: {con_name} (SSID: {ssid})")
     
     # 2. Créer/Mettre à jour la connexion si c'est un site (on ne touche pas au rescue existant)
     if ssid:
@@ -127,8 +166,27 @@ def _ensure_client_mode(con_name, ssid=None, psk=None):
         else:
             opts += "wifi-sec.key-mgmt none "
         
-        # On force l'IP auto pour wlan0 client (pour ne pas interférer avec les routes 4G)
-        opts += "ipv4.method auto ipv4.never-default yes "
+        # Gestion de l'IP
+        if method == "manual" and addresses:
+            import json
+            try:
+                addrs_list = json.loads(addresses) if addresses else []
+                if not isinstance(addrs_list, list):
+                    addrs_list = [addresses]
+            except Exception:
+                addrs_list = [a.strip() for a in (addresses or "").split(",") if a.strip()]
+                
+            addrs_nm = ",".join(addrs_list)
+            opts += f"ipv4.method manual ipv4.addresses {shlex.quote(addrs_nm)} "
+            if gateway:
+                opts += f"ipv4.gateway {shlex.quote(gateway)} "
+        else:
+            opts += "ipv4.method auto "
+            
+        # On évite que le WiFi devienne la route par défaut si on a la 4G (wwan0)
+        # Sauf si on veut explicitement que le WiFi chantier soit prioritaire sur la 4G ?
+        # Dans le doute, on garde ipv4.never-default yes pour ne pas casser l'accès cloud via 4G
+        opts += "ipv4.never-default yes "
 
         check = subprocess.run(["nmcli", "con", "show", con_name], capture_output=True)
         if check.returncode == 0:

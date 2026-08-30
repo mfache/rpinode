@@ -68,10 +68,11 @@ CREATE TABLE IF NOT EXISTS site_network_profiles (
     site_id INTEGER NOT NULL,
     interface TEXT NOT NULL,            -- 'eth0' ou 'wlan0'
     method TEXT DEFAULT 'auto',         -- 'auto' (DHCP) ou 'manual'
-    addresses TEXT,                     -- Adresses CIDR (ex: "192.168.1.10/24")
+    addresses TEXT,                     -- Adresses CIDR JSON (ex: '["192.168.1.10/24"]')
     gateway TEXT,
     ssid TEXT,                          -- Pour le WiFi (wlan0)
     psk TEXT,                           -- Mot de passe WiFi (optionnel)
+    is_dirty BOOLEAN DEFAULT 0,         -- 1 si modifié localement et non synchronisé
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (site_id) REFERENCES sites(id) ON DELETE CASCADE,
     UNIQUE(site_id, interface)
@@ -100,10 +101,16 @@ CREATE TABLE IF NOT EXISTS discovered_devices (
 );
 CREATE TABLE IF NOT EXISTS modbus_templates (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    external_id TEXT UNIQUE,            -- ID sur le serveur maître
-    name TEXT NOT NULL,                 -- Nom du modèle d'appareil
-    manufacturer TEXT,
-    registers_json TEXT,                -- Définition des registres (JSON)
+    template_uuid TEXT NOT NULL,         -- UUID racine du template (conservé à travers les versions)
+    revision_uuid TEXT NOT NULL UNIQUE,  -- UUID spécifique de cette version/révision
+    parent_revision_uuid TEXT,           -- Révision parente (historique)
+    name TEXT NOT NULL,                  -- Nom du modèle (ex: SWEGON HR Série)
+    manufacturer TEXT,                  -- Fabricant (ex: Swegon)
+    version INTEGER DEFAULT 1,           -- Numéro de version séquentiel
+    is_shared BOOLEAN DEFAULT 0,         -- 1 si publié/partagé avec la flotte
+    is_local_hidden BOOLEAN DEFAULT 0,   -- 1 si masqué/supprimé localement par l'utilisateur
+    created_by_node TEXT,                -- Hostname du boîtier d'origine
+    registers_json TEXT NOT NULL,        -- JSON de définition des registres
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -116,6 +123,7 @@ CREATE TABLE IF NOT EXISTS modbus_devices (
     protocol TEXT NOT NULL,             -- 'tcp' ou 'mstp'
     address TEXT NOT NULL,              -- IP (pour TCP) ou Slave ID (pour MSTP)
     port INTEGER,                       -- Port (pour TCP, défaut 502)
+    slave_unit INTEGER DEFAULT 1,       -- Numéro d'esclave (Slave ID / Unit ID)
     is_dirty BOOLEAN DEFAULT 1,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (site_id) REFERENCES sites(id) ON DELETE CASCADE,
@@ -146,4 +154,50 @@ CREATE TABLE IF NOT EXISTS bacnet_devices (
     FOREIGN KEY (template_id) REFERENCES bacnet_templates(id) ON DELETE CASCADE
 );
 
+-- Table des définitions de colonnes personnalisées
+CREATE TABLE IF NOT EXISTS custom_column_definitions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    table_id TEXT NOT NULL,            -- ex: 'ip_scan'
+    column_key TEXT NOT NULL,          -- ex: 'room'
+    column_label TEXT NOT NULL,        -- ex: 'Pièce'
+    is_mandatory BOOLEAN DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(table_id, column_key)
+);
+
 -- Historique des relevés (Trends)
+CREATE TABLE IF NOT EXISTS trends (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    site_id INTEGER NOT NULL,
+    protocol TEXT NOT NULL,             -- 'modbus' ou 'bacnet'
+    timestamp INTEGER NOT NULL,         -- Unix timestamp
+    device_id TEXT NOT NULL,            -- Identifiant de l'appareil
+    object_id TEXT NOT NULL,            -- Registre Modbus ou Objet BACnet
+    value TEXT,                         -- Valeur relevée
+    is_synced BOOLEAN DEFAULT 0,        -- 1 si envoyé au serveur maître
+    FOREIGN KEY (site_id) REFERENCES sites(id) ON DELETE CASCADE
+);
+
+-- Points Modbus sélectionnés pour le Suivi (Live) et/ou l'Enregistrement (Historique)
+CREATE TABLE IF NOT EXISTS modbus_points (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    site_id INTEGER NOT NULL,
+    device_id INTEGER NOT NULL,
+    reg INTEGER NOT NULL,
+    function INTEGER DEFAULT 3,
+    base INTEGER DEFAULT 0,             -- 0 ou 1 (offset d'adressage Modbus)
+    slave_unit INTEGER DEFAULT 1,       -- Slave Unit ID
+    name TEXT,
+    type TEXT DEFAULT 'int16',
+    scale REAL DEFAULT 1.0,
+    unit TEXT,
+    is_monitored BOOLEAN DEFAULT 1,
+    is_recorded BOOLEAN DEFAULT 0,
+    cadence TEXT DEFAULT '1m',
+    last_value TEXT,
+    last_read_ts INTEGER,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (site_id) REFERENCES sites(id) ON DELETE CASCADE,
+    FOREIGN KEY (device_id) REFERENCES modbus_devices(id) ON DELETE CASCADE,
+    UNIQUE(device_id, function, reg)
+);

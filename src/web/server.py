@@ -82,12 +82,16 @@ class WebAdminHandler(BaseHTTPRequestHandler):
             return self.serve_network_interfaces()
         elif path == "/modbus/devices":
             return self.serve_modbus_devices()
+        elif path == "/modbus/suivi":
+            return self.serve_modbus_suivi()
         elif path == "/modbus/device/view":
             return self.serve_modbus_device_view(query)
         elif path == "/modbus/templates":
             return self.serve_modbus_templates()
         elif path == "/modbus/tools":
             return self.serve_modbus_tools(query)
+        elif path in ("/api/modbus/suivi/values", "/api/monitor/suivi/values"):
+            return self.serve_modbus_suivi_values()
         elif path == "/scan/bacnet":
             return self.serve_bacnet_mgr()
         elif path == "/monitor/suivi":
@@ -121,8 +125,22 @@ class WebAdminHandler(BaseHTTPRequestHandler):
             self.handle_site_rename()
         elif path == "/api/modbus/device/add":
             self.handle_modbus_device_add()
+        elif path == "/api/modbus/device/delete":
+            self.handle_modbus_device_delete()
+        elif path == "/api/modbus/device/points/save":
+            self.handle_modbus_device_points_save()
+        elif path == "/api/modbus/point/update":
+            self.handle_modbus_point_update()
+        elif path == "/api/modbus/point/delete":
+            self.handle_modbus_point_delete()
         elif path == "/api/modbus/template/save":
             self.handle_modbus_template_save()
+        elif path == "/api/modbus/template/delete":
+            self.handle_modbus_template_delete()
+        elif path == "/api/modbus/template/import_from_fleet":
+            self.handle_modbus_template_import_from_fleet()
+        elif path == "/api/modbus/template/share_to_fleet":
+            self.handle_modbus_template_share_to_fleet()
         elif path == "/api/bacnet/device/add":
             self.handle_bacnet_device_add()
         elif path == "/api/bacnet/template/save":
@@ -213,15 +231,17 @@ class WebAdminHandler(BaseHTTPRequestHandler):
             address = data.get("address", "")
             port = int(data.get("port", 502))
             unit = int(data.get("unit", 1))
+            base = int(data.get("base", 0))
             func = int(data.get("function", 3))
             reg_addr = int(data.get("address_start", 0))
+            wire_addr = reg_addr - (1 if base == 1 else 0)
             count = int(data.get("count", 1))
-            timeout = float(data.get("timeout", 1.0))
+            timeout = float(data.get("timeout", 1.5))
             
             if func in (1, 2):
-                vals = read_bits(protocol, address, port, unit, func, reg_addr, count, timeout)
+                vals = read_bits(protocol, address, port, unit, func, wire_addr, count, timeout)
             else:
-                vals = read_registers(protocol, address, port, unit, func, reg_addr, count, timeout)
+                vals = read_registers(protocol, address, port, unit, func, wire_addr, count, timeout)
                 
             self.send_json({"status": "ok", "values": vals, "function": func})
         except Exception as e:
@@ -251,22 +271,6 @@ class WebAdminHandler(BaseHTTPRequestHandler):
             self.send_json({"status": "ok", "message": "Écriture effectuée avec succès."})
         except Exception as e:
             self.send_json({"status": "error", "message": str(e)})
-        filename = path.replace("/static/", "").replace("/", "")
-        file_path = STATIC_DIR / filename
-        if not file_path.exists():
-            self.send_error(404, "Fichier statique non trouvé")
-            return
-        content_type = "text/plain"
-        if filename.endswith(".css"): content_type = "text/css"
-        elif filename.endswith(".js"): content_type = "application/javascript"
-        elif filename.endswith(".json"): content_type = "application/json"
-        elif filename.endswith(".png"): content_type = "image/png"
-        elif filename.endswith(".svg"): content_type = "image/svg+xml"
-        self.send_response(200)
-        self.send_header("Content-Type", content_type)
-        self.end_headers()
-        with open(file_path, "rb") as f:
-            self.wfile.write(f.read())
 
     def serve_home(self):
         config = load_config()
@@ -380,6 +384,164 @@ class WebAdminHandler(BaseHTTPRequestHandler):
             logger.error(f"Erreur save network profile: {e}")
             self.send_json({"status": "error", "message": str(e)})
 
+    def serve_modbus_suivi(self):
+        config = load_config()
+        base_url = config.get("base_url", "")
+        hostname = socket.gethostname()
+        version = str(int(time.time()))
+        from services.modbus_mgr import get_site_modbus_points
+        from services.presence import get_current_site_name
+        site_name = get_current_site_name()
+        
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT id FROM sites WHERE name = ?", (site_name,))
+            site_row = cursor.fetchone()
+            site_id = site_row["id"] if site_row else None
+            
+        points = get_site_modbus_points(site_id, only_monitored=True) if site_id else []
+        
+        rows_html = ""
+        cadences = ["5s", "10s", "30s", "1m", "5m"]
+        
+        for p in points:
+            pid = p["id"]
+            rec_checked = "checked" if p["is_recorded"] else ""
+            cad_options = "".join([
+                f"<option value='{c}' {'selected' if p.get('cadence') == c else ''}>{c}</option>"
+                for c in cadences
+            ])
+            val_display = p["last_value"] if p["last_value"] is not None else "—"
+            if p["unit"] and p["last_value"] is not None:
+                val_display += f" {p['unit']}"
+                
+            unit_display = f"<code>{p['protocol']}://{p['address']}{':' + str(p['port']) if p['port'] and p['port'] != 502 else ''}</code>"
+            
+            rows_html += f"""
+                <tr id="suivi-row-{pid}">
+                    <td><strong>{escape(p['device_name'])}</strong><br><small style="color:#777;">{unit_display}</small></td>
+                    <td><span class="badge-gray">FC{p['function']:02d} @{p['reg']}</span></td>
+                    <td><strong>{escape(p['name'])}</strong></td>
+                    <td><b class="live-val badge-gray" id="val-{pid}" data-suivi-key="{pid}">{escape(val_display)}</b></td>
+                    <td>
+                        <label style="cursor:pointer; display:inline-flex; align-items:center; gap:5px;">
+                            <input type="checkbox" class="cb-record" data-point-id="{pid}" {rec_checked} onchange="toggleRecord({pid}, this.checked)">
+                            <span>Enregistrer</span>
+                        </label>
+                    </td>
+                    <td>
+                        <select id="cadence-{pid}" class="cadence-select" {'disabled' if not p['is_recorded'] else ''} onchange="changeCadence({pid}, this.value)">
+                            {cad_options}
+                        </select>
+                    </td>
+                    <td>
+                        <button class="btn-icon-del" onclick="removePoint({pid})" title="Retirer du suivi">🗑️</button>
+                    </td>
+                </tr>
+            """
+            
+        if not points:
+            rows_html = "<tr><td colspan='7' style='text-align:center; padding:30px; color:#888;'>Aucun point sélectionné pour le suivi sur ce chantier.<br><a href='" + base_url + "/modbus/devices' class='btn-secondary btn-sm' style='margin-top:10px; display:inline-block;'>Sélectionner des points sur un appareil</a></td></tr>"
+            
+        content = render("modbus_suivi.html", site_name=site_name, suivi_rows_html=rows_html, base_url=base_url)
+        nav_html = render("nav.html", base_url=base_url)
+        final_html = render("layout.html", title="Suivi Modbus (Live)", hostname=escape(hostname), base_url=escape(base_url), version=version, nav=nav_html, content=content)
+        
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.end_headers()
+        self.wfile.write(final_html.encode("utf-8"))
+
+    def serve_modbus_suivi_values(self):
+        from services.modbus_mgr import read_site_monitored_points_live
+        from services.presence import get_current_site_name
+        site_name = get_current_site_name()
+        
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT id FROM sites WHERE name = ?", (site_name,))
+            row = cursor.fetchone()
+            site_id = row["id"] if row else None
+            
+        if not site_id:
+            return self.send_json({"status": "error", "message": "Aucun chantier actif", "values": {}})
+            
+        values = read_site_monitored_points_live(site_id)
+        self.send_json({"status": "ok", "values": values})
+
+    def handle_modbus_device_points_save(self):
+        content_length = int(self.headers.get('Content-Length', 0))
+        post_data = self.rfile.read(content_length)
+        try:
+            data = json.loads(post_data)
+            device_id = int(data.get("device_id"))
+            points = data.get("points", [])
+            
+            from services.modbus_mgr import save_device_points_selection
+            from services.presence import get_current_site_name
+            site_name = get_current_site_name()
+            
+            with get_db_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT id FROM sites WHERE name = ?", (site_name,))
+                row = cursor.fetchone()
+                site_id = row["id"] if row else None
+                
+            if not site_id:
+                return self.send_json({"status": "error", "message": "Aucun chantier actif"})
+                
+            save_device_points_selection(device_id, site_id, points)
+            self.send_json({"status": "ok", "message": "Sélection enregistrée"})
+        except Exception as e:
+            logger.error(f"Erreur save device points: {e}")
+            self.send_json({"status": "error", "message": str(e)})
+
+    def handle_modbus_point_update(self):
+        content_length = int(self.headers.get('Content-Length', 0))
+        post_data = self.rfile.read(content_length)
+        try:
+            data = json.loads(post_data)
+            point_id = int(data.get("point_id"))
+            is_monitored = data.get("is_monitored")
+            is_recorded = data.get("is_recorded")
+            cadence = data.get("cadence")
+            
+            from services.modbus_mgr import update_point_settings
+            success = update_point_settings(point_id, is_monitored=is_monitored, is_recorded=is_recorded, cadence=cadence)
+            if success:
+                self.send_json({"status": "ok"})
+            else:
+                self.send_json({"status": "error", "message": "Point introuvable"})
+        except Exception as e:
+            logger.error(f"Erreur update point: {e}")
+            self.send_json({"status": "error", "message": str(e)})
+
+    def handle_modbus_point_delete(self):
+        content_length = int(self.headers.get('Content-Length', 0))
+        post_data = self.rfile.read(content_length)
+        try:
+            data = json.loads(post_data)
+            point_id = int(data.get("point_id"))
+            from services.modbus_mgr import delete_modbus_point
+            delete_modbus_point(point_id)
+            self.send_json({"status": "ok"})
+        except Exception as e:
+            logger.error(f"Erreur delete point: {e}")
+            self.send_json({"status": "error", "message": str(e)})
+
+    def handle_modbus_device_delete(self):
+        content_length = int(self.headers.get('Content-Length', 0))
+        post_data = self.rfile.read(content_length)
+        try:
+            data = json.loads(post_data)
+            device_id = int(data.get("device_id"))
+            from services.modbus_mgr import delete_device_from_site
+            delete_device_from_site(device_id)
+            self.send_json({"status": "ok", "message": "Appareil supprimé"})
+        except Exception as e:
+            logger.error(f"Erreur delete device: {e}")
+            self.send_json({"status": "error", "message": str(e)})
+
     def serve_modbus_devices(self):
         config = load_config()
         base_url = config.get("base_url", "")
@@ -397,16 +559,125 @@ class WebAdminHandler(BaseHTTPRequestHandler):
         templates = get_all_templates()
         devices = get_site_devices(site_id) if site_id else []
         
-        devices_html = "".join([
-            f"<a href='{base_url}/modbus/device/view?id={d['id']}' style='text-decoration:none; color:inherit;'>"
-            f"<div class='status-card card-hover'><strong>{d['name']}</strong><br>{d['template_name']} ({d['protocol']}://{d['address']})</div>"
-            f"</a>" for d in devices
-        ])
-        if not devices: devices_html = "<p>Aucun appareil configuré sur ce site.</p>"
+        total_monitored_site = 0
+        total_recorded_site = 0
+        cards_html = []
         
-        options_html = "".join([f"<option value='{t['id']}'>{t['name']}</option>" for t in templates])
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            for d in devices:
+                dev_id = d["id"]
+                # Nombre de points suivis / enregistrés
+                cursor.execute(
+                    "SELECT COUNT(*) as count_mon, SUM(is_recorded) as count_rec FROM modbus_points WHERE device_id = ? AND is_monitored = 1",
+                    (dev_id,)
+                )
+                stats = cursor.fetchone()
+                mon_count = stats["count_mon"] or 0
+                rec_count = stats["count_rec"] or 0
+                total_monitored_site += mon_count
+                total_recorded_site += rec_count
+                
+                # Nombre total de registres dans le template
+                total_tpl_regs = 0
+                cursor.execute("SELECT registers_json FROM modbus_templates WHERE id = ?", (d["template_id"],))
+                tpl_row = cursor.fetchone()
+                if tpl_row and tpl_row["registers_json"]:
+                    try:
+                        regs = json.loads(tpl_row["registers_json"])
+                        total_tpl_regs = len(regs)
+                    except Exception:
+                        total_tpl_regs = 0
+                        
+                is_tcp = (d.get("protocol") == "tcp")
+                proto_label = "Modbus TCP" if is_tcp else "Modbus RTU"
+                proto_class = "proto-modbus-tcp" if is_tcp else "proto-modbus-mstp"
+                port_str = f":{d['port']}" if is_tcp and d.get('port') and d['port'] != 502 else ""
+                slave_unit = d.get("slave_unit") or 1
+                if is_tcp:
+                    addr_display = f"{d['protocol']}://{d['address']}{port_str} (Esclave {slave_unit})"
+                else:
+                    addr_display = f"Modbus RTU (Esclave {slave_unit})"
+                
+                manu = d.get('template_manufacturer') or 'Générique'
+                
+                cards_html.append(f"""
+                <div class="device-card" id="device-card-{dev_id}">
+                    <div class="device-card-header">
+                        <div style="min-width: 0;">
+                            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                                <h3 class="device-title">{escape(d['name'])}</h3>
+                                <span class="badge-protocol {proto_class}">{proto_label}</span>
+                            </div>
+                            <div class="device-meta">
+                                <span title="Modèle">📦 {escape(d['template_name'])}</span>
+                                <span>•</span>
+                                <span title="Fabricant">🏭 {escape(manu)}</span>
+                            </div>
+                        </div>
+                        <button class="btn-icon-del" onclick="deleteDevice({dev_id}, '{escape(d['name'])}')" title="Supprimer cet appareil">
+                            🗑️
+                        </button>
+                    </div>
+
+                    <div class="device-card-body">
+                        <div class="device-addr-box">
+                            <span class="addr-label">Connexion :</span>
+                            <code class="addr-value">{addr_display}</code>
+                        </div>
+
+                        <div class="device-stats-grid">
+                            <div class="stat-pill">
+                                <span class="stat-icon">📊</span>
+                                <div>
+                                    <div class="stat-num">{mon_count} / {total_tpl_regs}</div>
+                                    <div class="stat-desc">Points suivis</div>
+                                </div>
+                            </div>
+                            <div class="stat-pill">
+                                <span class="stat-icon">💾</span>
+                                <div>
+                                    <div class="stat-num">{rec_count}</div>
+                                    <div class="stat-desc">Enregistrés</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="device-card-footer">
+                        <a href="{base_url}/modbus/device/view?id={dev_id}" class="btn-primary btn-sm" style="flex: 1; text-align: center; text-decoration: none;">
+                            ⚙️ Configurer les points
+                        </a>
+                        <a href="{base_url}/modbus/tools?protocol={d['protocol']}&address={d['address']}&port={d.get('port', 502)}" class="btn-secondary btn-sm" title="Tester la liaison" style="text-decoration: none;">
+                            🔍 Test
+                        </a>
+                    </div>
+                </div>
+                """)
         
-        content = render("modbus_devices.html", site_name=site_name, devices_list_html=devices_html, templates_options_html=options_html)
+        devices_html = "".join(cards_html)
+        if not devices:
+            devices_html = f"""
+            <div class="empty-state">
+                <div class="empty-icon">🔌</div>
+                <h3>Aucun appareil Modbus configuré</h3>
+                <p>Ajoutez un appareil (VMC, régulateur, automate, compteur...) pour commencer à superviser et enregistrer ses registres.</p>
+                <button class="btn-primary" onclick="showAddDeviceModal()" style="margin-top: 15px;">➕ Ajouter un premier appareil</button>
+            </div>
+            """
+        
+        options_html = "".join([f"<option value='{t['id']}'>{t['name']} ({t.get('manufacturer') or 'Générique'})</option>" for t in templates])
+        
+        content = render(
+            "modbus_devices.html",
+            site_name=site_name,
+            devices_list_html=devices_html,
+            templates_options_html=options_html,
+            total_devices=len(devices),
+            total_monitored=total_monitored_site,
+            total_recorded=total_recorded_site,
+            base_url=base_url
+        )
         nav_html = render("nav.html", base_url=base_url)
         final_html = render("layout.html", title="Appareils Modbus", hostname=escape(hostname), base_url=escape(base_url), version=version, nav=nav_html, content=content)
         
@@ -443,6 +714,10 @@ class WebAdminHandler(BaseHTTPRequestHandler):
         device = dict(device)
         registers = json.loads(device.get("registers_json") or "[]")
         
+        from services.modbus_mgr import get_device_points
+        existing_points = get_device_points(int(device_id))
+        monitored_keys = {f"{p['function']}:{p['reg']}": p for p in existing_points if p.get("is_monitored")}
+        
         rows_html = ""
         for i, reg in enumerate(registers):
             func_val = reg.get("function", 3)
@@ -452,19 +727,27 @@ class WebAdminHandler(BaseHTTPRequestHandler):
             elif isinstance(func_val, str) and func_val.isdigit():
                 func_val = int(func_val)
                 
+            reg_num = int(reg.get('reg'))
+            base_val = int(reg.get('base', 0))
             scale = reg.get("scale", 1.0)
             if scale is None: scale = 1.0
             
+            is_mon = f"{func_val}:{reg_num}" in monitored_keys
+            chk_attr = "checked" if is_mon else ""
+            
             # Attributs de données pour le JS
-            data_attrs = f"data-reg='{reg.get('reg')}' data-func='{func_val}' data-type='{reg.get('type', 'int16')}' data-scale='{scale}'"
+            data_attrs = f"data-reg='{reg_num}' data-base='{base_val}' data-func='{func_val}' data-type='{reg.get('type', 'int16')}' data-scale='{scale}' data-name='{escape(reg.get('name', ''))}' data-unit='{escape(reg.get('unit', ''))}'"
             
             rows_html += f"""
                 <tr class="point-row" {data_attrs} id="row-{i}">
-                    <td>{reg.get('reg')}</td>
+                    <td style="text-align:center;">
+                        <input type="checkbox" class="cb-monitor" {chk_attr}>
+                    </td>
+                    <td>{reg_num}</td>
                     <td>FC{func_val:02d}</td>
-                    <td><strong>{reg.get('name')}</strong></td>
+                    <td><strong>{escape(reg.get('name', ''))}</strong></td>
                     <td>{reg.get('type', 'int16')}</td>
-                    <td><span class="live-val badge-gray" id="val-{i}">-</span> {reg.get('unit', '')}</td>
+                    <td><span class="live-val badge-gray" id="val-{i}">-</span> {escape(reg.get('unit', ''))}</td>
                     <td>
                         <button class="btn-secondary btn-sm" onclick="readPoint({i})">Lire</button>
                     </td>
@@ -472,13 +755,23 @@ class WebAdminHandler(BaseHTTPRequestHandler):
             """
             
         if not registers:
-            rows_html = "<tr><td colspan='6'>Aucun point défini dans ce template.</td></tr>"
+            rows_html = "<tr><td colspan='7'>Aucun point défini dans ce template.</td></tr>"
             
+        is_tcp = (device.get("protocol") == "tcp")
+        slave_unit = device.get("slave_unit") or 1
+        port_val = device["port"] or 502
+        port_str = f":{port_val}" if is_tcp and port_val != 502 else ""
+        if is_tcp:
+            conn_display = f"{device['protocol']}://{device['address']}{port_str} (Esclave {slave_unit})"
+        else:
+            conn_display = f"Modbus RTU (Esclave {slave_unit})"
+
         device_json = json.dumps({
             "id": device["id"],
             "protocol": device["protocol"],
             "address": device["address"],
-            "port": device["port"] or 502,
+            "port": port_val,
+            "unit": slave_unit,
         })
             
         content = render("modbus_device_view.html", 
@@ -486,7 +779,9 @@ class WebAdminHandler(BaseHTTPRequestHandler):
                          modbus_template_name=device["template_name"],
                          protocol=device["protocol"],
                          address=device["address"],
-                         port=device["port"] or 502,
+                         port=port_val,
+                         slave_unit=slave_unit,
+                         conn_display=conn_display,
                          rows_html=rows_html,
                          device_json=device_json,
                          base_url=base_url)
@@ -504,16 +799,78 @@ class WebAdminHandler(BaseHTTPRequestHandler):
         base_url = config.get("base_url", "")
         hostname = socket.gethostname()
         version = str(int(time.time()))
-        from services.modbus_mgr import get_all_templates
+        from services.modbus_mgr import get_templates_overview
         
-        templates = get_all_templates()
-        templates_html = ""
-        for t in templates:
+        local_templates, fleet_templates = get_templates_overview()
+        
+        local_html = ""
+        for t in local_templates:
             t_json = json.dumps(dict(t)).replace("'", "\\'")
-            templates_html += f"<tr><td>{t['name']}</td><td>{t['manufacturer']}</td><td><button class='btn-blue' onclick='showEditTemplateModal({t_json})'>Modifier</button></td></tr>"
-        if not templates: templates_html = "<tr><td colspan='3'>Aucun template disponible</td></tr>"
-        
-        content = render("modbus_templates.html", templates_list_html=templates_html)
+            escaped_name = t['name'].replace("'", "\\'")
+            try:
+                regs = json.loads(t.get("registers_json", "[]"))
+                reg_count = len(regs)
+            except Exception:
+                reg_count = 0
+                
+            version_badge = f"<span style='background:#e8f4fd; color:#2980b9; padding:2px 6px; border-radius:10px; font-size:0.75em; font-weight:bold; margin-left:5px;'>v{t.get('version', 1)}</span>"
+            if t.get('is_shared') == 1:
+                status_badge = "<span style='background:#e8f8f5; color:#16a085; padding:2px 6px; border-radius:10px; font-size:0.75em; margin-left:4px;'>🌐 Partagé</span>"
+            else:
+                status_badge = "<span style='background:#fdf2e9; color:#d35400; padding:2px 6px; border-radius:10px; font-size:0.75em; margin-left:4px;'>🔒 Local</span>"
+
+            local_html += (
+                f"<tr data-name='{escape(t['name']).lower()}'>"
+                f"<td><strong>{escape(t['name'])}</strong> {version_badge} {status_badge}</td>"
+                f"<td>{escape(t['manufacturer']) if t['manufacturer'] else '—'}</td>"
+                f"<td><span class='badge-count'>{reg_count} reg.</span></td>"
+                f"<td style='display:flex; gap:6px; flex-wrap:wrap;'>"
+                f"<button class='btn-blue btn-sm' onclick='showEditTemplateModal({t_json})' title='Modifier les registres'>✏️ Modifier</button>"
+                f"<button class='btn-secondary btn-sm' onclick='shareTemplate({t['id']}, \"{escaped_name}\")' title='Publier vers la flotte docs'>📤 Partager</button>"
+                f"<button class='btn-red btn-sm' onclick='deleteTemplate({t['id']}, \"{escaped_name}\")' title='Supprimer du boîtier'>🗑️</button>"
+                f"</td>"
+                f"</tr>"
+            )
+        if not local_templates:
+            local_html = "<tr><td colspan='4' style='text-align:center; color:#888; padding:25px;'>Aucun template installé localement.<br><small>Installez-en depuis la bibliothèque de la flotte à droite ou créez-en un nouveau !</small></td></tr>"
+            
+        fleet_html = ""
+        for f in fleet_templates:
+            escaped_name = f['name'].replace("'", "\\'")
+            if f.get('needs_update'):
+                status_action = (
+                    f"<span class='badge-installed' style='background:#fef9e7; color:#d4ac0d;'>⚠️ v{f['local_version']} ➔ v{f['version']}</span> "
+                    f"<button class='btn-blue btn-sm' onclick='importFromFleet(\"{escaped_name}\", true)' title='Mettre à jour vers la version {f['version']}'>⬆️ Mettre à jour</button>"
+                )
+            elif f['is_installed']:
+                status_action = (
+                    f"<span class='badge-installed'>✅ v{f['version']}</span> "
+                    f"<button class='btn-gray btn-sm' onclick='importFromFleet(\"{escaped_name}\", true)' title='Réimporter la version de la flotte'>🔄</button>"
+                )
+            else:
+                status_action = (
+                    f"<button class='btn-primary btn-sm' onclick='importFromFleet(\"{escaped_name}\", false)'>⬇️ Installer (v{f['version']})</button>"
+                )
+                
+            fleet_html += (
+                f"<tr data-name='{escape(f['name']).lower()}'>"
+                f"<td><strong>{escape(f['name'])}</strong></td>"
+                f"<td><span title='{escape(f['notes'])}'>{escape(f['notes'])[:22] + ('...' if len(f['notes']) > 22 else '')}</span></td>"
+                f"<td><span class='badge-count'>{f['reads_count']} reg.</span></td>"
+                f"<td>{status_action}</td>"
+                f"</tr>"
+            )
+        if not fleet_templates:
+            fleet_html = "<tr><td colspan='4' style='text-align:center; color:#888; padding:25px;'>Bibliothèque de la flotte inaccessible (ou 0 template disponible).</td></tr>"
+            
+        content = render(
+            "modbus_templates.html",
+            local_templates_html=local_html,
+            local_count=len(local_templates),
+            fleet_templates_html=fleet_html,
+            fleet_count=len(fleet_templates),
+            base_url=base_url
+        )
         nav_html = render("nav.html", base_url=base_url)
         final_html = render("layout.html", title="Templates Modbus", hostname=escape(hostname), base_url=escape(base_url), version=version, nav=nav_html, content=content)
         
@@ -575,22 +932,69 @@ class WebAdminHandler(BaseHTTPRequestHandler):
         base_url = config.get("base_url", "")
         hostname = socket.gethostname()
         version = str(int(time.time()))
+        from services.modbus_mgr import get_site_modbus_points
         from services.presence import get_current_site_name
         site_name = get_current_site_name()
+        
         with get_db_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT * FROM trends WHERE site_id = (SELECT id FROM sites WHERE name = ?) ORDER BY timestamp DESC LIMIT 50", (site_name,))
-            rows = cursor.fetchall()
-        trends_html = ""
-        for r in rows:
-            time_str = time.strftime("%H:%M:%S", time.localtime(r["timestamp"]))
-            sync_class = "sync-ok" if r["is_synced"] else "sync-pending"
-            sync_text = "OK" if r["is_synced"] else "Attente"
-            trends_html += f"<tr><td>{time_str}</td><td>{r['protocol'].upper()}</td><td>{r['device_id']}</td><td>{r['object_id']}</td><td><strong>{r['value']}</strong></td><td><span class='sync-status {sync_class}'>{sync_text}</span></td></tr>"
-        if not rows: trends_html = "<tr><td colspan='6'>Aucune donnée enregistrée.</td></tr>"
-        content = render("trends.html", site_name=site_name, trends_rows_html=trends_html)
+            cursor.execute("SELECT id FROM sites WHERE name = ?", (site_name,))
+            site_row = cursor.fetchone()
+            site_id = site_row["id"] if site_row else None
+            
+        modbus_points = get_site_modbus_points(site_id, only_monitored=True) if site_id else []
+        
+        rows_html = ""
+        cadences = ["5s", "10s", "30s", "1m", "5m"]
+        
+        for p in modbus_points:
+            pid = p["id"]
+            rec_checked = "checked" if p["is_recorded"] else ""
+            cad_options = "".join([
+                f"<option value='{c}' {'selected' if p.get('cadence') == c else ''}>{c}</option>"
+                for c in cadences
+            ])
+            val_display = p["last_value"] if p["last_value"] is not None else "—"
+            if p["unit"] and p["last_value"] is not None:
+                val_display += f" {p['unit']}"
+                
+            unit_display = f"<code>{p['protocol']}://{p['address']}{':' + str(p['port']) if p['port'] and p['port'] != 502 else ''}</code>"
+            is_tcp = (p.get("protocol") == "tcp")
+            proto_key = "modbus-tcp" if is_tcp else "modbus-mstp"
+            proto_badge = "proto-modbus-tcp" if is_tcp else "proto-modbus-mstp"
+            proto_label = "MODBUS TCP" if is_tcp else "MODBUS RTU"
+            
+            rows_html += f"""
+                <tr id="suivi-row-{pid}" data-proto="{proto_key}">
+                    <td><span class="badge-protocol {proto_badge}">{proto_label}</span></td>
+                    <td><strong>{escape(p['device_name'])}</strong><br><small style="color:#777;">{unit_display}</small></td>
+                    <td><span class="badge-gray">FC{p['function']:02d} @{p['reg']}</span></td>
+                    <td><strong>{escape(p['name'])}</strong></td>
+                    <td><b class="live-val badge-gray" id="val-{pid}" data-suivi-key="{pid}">{escape(val_display)}</b></td>
+                    <td>
+                        <label style="cursor:pointer; display:inline-flex; align-items:center; gap:5px;">
+                            <input type="checkbox" class="cb-record" data-point-id="{pid}" {rec_checked} onchange="toggleRecord({pid}, this.checked)">
+                            <span>Enregistrer</span>
+                        </label>
+                    </td>
+                    <td>
+                        <select id="cadence-{pid}" class="cadence-select" {'disabled' if not p['is_recorded'] else ''} onchange="changeCadence({pid}, this.value)">
+                            {cad_options}
+                        </select>
+                    </td>
+                    <td>
+                        <button class="btn-icon-del" onclick="removePoint({pid})" title="Retirer du suivi">🗑️</button>
+                    </td>
+                </tr>
+            """
+            
+        if not modbus_points:
+            rows_html = "<tr><td colspan='8' style='text-align:center; padding:30px; color:#888;'>Aucun point sélectionné pour le suivi sur ce chantier.<br><a href='" + base_url + "/modbus/devices' class='btn-secondary btn-sm' style='margin-top:10px; display:inline-block;'>Sélectionner des points sur un appareil</a></td></tr>"
+            
+        content = render("trends.html", site_name=site_name, trends_rows_html=rows_html, base_url=base_url)
         nav_html = render("nav.html", base_url=base_url)
-        final_html = render("layout.html", title="Suivi des Points", hostname=escape(hostname), base_url=escape(base_url), version=version, nav=nav_html, content=content)
+        final_html = render("layout.html", title="Suivi Global des Points", hostname=escape(hostname), base_url=escape(base_url), version=version, nav=nav_html, content=content)
+        
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.end_headers()
@@ -735,24 +1139,71 @@ class WebAdminHandler(BaseHTTPRequestHandler):
             registers = []
             addrs = data.get("reg_addr[]", [])
             funcs = data.get("reg_func[]", [])
+            bases = data.get("reg_base[]", [])
             names = data.get("reg_name[]", [])
             types = data.get("reg_type[]", [])
             scales = data.get("reg_scale[]", [])
+            units = data.get("reg_unit[]", [])
             
             if isinstance(addrs, str): 
-                addrs, funcs, names, types, scales = [addrs], [funcs], [names], [types], [scales]
+                addrs, funcs, bases, names, types, scales, units = [addrs], [funcs], [bases], [names], [types], [scales], [units]
                 
             for i in range(len(addrs)):
                 if addrs[i] and names[i]: 
                     registers.append({
                         "reg": int(addrs[i]), 
-                        "function": int(funcs[i]) if funcs[i] else 3,
+                        "function": int(funcs[i]) if i < len(funcs) and funcs[i] else 3,
+                        "base": int(bases[i]) if i < len(bases) and bases[i] else 0,
                         "name": names[i], 
-                        "type": types[i],
-                        "scale": float(scales[i]) if scales[i] else 1.0
+                        "type": types[i] if i < len(types) else "int16",
+                        "scale": float(scales[i]) if i < len(scales) and scales[i] else 1.0,
+                        "unit": units[i] if i < len(units) and units[i] else ""
                     })
-            save_template(name=data.get("name"), manufacturer=data.get("manufacturer"), registers=registers, template_id=data.get("template_id") or None)
+            is_shared = data.get("is_shared")
+            save_template(name=data.get("name"), manufacturer=data.get("manufacturer"), registers=registers, template_id=data.get("template_id") or None, is_shared=is_shared)
             self.send_json({"status": "ok", "message": "Template enregistré"})
+        except Exception as e: self.send_error(400, str(e))
+
+    def handle_modbus_template_delete(self):
+        content_length = int(self.headers['Content-Length'])
+        post_data = self.rfile.read(content_length)
+        try:
+            data = json.loads(post_data)
+            template_id = int(data.get("template_id"))
+            from services.modbus_mgr import delete_template
+            ok, err = delete_template(template_id)
+            if ok:
+                self.send_json({"status": "ok", "message": "Template supprimé avec succès"})
+            else:
+                self.send_json({"status": "error", "message": err or "Impossible de supprimer le template"})
+        except Exception as e: self.send_error(400, str(e))
+
+    def handle_modbus_template_import_from_fleet(self):
+        content_length = int(self.headers['Content-Length'])
+        post_data = self.rfile.read(content_length)
+        try:
+            data = json.loads(post_data)
+            template_name = data.get("name")
+            from services.modbus_mgr import import_template_from_fleet
+            ok, err = import_template_from_fleet(template_name)
+            if ok:
+                self.send_json({"status": "ok", "message": f"Template '{template_name}' installé avec succès en local"})
+            else:
+                self.send_json({"status": "error", "message": err or "Impossible d'importer le template"})
+        except Exception as e: self.send_error(400, str(e))
+
+    def handle_modbus_template_share_to_fleet(self):
+        content_length = int(self.headers['Content-Length'])
+        post_data = self.rfile.read(content_length)
+        try:
+            data = json.loads(post_data)
+            template_id = int(data.get("template_id"))
+            from services.modbus_mgr import share_template_to_fleet
+            ok, err = share_template_to_fleet(template_id)
+            if ok:
+                self.send_json({"status": "ok", "message": "Template partagé avec succès sur la flotte docs !"})
+            else:
+                self.send_json({"status": "error", "message": err or "Impossible de partager le template"})
         except Exception as e: self.send_error(400, str(e))
 
     def handle_site_rename(self):
@@ -777,7 +1228,17 @@ class WebAdminHandler(BaseHTTPRequestHandler):
                 cursor = conn.cursor()
                 cursor.execute("SELECT id FROM sites WHERE name = ?", (site_name,))
                 site_id = cursor.fetchone()["id"]
-            add_device_to_site(site_id=site_id, template_id=data.get("template_id"), name=data.get("name"), protocol=data.get("protocol"), address=data.get("address_ip") if data.get("protocol") == "tcp" else data.get("slave_id"), port=int(data.get("port", 502)) if data.get("protocol") == "tcp" else None)
+            port_val = int(data.get("port", 502)) if data.get("port") else 502
+            slave_unit_val = int(data.get("slave_unit") or data.get("slave_id") or 1)
+            add_device_to_site(
+                site_id=site_id,
+                template_id=data.get("template_id"),
+                name=data.get("name"),
+                protocol=data.get("protocol"),
+                address=data.get("address_ip") if data.get("protocol") == "tcp" else str(slave_unit_val),
+                port=port_val,
+                slave_unit=slave_unit_val
+            )
             self.send_json({"status": "ok", "message": "Appareil Modbus ajouté"})
         except Exception as e: self.send_error(400, str(e))
 
