@@ -48,6 +48,7 @@ class StatusReporter(threading.Thread):
         system_data = {
             "cpu_temp": f"{get_sys('cpu_temp')}°C",
             "cpu_data": f"Temp: {get_sys('cpu_temp')}°C",
+            "uptime": get_sys("uptime"),
             "update_time": time.strftime("%H:%M:%S")
         }
         mqtt_client.publish("rpinode/status/system", system_data)
