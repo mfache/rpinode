@@ -34,6 +34,7 @@ def get_interface_status(iface):
         
         # Check DHCP & Profile IP
         is_dhcp = False
+        is_dhcp_server = False
         con_name = None
         try:
             # Récupérer la connexion active
@@ -59,6 +60,8 @@ def get_interface_status(iface):
                     meth_line = res_meth.stdout.strip()
                     if meth_line == "ipv4.method:auto":
                         is_dhcp = True
+                    elif meth_line == "ipv4.method:shared":
+                        is_dhcp_server = True
                     elif meth_line == "ipv4.method:manual":
                         # Si pas d'IP détectée physiquement (ex: débranché), on lit le profil
                         if not has_ip:
@@ -98,17 +101,18 @@ def get_interface_status(iface):
                 routes.append(route_str)
 
         return {
-            "active": is_up, 
+            "active": is_up,
             "cable": cable,
             "dhcp": is_dhcp,
+            "is_dhcp_server": is_dhcp_server,
             "has_ip": has_ip,
-            "ip": ip, 
+            "ip": ip,
             "mac": mac,
             "routes": routes
         }
     except Exception as e:
         logger.error(f"Erreur status {iface}: {e}")
-        return {"active": False, "cable": False, "dhcp": False, "has_ip": False, "ip": "Erreur", "mac": "-", "routes": []}
+        return {"active": False, "cable": False, "dhcp": False, "is_dhcp_server": False, "has_ip": False, "ip": "Erreur", "mac": "-", "routes": []}
 
 def get_tailscale_status():
     """Retourne les infos détaillées de Tailscale."""

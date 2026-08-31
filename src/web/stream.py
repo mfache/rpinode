@@ -26,12 +26,15 @@ def _get_current_wifi_mode():
     except:
         return "Inconnu"
 
-def _format_dhcp_clients(clients):
+def _format_dhcp_clients(clients, is_dhcp_server=True):
     """Formate la liste des clients DHCP en HTML pour le widget."""
     try:
+        if not is_dhcp_server:
+            return ""
+
         if not clients:
             return "<div style='opacity:0.6; font-size:0.85em;'>Aucun client connecté.</div>"
-        
+
         html = "<div class='dhcp-clients-list' style='margin-top:10px; border-top:1px solid #eee; padding-top:8px;'>"
         html += "<div style='font-size:0.75rem; font-weight:bold; color:#999; text-transform:uppercase; margin-bottom:5px;'>Clients connectés</div>"
         for c in clients:
@@ -57,9 +60,9 @@ def handle_sse_stream(handler):
     handler.end_headers()
 
     logger.info("Nouveau client SSE connecté (via MQTT).")
-    
+
     q = queue.Queue(maxsize=10)
-    
+
     def on_message(client, userdata, msg):
         try:
             payload = json.loads(msg.payload.decode())
@@ -76,7 +79,7 @@ def handle_sse_stream(handler):
         client = mqtt.mqtt.Client()
 
     client.on_message = on_message
-    
+
     try:
         client.connect("127.0.0.1", 1883, 60)
         client.subscribe("rpinode/status/#")
@@ -107,7 +110,7 @@ def handle_sse_stream(handler):
 
                 # On prépare le payload final en fonction du topic
                 current_data = {}
-                
+
                 if topic == "rpinode/status/system":
                     current_data.update(data)
                 elif topic == "rpinode/status/site":
@@ -116,7 +119,7 @@ def handle_sse_stream(handler):
                     net = data
                     current_data.update({
                         "net_wwan0_ip": net['wwan0']['ip'],
-                        "net_wwan0_mac": net['wwan0']['mac'],
+                        # "net_wwan0_mac": net['wwan0']['mac'], # Pas de mac pour wwan0
                         "net_wwan0_active": net['wwan0']['active'],
                         "net_wwan0_routes": "<br>".join(net['wwan0']['routes']) or "Aucune",
                         "net_eth0_ip": net['eth0']['ip'],
@@ -126,12 +129,12 @@ def handle_sse_stream(handler):
                         "net_eth0_dhcp": net['eth0'].get('dhcp', False),
                         "net_eth0_has_ip": net['eth0'].get('has_ip', False),
                         "net_eth0_routes": "<br>".join(net['eth0']['routes']) or "Aucune",
-                        "net_eth0_clients_html": _format_dhcp_clients(net['eth0'].get('clients', [])),
+                        "net_eth0_clients_html": _format_dhcp_clients(net['eth0'].get('clients', []), is_dhcp_server=net['eth0'].get('is_dhcp_server', False)),
                         "net_wlan0_ip": net['wlan0']['ip'],
                         "net_wlan0_mac": net['wlan0']['mac'],
                         "net_wlan0_active": net['wlan0']['active'],
                         "net_wlan0_routes": "<br>".join(net['wlan0']['routes']) or "Aucune",
-                        "net_wlan0_clients_html": _format_dhcp_clients(net['wlan0'].get('clients', [])),
+                        "net_wlan0_clients_html": _format_dhcp_clients(net['wlan0'].get('clients', []), is_dhcp_server=net['wlan0'].get('is_dhcp_server', False)),
                         "net_ts_ip": net['tailscale']['ip'],
                         "net_ts_name": net['tailscale']['name'],
                         "net_ts_active": net['tailscale']['active'],
@@ -150,7 +153,7 @@ def handle_sse_stream(handler):
 
                 # Calcul du delta
                 payload = get_changed_items(last_data, current_data)
-                
+
                 if payload:
                     message = f"data: {json.dumps(payload)}\n\n"
                     handler.wfile.write(message.encode("utf-8"))
