@@ -1172,7 +1172,7 @@ class WebAdminHandler(BaseHTTPRequestHandler):
                 custom_cells = ""
                 for col in custom_columns:
                     val = annots.get(col["column_key"], "")
-                    custom_cells += f'<td class="editable" onclick="editCell(\'{mac}\', \'{col["column_key"]}\', \'{col["column_label"]}\')">{escape(str(val))}</td>'
+                    custom_cells += f'<td class="editable" onclick="editCell(event, \'{mac}\', \'{col["column_key"]}\', \'{col["column_label"]}\')">{escape(str(val))}</td>'
                 sync_indicator = "<span class='sync-pending' title='En attente de synchronisation'>☁️</span>" if is_dirty else ""
                 devices_rows += f"<tr class='{row_class}'><td style='font-family: monospace; {ip_style}'>{status_dot}{escape(d.get('ip'))}</td><td style='font-family: monospace; font-size: 0.85em; color: #666;'>{escape(mac)}</td><td class='editable' onclick=\"editVendor('{mac}', '{escape(vendor)}')\">{escape(vendor)} {sync_indicator}</td><td>{ports_str}</td>{custom_cells}<td><small style='color:#999;'>{escape(d.get('iface'))}</small></td></tr>"
         else: devices_rows = "<tr><td colspan='10' style='text-align:center; padding: 40px; color: #999;'>Aucun résultat.</td></tr>"
@@ -1802,26 +1802,60 @@ class WebAdminHandler(BaseHTTPRequestHandler):
         post_data = self.rfile.read(content_length)
         try:
             data = json.loads(post_data)
-            mac, vendor, annotations = data.get('mac', '').lower(), data.get('vendor'), data.get('annotations')
-            if not mac: return self.send_json({"status": "error", "message": "MAC manquante"})
+            mac = data.get('mac', '').lower()
+            vendor = data.get('vendor')
+            annotations = data.get('annotations')
+            
+            if not mac:
+                return self.send_json({"status": "error", "message": "MAC manquante"})
+                
             from services.presence import get_current_site_id
             site_id = get_current_site_id()
-            if not site_id: return self.send_json({"status": "error", "message": "Aucun chantier actif"})
+            if not site_id:
+                return self.send_json({"status": "error", "message": "Aucun chantier actif"})
+                
             with get_db_connection() as conn:
+                # 1. Mise à jour Fabricant (OUI) si fourni
                 if vendor:
-                    conn.execute("INSERT INTO mac_vendors (prefix, vendor, is_dirty) VALUES (?, ?, 1) ON CONFLICT(prefix) DO UPDATE SET vendor = EXCLUDED.vendor, is_dirty = 1", (mac[:8], vendor))
-                    conn.execute("UPDATE discovered_devices SET vendor = ?, is_dirty = 1 WHERE mac = ?", (vendor, mac))
+                    # Global (mac_vendors) - Clé OUI sur 8 caractères (ex: 00:11:22)
+                    prefix = mac[:8].upper()
+                    conn.execute("""
+                        INSERT INTO mac_vendors (prefix, vendor, is_dirty) 
+                        VALUES (?, ?, 1) 
+                        ON CONFLICT(prefix) DO UPDATE SET vendor = EXCLUDED.vendor, is_dirty = 1
+                    """, (prefix, vendor))
+                    
+                    # Local (discovered_devices)
+                    conn.execute("""
+                        INSERT INTO discovered_devices (site_id, mac, vendor, is_dirty)
+                        VALUES (?, ?, ?, 1)
+                        ON CONFLICT(site_id, mac) DO UPDATE SET vendor = EXCLUDED.vendor, is_dirty = 1
+                    """, (site_id, mac, vendor))
+                
+                # 2. Mise à jour Annotations si fournies
                 if annotations is not None:
-                    row = conn.execute("SELECT annotations_json FROM discovered_devices WHERE mac = ?", (mac,)).fetchone()
+                    row = conn.execute("SELECT annotations_json FROM discovered_devices WHERE site_id = ? AND mac = ?", (site_id, mac)).fetchone()
                     existing = json.loads(row["annotations_json"]) if row and row["annotations_json"] else {}
-                    if isinstance(annotations, dict): existing.update(annotations)
-                    conn.execute("UPDATE discovered_devices SET annotations_json = ?, is_dirty = 1 WHERE mac = ?", (json.dumps(existing), mac))
+                    if isinstance(annotations, dict):
+                        existing.update(annotations)
+                    
+                    conn.execute("""
+                        INSERT INTO discovered_devices (site_id, mac, annotations_json, is_dirty)
+                        VALUES (?, ?, ?, 1)
+                        ON CONFLICT(site_id, mac) DO UPDATE SET annotations_json = EXCLUDED.annotations_json, is_dirty = 1
+                    """, (site_id, mac, json.dumps(existing)))
+                
                 conn.commit()
+            
+            # Synchronisation optionnelle avec la flotte si enregistré
             if fleet.is_registered():
-                import threading
-                threading.Thread(target=fleet.sync_location, args=(get_gsm_info(),), daemon=True).start()
-            self.send_json({"status": "ok"})
-        except Exception as e: self.send_json({"status": "error", "message": str(e)})
+                # On pourrait déclencher une synchro ici ou laisser le cycle faire
+                pass
+                
+            return self.send_json({"status": "ok"})
+        except Exception as e:
+            logger.error(f"Erreur handle_ip_annotate : {e}")
+            self.send_json({"status": "error", "message": str(e)})
 
     def send_json(self, data):
         self.send_response(200)

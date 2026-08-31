@@ -184,6 +184,7 @@ th.sort-desc::after { content: " ▼"; font-size: 0.7em; }
             const url = (baseUrl + '/api/table/columns/add').replace(/\/+/g, '/');
             const response = await fetch(url, {
                 method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ table_id: 'ip_scan', label: label })
             });
             const res = await response.json();
@@ -198,6 +199,7 @@ th.sort-desc::after { content: " ▼"; font-size: 0.7em; }
             const url = (baseUrl + '/api/table/columns/delete').replace(/\/+/g, '/');
             const response = await fetch(url, {
                 method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ table_id: 'ip_scan', column_key: key })
             });
             if (response.ok) {
@@ -219,7 +221,7 @@ th.sort-desc::after { content: " ▼"; font-size: 0.7em; }
         saveAnnotation(mac, { vendor: newVal });
     }
 
-    async function editCell(mac, colKey, colLabel) {
+    async function editCell(event, mac, colKey, colLabel) {
         const currentCell = event.target;
         const currentVal = currentCell.textContent;
         const newVal = prompt(`Modifier "${colLabel}" :`, currentVal);
@@ -240,8 +242,9 @@ th.sort-desc::after { content: " ▼"; font-size: 0.7em; }
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ mac: mac, ...data })
             });
-            if (response.ok) window.location.reload();
-            else alert("Erreur lors de l'enregistrement");
+            const res = await response.json();
+            if (res.status === 'ok') window.location.reload();
+            else alert("Erreur lors de l'enregistrement : " + (res.message || "Erreur inconnue"));
         } catch (e) { alert("Erreur réseau"); }
     }
 
