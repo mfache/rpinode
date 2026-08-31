@@ -145,6 +145,13 @@ header {
     transition: background 0.2s;
 }
 
+.nav-item::before {
+    content: "•";
+    margin-right: 12px;
+    color: var(--accent);
+    font-weight: bold;
+}
+
 .nav-item:hover {
     background: rgba(255,255,255,0.1);
 }
@@ -161,6 +168,12 @@ header {
     letter-spacing: 1px;
     opacity: 0.5;
     font-weight: bold;
+}
+
+.nav-label::before {
+    content: "•";
+    margin-right: 10px;
+    color: var(--accent);
 }
 
 .sub-nav {

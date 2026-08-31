@@ -7,6 +7,7 @@ import sys
 import threading
 import time
 
+from core.config import load_config
 from core.database import get_db_connection
 from core.paths import DATA_DIR
 from services.fleet import fleet
@@ -46,15 +47,21 @@ def start_data_logger(interval=1):
 
     while True:
         try:
+            config = load_config()
+            retries = config.get("logger_retries", 3)
+            modbus_timeout = config.get("modbus_timeout", 1.2)
+            bacnet_timeout = config.get("bacnet_timeout", 45)
+
             if not is_current_site_provisional():
                 now = time.time()
                 
                 # 1. Cycle Modbus (enregistrements selon cadence individuelle)
-                run_modbus_logging_cycle(now, last_poll_times, last_recorded_values, last_store_ts, consecutive_errors)
+                run_modbus_logging_cycle(now, last_poll_times, last_recorded_values, last_store_ts, consecutive_errors, 
+                                         retries=retries, timeout=modbus_timeout)
                 
                 # 2. Cycle BACnet (toutes les 60s)
                 if now - last_bacnet_time >= 60:
-                    run_bacnet_logging_cycle(int(now))
+                    run_bacnet_logging_cycle(int(now), timeout=bacnet_timeout)
                     last_bacnet_time = now
                     
                 # 3. Synchronisation flotte (toutes les 30s)
@@ -69,8 +76,8 @@ def start_data_logger(interval=1):
         
         time.sleep(1)
 
-def run_modbus_logging_cycle(now, last_poll_times, last_recorded_values, last_store_ts, consecutive_errors=None):
-    """Effectue un tick de lecture/enregistrement pour les points Modbus avec tolérance sur 3 cycles en cas d'erreur."""
+def run_modbus_logging_cycle(now, last_poll_times, last_recorded_values, last_store_ts, consecutive_errors=None, retries=3, timeout=1.2):
+    """Effectue un tick de lecture/enregistrement pour les points Modbus avec tolérance sur n cycles en cas d'erreur."""
     if consecutive_errors is None:
         consecutive_errors = {}
     site_name = get_current_site_name()
@@ -122,7 +129,7 @@ def run_modbus_logging_cycle(now, last_poll_times, last_recorded_values, last_st
             unit_str = f" {p['unit']}" if p.get("unit") else ""
             
             try:
-                val_str, disp_val = read_point_value(protocol, address, port, unit, func, reg, type_str, scale, base=base, timeout=1.2)
+                val_str, disp_val = read_point_value(protocol, address, port, unit, func, reg, type_str, scale, base=base, timeout=timeout)
                 if val_str is None:
                     continue
                 
@@ -163,9 +170,9 @@ def run_modbus_logging_cycle(now, last_poll_times, last_recorded_values, last_st
                 err_count = consecutive_errors.get(pid, 0) + 1
                 consecutive_errors[pid] = err_count
                 
-                # Tolérance : on conserve la dernière valeur connue pendant les 2 premiers cycles d'échec
-                if err_count < 3 and p.get("last_value") is not None:
-                    logger.debug(f"Modbus logger: Échec cycle {err_count}/3 pour {pid} ({p.get('name')}), dernière valeur conservée.")
+                # Tolérance : on conserve la dernière valeur connue pendant les n-1 premiers cycles d'échec
+                if err_count < retries and p.get("last_value") is not None:
+                    logger.debug(f"Modbus logger: Échec cycle {err_count}/{retries} pour {pid} ({p.get('name')}), dernière valeur conservée.")
                     full_display = f"{p['last_value']}{unit_str}"
                     mqtt_payload = {
                         "point_id": pid,
@@ -178,8 +185,8 @@ def run_modbus_logging_cycle(now, last_poll_times, last_recorded_values, last_st
                         "retained": True
                     }
                     mqtt_client.publish(f"rpinode/modbus/point/{pid}", mqtt_payload)
-                elif err_count >= 3:
-                    logger.warning(f"Modbus logger: Échec confirmé ({err_count}/3) pour {pid} ({p.get('name')}) : {e}")
+                elif err_count >= retries:
+                    logger.warning(f"Modbus logger: Échec confirmé ({err_count}/{retries}) pour {pid} ({p.get('name')}) : {e}")
                     mqtt_payload = {
                         "point_id": pid,
                         "value": None,
@@ -193,7 +200,7 @@ def run_modbus_logging_cycle(now, last_poll_times, last_recorded_values, last_st
 
         conn.commit()
 
-def run_bacnet_logging_cycle(timestamp):
+def run_bacnet_logging_cycle(timestamp, timeout=45):
     """Gère la lecture et l'enregistrement des points BACnet."""
     site_name = get_current_site_name()
     if not site_name or site_name == "Inconnu":
@@ -207,10 +214,10 @@ def run_bacnet_logging_cycle(timestamp):
             return
         site_id = site_row["id"]
         
-        run_bacnet_cycle(cursor, site_id, timestamp)
+        run_bacnet_cycle(cursor, site_id, timestamp, timeout=timeout)
         conn.commit()
 
-def run_bacnet_cycle(cursor, site_id, timestamp):
+def run_bacnet_cycle(cursor, site_id, timestamp, timeout=45):
     """Gère la lecture des points BACnet via le script services/bacnet_reader.py"""
     requests = []
     
@@ -268,7 +275,7 @@ def run_bacnet_cycle(cursor, site_id, timestamp):
             stderr=subprocess.PIPE,
             text=True
         )
-        stdout, stderr = process.communicate(input=json.dumps(requests), timeout=45)
+        stdout, stderr = process.communicate(input=json.dumps(requests), timeout=timeout)
         
         if process.returncode == 0:
             data = json.loads(stdout)

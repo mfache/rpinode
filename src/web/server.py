@@ -104,6 +104,8 @@ class WebAdminHandler(BaseHTTPRequestHandler):
             return self.serve_system_status()
         elif path == "/monitor/logs":
             return self.serve_logs_view()
+        elif path == "/configuration/logger":
+            return self.serve_configuration_logger()
         elif path == "/scan/ip":
             return self.serve_ip_scan()
             
@@ -172,7 +174,9 @@ class WebAdminHandler(BaseHTTPRequestHandler):
         elif path == "/api/modbus/tools/read":
             self.handle_modbus_read()
         elif path == "/api/modbus/tools/write":
-            self.handle_modbus_write()
+            return self.handle_modbus_write()
+        elif path == "/api/configuration/logger/save":
+            return self.handle_configuration_logger_save()
         else:
             self.send_error(404, "Action non trouvée")
 
@@ -1583,6 +1587,47 @@ class WebAdminHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.end_headers()
         self.wfile.write(final_html.encode("utf-8"))
+
+    def serve_configuration_logger(self):
+        config = load_config()
+        base_url = config.get("base_url", "")
+        hostname = socket.gethostname()
+        version = config.get("version", str(int(time.time())))
+        
+        logger_retries = config.get("logger_retries", 3)
+        modbus_timeout = config.get("modbus_timeout", 1.2)
+        bacnet_timeout = config.get("bacnet_timeout", 45)
+        
+        nav_html = render("nav.html", base_url=base_url)
+        content = render("configuration_logger.html", 
+                         logger_retries=logger_retries,
+                         modbus_timeout=modbus_timeout,
+                         bacnet_timeout=bacnet_timeout)
+        final_html = render("layout.html", title="Configuration Enregistreurs", hostname=escape(hostname), base_url=escape(base_url), version=version, nav=nav_html, content=content)
+        
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.end_headers()
+        self.wfile.write(final_html.encode("utf-8"))
+
+    def handle_configuration_logger_save(self):
+        try:
+            content_length = int(self.headers["Content-Length"])
+            post_data = self.rfile.read(content_length)
+            params = json.loads(post_data)
+            
+            config = load_config()
+            config["logger_retries"] = int(params.get("logger_retries", 3))
+            config["modbus_timeout"] = float(params.get("modbus_timeout", 1.2))
+            config["bacnet_timeout"] = int(params.get("bacnet_timeout", 45))
+            
+            from core.config import save_config
+            save_config(config)
+            
+            self.send_json({"status": "ok"})
+        except Exception as e:
+            logger.error(f"Erreur lors de la sauvegarde de la configuration logger : {e}")
+            self.send_json({"status": "error", "message": str(e)})
 
     def handle_logs_api(self, query):
         import os

@@ -1,11 +1,11 @@
 <nav class="sidebar">
     <ul class="nav-list">
         <li>
-            <a href="${base_url}/" class="nav-item">🏠 Dashboard</a>
+            <a href="${base_url}/" class="nav-item">Dashboard</a>
         </li>
 
         <li class="nav-group">
-            <span class="nav-label">🌐 Réseau</span>
+            <span class="nav-label">Réseau</span>
             <ul class="sub-nav">
                 <li><a href="${base_url}/network/overview">Vue d'ensemble</a></li>
                 <li><a href="${base_url}/network/interfaces">Interfaces</a></li>
@@ -13,14 +13,14 @@
         </li>
 
         <li class="nav-group">
-            <span class="nav-label">🔍 Inventaire</span>
+            <span class="nav-label">Inventaire</span>
             <ul class="sub-nav">
                 <li><a href="${base_url}/scan/ip">Scanner le réseau</a></li>
             </ul>
         </li>
 
         <li class="nav-group">
-            <span class="nav-label">🔌 Modbus</span>
+            <span class="nav-label">Modbus</span>
             <ul class="sub-nav">
                 <li><a href="${base_url}/modbus/suivi">Points suivis (Live)</a></li>
                 <li><a href="${base_url}/modbus/devices">Appareils du chantier</a></li>
@@ -30,14 +30,14 @@
         </li>
 
         <li class="nav-group">
-            <span class="nav-label">🌐 BACnet</span>
+            <span class="nav-label">BACnet</span>
             <ul class="sub-nav">
                 <li><a href="${base_url}/scan/bacnet">Gestion BACnet</a></li>
             </ul>
         </li>
 
         <li class="nav-group">
-            <span class="nav-label">💾 Stockage & USB</span>
+            <span class="nav-label">Stockage & USB</span>
             <ul class="sub-nav">
                 <li><a href="${base_url}/storage/devices">Périphériques</a></li>
                 <li><a href="${base_url}/storage/explorer">Explorateur</a></li>
@@ -46,7 +46,7 @@
         </li>
 
         <li class="nav-group">
-            <span class="nav-label">📊 Monitoring</span>
+            <span class="nav-label">Monitoring</span>
             <ul class="sub-nav">
                 <li><a href="${base_url}/monitor/suivi">Suivi des points</a></li>
                 <li><a href="${base_url}/monitor/system">État système</a></li>
@@ -55,23 +55,22 @@
         </li>
 
         <li class="nav-group">
-            <span class="nav-label">⚙️ Configuration</span>
+            <span class="nav-label">Configuration</span>
             <ul class="sub-nav">
-                <li><a href="${base_url}/configuration/exemple1">config 1</a></li>
-                <li><a href="${base_url}/configuration/exemple2">config 2</a></li>
+                <li><a href="${base_url}/configuration/logger">Enregistreurs</a></li>
             </ul>
         </li>
         <li class="nav-group">
-            <span class="nav-label">⚙️ Système</span>
+            <span class="nav-label">Système</span>
             <ul class="sub-nav">
-                <li><a href="#" onclick="restartServer(); return false;">🔄 Relancer Interface</a></li>
-                <li><a href="#" onclick="systemAction('reboot'); return false;">🔌 Reboot Système</a></li>
-                <li><a href="#" onclick="systemAction('shutdown'); return false;">⛔ Arrêter Système</a></li>
+                <li><a href="#" onclick="restartServer(); return false;">Relancer Interface</a></li>
+                <li><a href="#" onclick="systemAction('reboot'); return false;">Reboot Système</a></li>
+                <li><a href="#" onclick="systemAction('shutdown'); return false;">Arrêter Système</a></li>
             </ul>
         </li>
 
         <li class="nav-group mobile-only">
-            <span class="nav-label">⬅️ Navigation</span>
+            <span class="nav-label">Navigation</span>
             <ul class="sub-nav">
                 <li><a href="/">Ancienne version</a></li>
             </ul>
