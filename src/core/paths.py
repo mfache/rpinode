@@ -17,8 +17,8 @@ SCHEMA_FILE = PROJECT_ROOT / "src" / "core" / "schema.sql"
 # IP Scan
 IPSCAN_RUNNING_FILE = DATA_DIR / "ip_last_scan.json.running"
 
-# Dossier de logs
-LOG_DIR = PROJECT_ROOT / "log"
+# Dossier de logs (en RAM pour préserver la carte SD)
+LOG_DIR = Path("/tmp/rpinode/log")
 LOG_FILE = LOG_DIR / "rpinode.log"
 
 # Créer les dossiers s'ils n'existent pas
