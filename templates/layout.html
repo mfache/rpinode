@@ -16,7 +16,7 @@
         // Enregistrement du Service Worker pour la PWA
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', () => {
-                navigator.serviceWorker.register('${base_url}/sw.js', { scope: '${base_url}/' })
+                navigator.serviceWorker.register('${base_url}/sw.js?v=${version}', { scope: '${base_url}/' })
                     .then(reg => {
                         console.log('Service Worker enregistré !', reg);
                         // Force l'update si une nouvelle version est dispo

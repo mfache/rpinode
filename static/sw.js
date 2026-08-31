@@ -1,6 +1,5 @@
-const CACHE_NAME = 'rpinode-v8';
+const CACHE_NAME = 'rpinode-v9';
 const ASSETS = [
-  '/rpinode/',
   '/rpinode/manifest.json',
   '/rpinode/static/style.css',
   '/rpinode/static/app.js',
@@ -22,11 +21,12 @@ self.addEventListener('activate', (event) => {
       return Promise.all(
         cacheNames.map((cacheName) => {
           if (cacheName !== CACHE_NAME) {
+            console.log('Suppression ancien cache SW:', cacheName);
             return caches.delete(cacheName);
           }
         })
       );
-    })
+    }).then(() => self.clients.claim())
   );
 });
 
@@ -37,29 +37,53 @@ self.addEventListener('fetch', (event) => {
   // 1. Les appels API
   // 2. Les pages de scan (doivent être fraîches)
   // 3. Les flux SSE
-  if (url.includes('/api/') || url.includes('/scan/') || url.includes('/monitor/')) {
+  // 4. Les requêtes non-GET
+  if (event.request.method !== 'GET' || url.includes('/api/') || url.includes('/scan/') || url.includes('/monitor/')) {
     return;
   }
-  
-  event.respondWith(
-    caches.match(event.request).then((cachedResponse) => {
-      if (cachedResponse) {
-        return cachedResponse;
-      }
-      return fetch(event.request)
+
+  // Pour les pages HTML / Navigation (ex: /rpinode/) : NETWORK FIRST
+  // On va chercher la dernière version sur le serveur, et on ne se replie sur le cache que si on est hors-ligne.
+  if (event.request.mode === 'navigate' || url.endsWith('/rpinode') || url.endsWith('/rpinode/')) {
+    event.respondWith(
+      fetch(event.request)
         .then((networkResponse) => {
-          // On ne met en cache que les assets statiques et la racine
-          if (url.includes('/static/') || url.endsWith('/rpinode/')) {
-            return caches.open(CACHE_NAME).then((cache) => {
-              cache.put(event.request, networkResponse.clone());
-              return networkResponse;
+          if (networkResponse && networkResponse.status === 200) {
+            const responseClone = networkResponse.clone();
+            caches.open(CACHE_NAME).then((cache) => {
+              cache.put(event.request, responseClone);
             });
           }
           return networkResponse;
         })
         .catch(() => {
-          return new Response(null, { status: 503, statusText: 'Hors ligne' });
-        });
+          return caches.match(event.request).then((cached) => {
+            return cached || new Response("Hors ligne", { status: 503, statusText: 'Hors ligne' });
+          });
+        })
+    );
+    return;
+  }
+
+  // Pour les assets statiques (CSS, JS, images) : CACHE FIRST avec mise à jour en tâche de fond
+  event.respondWith(
+    caches.match(event.request).then((cachedResponse) => {
+      if (cachedResponse) {
+        // En tâche de fond, rafraîchir le cache
+        fetch(event.request).then((freshResponse) => {
+          if (freshResponse && freshResponse.status === 200) {
+            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, freshResponse));
+          }
+        }).catch(() => {});
+        return cachedResponse;
+      }
+      return fetch(event.request).then((networkResponse) => {
+        if (networkResponse && networkResponse.status === 200 && url.includes('/static/')) {
+          const responseClone = networkResponse.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, responseClone));
+        }
+        return networkResponse;
+      });
     })
   );
 });
