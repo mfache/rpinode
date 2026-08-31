@@ -916,7 +916,6 @@ class WebAdminHandler(BaseHTTPRequestHandler):
         target_unit = query.get("unit", query.get("slave_unit", ["1"]))[0]
 
         discovered_ips_options = ""
-        discovered_pills_html = ""
         devices_map = {}
 
         if site_id:
@@ -989,27 +988,16 @@ class WebAdminHandler(BaseHTTPRequestHandler):
                             "vendor": label_desc
                         }
 
-        # Construction des options pour datalist et des boutons rapides (pills)
+        # Construction des options pour datalist
         for ip, info in devices_map.items():
             discovered_ips_options += f'<option value="{escape(ip)}">{escape(info["label"])}</option>\n'
-            pill_label = info["vendor"] if info["vendor"] and info["vendor"] != "Inconnu" else "Modbus"
-            discovered_pills_html += f"""
-            <button type="button" class="btn-ip-pill" onclick="selectModbusIp('{escape(ip)}', '{escape(info['unit'])}', '{escape(info['port'])}')">
-                <span class="pill-icon">🔌</span>
-                <span class="pill-ip font-mono">{escape(ip)}</span>
-                <span class="pill-desc">({escape(pill_label)})</span>
-            </button>
-            """
 
         content = render(
             "modbus_tools.html",
             target_ip=escape(target_ip),
             target_port=escape(target_port),
             target_unit=escape(target_unit),
-            discovered_ips_options=discovered_ips_options,
-            discovered_pills_html=discovered_pills_html,
-            has_discovered_ips="block" if devices_map else "none",
-            total_discovered=str(len(devices_map))
+            discovered_ips_options=discovered_ips_options
         )
         nav_html = render("nav.html", base_url=base_url)
         final_html = render("layout.html", title="Outils Modbus", hostname=escape(hostname), base_url=escape(base_url), version=version, nav=nav_html, content=content)

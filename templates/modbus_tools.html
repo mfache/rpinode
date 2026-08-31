@@ -13,9 +13,9 @@
                     <!-- <option value="rtu">RTU/Série</option> (À réactiver plus tard) -->
                 </select>
             </div>
-            <div style="flex: 1; min-width: 200px;">
+            <div style="flex: 1; min-width: 220px;">
                 <label>Adresse IP :</label>
-                <input type="text" id="address" name="address" value="${target_ip}" list="discovered-modbus-ips" placeholder="Ex: 192.168.1.100" autocomplete="off" required>
+                <input type="text" id="address" name="address" value="${target_ip}" list="discovered-modbus-ips" placeholder="Ex: 192.168.1.100 (auto-complétion disponible)" autocomplete="off" required>
                 <datalist id="discovered-modbus-ips">
                     ${discovered_ips_options}
                 </datalist>
@@ -33,19 +33,6 @@
                 <input type="number" id="timeout" name="timeout" value="1.0" min="0.1" max="10.0" step="0.1" style="width: 80px;" required>
             </div>
         </form>
-
-        <!-- Suggestions d'adresses IP Modbus découvertes -->
-        <div id="discovered-ips-container" style="display: ${has_discovered_ips}; margin-top: 15px; padding-top: 12px; border-top: 1px dashed #e2e8f0;">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; flex-wrap: wrap; gap: 6px;">
-                <span style="font-size: 0.82rem; font-weight: 600; color: #475569; display: flex; align-items: center; gap: 5px;">
-                    <span>💡</span> Équipements Modbus détectés (${total_discovered}) :
-                </span>
-                <small style="font-size: 0.75rem; color: #94a3b8;">Cliquez sur un équipement pour préremplir l'IP et l'Unit ID</small>
-            </div>
-            <div class="pills-wrapper" style="display: flex; gap: 8px; flex-wrap: wrap;">
-                ${discovered_pills_html}
-            </div>
-        </div>
     </div>
 
     <div class="tools-grid">
@@ -128,30 +115,6 @@ form input[type="checkbox"] { width: auto; margin-right: 5px; }
 .probe-table th, .probe-table td { padding: 5px; border: 1px solid #ddd; text-align: left; }
 .probe-table th { background: #eee; }
 
-/* Styles pour les suggestions IP */
-.btn-ip-pill {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    background: #f8fafc;
-    border: 1px solid #cbd5e1;
-    border-radius: 20px;
-    padding: 4px 10px;
-    font-size: 0.82rem;
-    color: #1e293b;
-    cursor: pointer;
-    transition: all 0.15s ease;
-}
-.btn-ip-pill:hover {
-    background: #e0f2fe;
-    border-color: #0284c7;
-    color: #0369a1;
-    transform: translateY(-1px);
-}
-.btn-ip-pill .pill-icon { font-size: 0.85rem; }
-.btn-ip-pill .pill-ip { font-weight: 600; }
-.btn-ip-pill .pill-desc { color: #64748b; font-size: 0.76rem; }
-.btn-ip-pill:hover .pill-desc { color: #0284c7; }
 .font-mono { font-family: monospace; }
 .read-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; margin-top: 10px; }
 .val-box { background: #fff; border: 1px solid #ddd; padding: 8px; border-radius: 4px; text-align: center; }
@@ -162,16 +125,6 @@ form input[type="checkbox"] { width: auto; margin-right: 5px; }
 
 <script>
 const baseUrl = window.CONFIG ? window.CONFIG.baseUrl : '/rpinode';
-
-function selectModbusIp(ip, unit, port) {
-    const f = document.getElementById('form-connection');
-    if (f) {
-        if (ip) f.address.value = ip;
-        if (unit && unit !== 'None' && unit !== '') f.unit.value = unit;
-        if (port && port !== 'None' && port !== '') f.port.value = port;
-        f.address.focus();
-    }
-}
 
 function getConnParams() {
     const f = document.getElementById('form-connection');
