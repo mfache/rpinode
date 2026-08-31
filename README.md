@@ -92,7 +92,7 @@ Ce script :
 ## Gestion des Logs Distants
 
 Afin de préserver la durée de vie de la carte SD des boîtiers, les logs importants sont gérés de deux manières :
-1. **Localement** : Limitation stricte de l'espace sur la carte SD grâce à un système de rotation des logs (4 Mo max. au total).
+1. **Localement (RAM)** : Les journaux sont désormais stockés en mémoire vive (`/tmp/rpinode/log/`) afin de supprimer totalement les écritures physiques sur la carte SD lors du logging.
 2. **À distance (Centralisation)** : Une tâche d'arrière-plan remonte par lots les journaux (logs) d'exécution vers le serveur maître.
    - Les envois sont **compressés avec GZIP**, ce qui réduit la consommation data sur le réseau cellulaire de plus de **90 %** (très utile pour des logs répétitifs).
    - Chaque log intègre dynamiquement : la date, le niveau (INFO, ERROR, etc.), le module concerné, le nom du `chantier` actuel, et la version du code Git exécuté, facilitant grandement le débogage de la flotte.

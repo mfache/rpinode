@@ -1,3 +1,15 @@
+## État d'avancement - 31/08/2026
+
+- **Optimisation SQLite & Concurrence (`src/core/database.py`)** : Résolution des erreurs `database is locked`. Passage en mode **WAL (Write-Ahead Logging)** pour autoriser les lectures pendant les écritures. Implémentation d'un gestionnaire de contexte robuste garantissant la fermeture systématique de chaque connexion après usage (`close()`).
+- **Préservation de la Carte SD (`src/core/paths.py`)** : Déplacement des journaux d'activité vers la RAM (`/tmp/rpinode/log/`). Aucune écriture disque n'est plus effectuée lors de la génération des logs applicatifs.
+- **Nouvelle vue Diagnostic Système (`/monitor/system`)** : Création d'une page de santé globale. Surveillance live de la liaison WAN/4G (Ping 8.8.8.8), des infos de la cellule GSM (eNodeB), de l'état des services locaux, et de la télémétrie matérielle (CPU Temp, RAM, Disque, Uptime).
+- **Visualiseur de Logs Interactif (`/monitor/logs`)** : Implémentation d'un terminal de log temps réel. Supporte le filtrage par niveau (Error, Warning, Info, Debug), par module, la recherche textuelle instantanée et le téléchargement du fichier brut.
+- **Configuration DHCP Avancée (`src/services/network_config.py`, `src/services/wifi_mgr.py`)** : Ajout du support pour la méthode `shared` sur Ethernet et WiFi. Permet de configurer le boîtier en serveur DHCP avec définition personnalisée de la plage d'adresses (`dhcp_range`).
+- **Synchronisation Flotte Étendue (`src/services/fleet.py`)** : Mise à jour du protocole de synchronisation pour inclure les paramètres `gateway` et `dhcp_range`. Patch du serveur central (`docs.deltathermic.be`) pour supporter et historiser ces nouveaux champs par chantier.
+- **Modernisation Interface Réseau (`templates/network_interfaces.html`)** : Refonte complète de la gestion des interfaces. Ajout de badges de statut live (En ligne / Débranché), de notifications Toast (Feedback non bloquant), et de panneaux dynamiques pour la configuration IP.
+- **Outils Modbus & UX (`templates/modbus_tools.html`)** : Amélioration de l'outil d'investigation. Intégration de l'auto-complétion intelligente sur les adresses IP (basée sur les scans du chantier courant) et persistance automatique des champs du formulaire dans la session (`sessionStorage`).
+- **Correctifs PWA & Templates** : Migration du Service Worker en stratégie **Network-First** pour éviter le cache de pages HTML obsolètes. Restauration de la substitution des variables `user` et `widgets` sur le tableau de bord.
+
 ## État d'avancement - 30/08/2026
 
 - **Intégration Passerelle Modbus TCP/RTU (`src/services/modbus_tools.py`)** : Détection et intégration de la passerelle Waveshare RS485 TO ETH (B) à l'adresse `192.168.1.254`. Ajout du support pour les trames RTU-over-TCP avec calcul et vérification CRC16.
