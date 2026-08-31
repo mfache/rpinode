@@ -1,15 +1,34 @@
 import logging
 import sqlite3
+from contextlib import contextmanager
 
 from . import paths
 
 logger = logging.getLogger(__name__)
 
+@contextmanager
 def get_db_connection():
-    """Retourne une connexion à la base de données SQLite."""
-    conn = sqlite3.connect(paths.DATABASE_FILE)
+    """Retourne une connexion à la base de données SQLite et gère sa fermeture."""
+    # Timeout plus long (20s) pour éviter les erreurs "database is locked"
+    # lors d'accès concurrents (web, logger, fleet, etc.)
+    conn = sqlite3.connect(paths.DATABASE_FILE, timeout=20.0)
+
+    # Activation du mode WAL pour la concurrence des lectures/écritures
+    conn.execute("PRAGMA journal_mode=WAL;")
+    conn.execute("PRAGMA synchronous=NORMAL;")
+    conn.execute("PRAGMA busy_timeout=20000;")
+
     conn.row_factory = sqlite3.Row  # Permet d'accéder aux colonnes par nom
-    return conn
+    
+    try:
+        yield conn
+    except Exception:
+        conn.rollback()
+        raise
+    else:
+        conn.commit()
+    finally:
+        conn.close()
 
 def init_db():
     """
