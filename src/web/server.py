@@ -343,21 +343,30 @@ class WebAdminHandler(BaseHTTPRequestHandler):
             for addr in addresses_list:
                 addresses_rows += f"""
                 <div class="address-row">
-                    <input type="text" name="addresses" value="{escape(addr)}" placeholder="192.168.1.10/24">
-                    <button type="button" class="btn-remove" onclick="removeAddressRow(this)">×</button>
+                    <span class="addr-icon">🌐</span>
+                    <input type="text" name="addresses" value="{escape(addr)}" placeholder="Ex: 192.168.1.10/24" class="form-input font-mono">
+                    <button type="button" class="btn-remove-addr" onclick="removeAddressRow(this)" title="Supprimer">✕</button>
                 </div>
                 """
+            is_active = status.get("active", False)
+            status_text = "En ligne" if is_active else ("Câble débranché" if not status.get("cable", True) and iface == "eth0" else "Inactif")
+
             return {
                 f"{iface}_method_auto_selected": 'selected' if method == "auto" else '',
                 f"{iface}_method_manual_selected": 'selected' if method == "manual" else '',
                 f"{iface}_method_shared_selected": 'selected' if method == "shared" else '',
+                f"{iface}_method": method,
                 f"{iface}_manual_fields_display": 'block' if method in ("manual", "shared") else 'none',
                 f"{iface}_dhcp_range_display": 'block' if method == "shared" else 'none',
                 f"{iface}_addresses_rows": addresses_rows,
                 f"{iface}_gateway": profile["gateway"] if profile and profile["gateway"] else "",
                 f"{iface}_dhcp_range": escape(dhcp_range),
                 f"{iface}_ssid": profile["ssid"] if profile and "ssid" in profile.keys() and profile["ssid"] else "",
-                f"{iface}_psk": profile["psk"] if profile and "psk" in profile.keys() and profile["psk"] else ""
+                f"{iface}_psk": profile["psk"] if profile and "psk" in profile.keys() and profile["psk"] else "",
+                f"{iface}_live_ip": escape(status.get("ip", "--")),
+                f"{iface}_live_mac": escape(status.get("mac", "--")),
+                f"{iface}_status_class": "status-online" if is_active else "status-offline",
+                f"{iface}_status_text": status_text
             }
         eth0_profile = get_site_network_profile(site_id, "eth0") if site_id else None
         eth0_status = get_interface_status("eth0")
@@ -365,7 +374,7 @@ class WebAdminHandler(BaseHTTPRequestHandler):
         wlan0_profile = get_site_network_profile(site_id, "wlan0") if site_id else None
         wlan0_status = get_interface_status("wlan0")
         wlan0_ctx = get_iface_context("wlan0", wlan0_profile, wlan0_status)
-        context = {"site_name": site_name, **eth0_ctx, **wlan0_ctx}
+        context = {"site_name": site_name, "base_url": base_url, **eth0_ctx, **wlan0_ctx}
         content = render("network_interfaces.html", **context)
         nav_html = render("nav.html", base_url=base_url)
         final_html = render("layout.html", title="Configuration Interfaces", hostname=escape(hostname), base_url=escape(base_url), version=version, nav=nav_html, content=content)

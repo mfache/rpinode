@@ -1,174 +1,824 @@
-<section class="network-interfaces">
-    <h2>Configuration des Interfaces - Chantier: ${site_name}</h2>
-
-    <div class="card">
-        <h3>Interface Ethernet (eth0)</h3>
-        <p class="help-text">Les réglages ci-dessous sont enregistrés spécifiquement pour ce chantier et seront restaurés automatiquement lors d'un retour sur site.</p>
-        
-        <form id="form-eth0" onsubmit="saveConfig(event, 'eth0')">
-            <input type="hidden" name="interface" value="eth0">
-            <div class="form-group">
-                <label>Méthode d'adressage :</label>
-                <select name="method" onchange="toggleManualFields('eth0', this.value)">
-                    <option value="auto" ${eth0_method_auto_selected}>Automatique (DHCP)</option>
-                    <option value="manual" ${eth0_method_manual_selected}>Statique (IP Fixe)</option>
-                    <option value="shared" ${eth0_method_shared_selected}>Serveur DHCP local (Réseau partagé)</option>
-                </select>
+<section class="network-interfaces-container">
+    <!-- En-tête de page & Contexte chantier -->
+    <div class="page-header">
+        <div class="header-titles">
+            <div class="site-badge">
+                <span class="badge-icon">📍</span>
+                <span>Chantier : <strong>${site_name}</strong></span>
             </div>
-
-            <div id="eth0-manual-fields" style="display: ${eth0_manual_fields_display};">
-                <div id="eth0-addresses-container">
-                    <label>Adresses IP (CIDR, ex: 192.168.1.10/24) :</label>
-                    ${eth0_addresses_rows}
-                </div>
-                <button type="button" class="btn-secondary" onclick="addAddressRow('eth0')">+ Ajouter une adresse</button>
-
-                <div class="form-group mt-10">
-                    <label>Passerelle (optionnel) :</label>
-                    <input type="text" name="gateway" value="${eth0_gateway}" placeholder="192.168.1.1">
-                </div>
-                
-                <div class="form-group mt-10" id="eth0-dhcp-range-group" style="display: ${eth0_dhcp_range_display};">
-                    <label>Plage DHCP (ex: 192.168.1.10,192.168.1.100) :</label>
-                    <input type="text" name="dhcp_range" value="${eth0_dhcp_range}" placeholder="Laissez vide pour auto">
-                    <p class="help-text">Utile uniquement si la méthode est "Serveur DHCP local".</p>
-                </div>
-            </div>
-
-            <div class="form-actions">
-                <button type="submit" class="btn-primary">Enregistrer et Appliquer</button>
-            </div>
-        </form>
+            <h2>Paramètres Réseau des Interfaces</h2>
+            <p class="header-subtitle">
+                Configurez l'adressage IP local et le comportement réseau. Ces réglages sont enregistrés spécifiquement pour ce chantier et réappliqués automatiquement à chaque retour sur site.
+            </p>
+        </div>
+        <div class="header-actions">
+            <a href="${base_url}/network" class="btn-ghost">
+                <span>📊</span> Vue d'ensemble
+            </a>
+            <button type="button" class="btn-ghost" onclick="window.location.reload()">
+                <span>🔄</span> Actualiser
+            </button>
+        </div>
     </div>
 
-    <div class="card mt-20">
-        <h3>Interface WiFi (wlan0)</h3>
-        <p class="help-text">Configuration du WiFi client pour le chantier (ex: H66). Cette configuration est prioritaire sauf en cas de perte de connexion 4G où le mode RPIRESCUE ou AP local prend le relais.</p>
-        
-        <form id="form-wlan0" onsubmit="saveConfig(event, 'wlan0')">
-            <input type="hidden" name="interface" value="wlan0">
-            
-            <div class="form-group">
-                <label>SSID (Nom du réseau WiFi) :</label>
-                <div style="display: flex; gap: 10px;">
-                    <input type="text" name="ssid" id="wlan0-ssid" value="${wlan0_ssid}" placeholder="Ex: H66-WIFI" list="ssids-list">
-                    <datalist id="ssids-list"></datalist>
-                    <button type="button" class="btn-secondary" onclick="refreshSSIDs()" id="btn-refresh-ssids" title="Actualiser la liste">
-                        🔄
+    <!-- Notification Toast Container -->
+    <div id="toast-container" class="toast-container"></div>
+
+    <!-- Grille des Interfaces -->
+    <div class="interfaces-grid">
+        <!-- ==================== CARTE ETH0 ==================== -->
+        <div class="iface-card" id="card-eth0">
+            <div class="card-top">
+                <div class="iface-title-group">
+                    <div class="iface-icon eth-icon">🔌</div>
+                    <div>
+                        <div class="iface-name">Interface Filaire (eth0)</div>
+                        <div class="iface-sub">Liaison Ethernet locale / Automates & Réseau</div>
+                    </div>
+                </div>
+                <div class="status-indicator ${eth0_status_class}" title="État actuel de la liaison physique">
+                    <span class="dot"></span>
+                    <span class="status-label">${eth0_status_text}</span>
+                </div>
+            </div>
+
+            <!-- Mini bandeau d'état live -->
+            <div class="live-status-bar">
+                <div class="status-item">
+                    <span class="label">IP actuelle :</span>
+                    <span class="value font-mono">${eth0_live_ip}</span>
+                </div>
+                <div class="status-item">
+                    <span class="label">MAC :</span>
+                    <span class="value font-mono">${eth0_live_mac}</span>
+                </div>
+            </div>
+
+            <!-- Formulaire eth0 -->
+            <form id="form-eth0" onsubmit="saveConfig(event, 'eth0')" class="card-form">
+                <input type="hidden" name="interface" value="eth0">
+
+                <div class="form-section">
+                    <label class="section-label">Méthode d'adressage IP</label>
+                    <div class="custom-select-wrapper">
+                        <select name="method" class="form-select" onchange="toggleManualFields('eth0', this.value)">
+                            <option value="auto" ${eth0_method_auto_selected}>🔄 Automatique (Client DHCP)</option>
+                            <option value="manual" ${eth0_method_manual_selected}>📌 Statique (IP Fixe personnalisée)</option>
+                            <option value="shared" ${eth0_method_shared_selected}>📡 Serveur DHCP local (Réseau partagé)</option>
+                        </select>
+                    </div>
+                    <small class="field-hint" id="eth0-method-hint">
+                        Détermine comment le boîtier obtient ou attribue ses adresses sur le port Ethernet.
+                    </small>
+                </div>
+
+                <!-- Champs IP / Masque / Passerelle -->
+                <div id="eth0-manual-fields" class="expandable-panel" style="display: ${eth0_manual_fields_display};">
+                    <div class="form-section">
+                        <div class="label-with-tip">
+                            <label class="section-label">Adresses IP locales (format CIDR)</label>
+                            <span class="tip-pill" title="Exemple: 192.168.1.250/24">ex: 192.168.1.10/24</span>
+                        </div>
+                        <div id="eth0-addresses-container" class="addresses-container">
+                            ${eth0_addresses_rows}
+                        </div>
+                        <button type="button" class="btn-add-addr" onclick="addAddressRow('eth0')">
+                            <span>➕</span> Ajouter une adresse IP alias
+                        </button>
+                    </div>
+
+                    <div class="form-section">
+                        <label class="section-label">Passerelle par défaut (Gateway)</label>
+                        <div class="input-with-icon">
+                            <span class="input-icon">🚪</span>
+                            <input type="text" name="gateway" value="${eth0_gateway}" placeholder="Ex: 192.168.1.1 (optionnel)" class="form-input font-mono">
+                        </div>
+                    </div>
+
+                    <!-- Plage DHCP si méthode shared -->
+                    <div id="eth0-dhcp-range-group" class="dhcp-range-box" style="display: ${eth0_dhcp_range_display};">
+                        <div class="box-header">
+                            <span class="box-icon">⚡</span>
+                            <span class="box-title">Configuration du Serveur DHCP (eth0)</span>
+                        </div>
+                        <label class="section-label">Plage d'attribution (Range IP)</label>
+                        <div class="input-with-icon">
+                            <span class="input-icon">🎯</span>
+                            <input type="text" name="dhcp_range" value="${eth0_dhcp_range}" placeholder="Ex: 192.168.1.10,192.168.1.100" class="form-input font-mono">
+                        </div>
+                        <small class="box-help">
+                            Laisser vide pour que NetworkManager calcule la plage automatiquement à partir du masque du sous-réseau.
+                        </small>
+                    </div>
+                </div>
+
+                <div class="card-footer">
+                    <button type="submit" class="btn-save" id="btn-save-eth0">
+                        <span class="btn-icon">💾</span> Enregistrer & Appliquer eth0
                     </button>
                 </div>
-            </div>
-            
-            <div class="form-group">
-                <label>Mot de passe (Clé WPA) :</label>
-                <input type="password" name="psk" value="${wlan0_psk}" placeholder="********">
-            </div>
+            </form>
+        </div>
 
-            <div class="form-group">
-                <label>Méthode d'adressage IP :</label>
-                <select name="method" onchange="toggleManualFields('wlan0', this.value)">
-                    <option value="auto" ${wlan0_method_auto_selected}>Automatique (DHCP)</option>
-                    <option value="manual" ${wlan0_method_manual_selected}>Statique (IP Fixe)</option>
-                    <option value="shared" ${wlan0_method_shared_selected}>Serveur DHCP local (Point d'accès)</option>
-                </select>
-            </div>
-
-            <div id="wlan0-manual-fields" style="display: ${wlan0_manual_fields_display};">
-                <div id="wlan0-addresses-container">
-                    <label>Adresses IP (CIDR) :</label>
-                    ${wlan0_addresses_rows}
+        <!-- ==================== CARTE WLAN0 ==================== -->
+        <div class="iface-card" id="card-wlan0">
+            <div class="card-top">
+                <div class="iface-title-group">
+                    <div class="iface-icon wifi-icon">📶</div>
+                    <div>
+                        <div class="iface-name">Interface Sans-Fil (wlan0)</div>
+                        <div class="iface-sub">Liaison WiFi Chantier / Point d'accès de secours</div>
+                    </div>
                 </div>
-                <button type="button" class="btn-secondary" onclick="addAddressRow('wlan0')">+ Ajouter une adresse</button>
-
-                <div class="form-group mt-10">
-                    <label>Passerelle (optionnel) :</label>
-                    <input type="text" name="gateway" value="${wlan0_gateway}" placeholder="192.168.1.1">
-                </div>
-                
-                <div class="form-group mt-10" id="wlan0-dhcp-range-group" style="display: ${wlan0_dhcp_range_display};">
-                    <label>Plage DHCP (ex: 192.168.1.10,192.168.1.100) :</label>
-                    <input type="text" name="dhcp_range" value="${wlan0_dhcp_range}" placeholder="Laissez vide pour auto">
-                    <p class="help-text">Utile uniquement si la méthode est "Serveur DHCP local".</p>
+                <div class="status-indicator ${wlan0_status_class}" title="État actuel de la liaison WiFi">
+                    <span class="dot"></span>
+                    <span class="status-label">${wlan0_status_text}</span>
                 </div>
             </div>
 
-            <div class="form-actions">
-                <button type="submit" class="btn-primary">Enregistrer et Appliquer</button>
+            <!-- Mini bandeau d'état live -->
+            <div class="live-status-bar">
+                <div class="status-item">
+                    <span class="label">IP actuelle :</span>
+                    <span class="value font-mono">${wlan0_live_ip}</span>
+                </div>
+                <div class="status-item">
+                    <span class="label">MAC :</span>
+                    <span class="value font-mono">${wlan0_live_mac}</span>
+                </div>
             </div>
-        </form>
+
+            <!-- Formulaire wlan0 -->
+            <form id="form-wlan0" onsubmit="saveConfig(event, 'wlan0')" class="card-form">
+                <input type="hidden" name="interface" value="wlan0">
+
+                <div class="wifi-creds-group">
+                    <div class="form-section">
+                        <label class="section-label">Réseau WiFi cible (SSID)</label>
+                        <div class="input-with-action">
+                            <div class="input-with-icon flex-1">
+                                <span class="input-icon">📡</span>
+                                <input type="text" name="ssid" id="wlan0-ssid" value="${wlan0_ssid}" placeholder="Ex: WIFI-CHANTIER-H66" list="ssids-list" class="form-input">
+                            </div>
+                            <datalist id="ssids-list"></datalist>
+                            <button type="button" class="btn-action-icon" onclick="refreshSSIDs()" id="btn-refresh-ssids" title="Scanner les réseaux à portée">
+                                <span id="icon-refresh">🔄</span>
+                            </button>
+                        </div>
+                        <small class="field-hint">Sélectionnez un SSID détecté ou saisissez-le manuellement.</small>
+                    </div>
+
+                    <div class="form-section">
+                        <label class="section-label">Mot de passe WiFi (Clé WPA / WPA2)</label>
+                        <div class="input-with-action">
+                            <div class="input-with-icon flex-1">
+                                <span class="input-icon">🔑</span>
+                                <input type="password" name="psk" id="wlan0-psk" value="${wlan0_psk}" placeholder="••••••••••••" class="form-input">
+                            </div>
+                            <button type="button" class="btn-action-icon" onclick="togglePasswordVisibility('wlan0-psk', this)" title="Afficher/Masquer le mot de passe">
+                                👁️
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="form-section">
+                    <label class="section-label">Méthode d'adressage IP</label>
+                    <div class="custom-select-wrapper">
+                        <select name="method" class="form-select" onchange="toggleManualFields('wlan0', this.value)">
+                            <option value="auto" ${wlan0_method_auto_selected}>🔄 Automatique (Client DHCP)</option>
+                            <option value="manual" ${wlan0_method_manual_selected}>📌 Statique (IP Fixe personnalisée)</option>
+                            <option value="shared" ${wlan0_method_shared_selected}>📡 Serveur DHCP local (Point d'accès)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Champs IP / Masque / Passerelle -->
+                <div id="wlan0-manual-fields" class="expandable-panel" style="display: ${wlan0_manual_fields_display};">
+                    <div class="form-section">
+                        <div class="label-with-tip">
+                            <label class="section-label">Adresses IP (format CIDR)</label>
+                            <span class="tip-pill" title="Exemple: 192.168.4.1/24">ex: 192.168.4.1/24</span>
+                        </div>
+                        <div id="wlan0-addresses-container" class="addresses-container">
+                            ${wlan0_addresses_rows}
+                        </div>
+                        <button type="button" class="btn-add-addr" onclick="addAddressRow('wlan0')">
+                            <span>➕</span> Ajouter une adresse IP
+                        </button>
+                    </div>
+
+                    <div class="form-section">
+                        <label class="section-label">Passerelle (optionnel)</label>
+                        <div class="input-with-icon">
+                            <span class="input-icon">🚪</span>
+                            <input type="text" name="gateway" value="${wlan0_gateway}" placeholder="Ex: 192.168.4.254" class="form-input font-mono">
+                        </div>
+                    </div>
+
+                    <!-- Plage DHCP si méthode shared -->
+                    <div id="wlan0-dhcp-range-group" class="dhcp-range-box" style="display: ${wlan0_dhcp_range_display};">
+                        <div class="box-header">
+                            <span class="box-icon">⚡</span>
+                            <span class="box-title">Configuration du Serveur DHCP (WiFi AP)</span>
+                        </div>
+                        <label class="section-label">Plage d'attribution (Range IP)</label>
+                        <div class="input-with-icon">
+                            <span class="input-icon">🎯</span>
+                            <input type="text" name="dhcp_range" value="${wlan0_dhcp_range}" placeholder="Ex: 10.42.0.10,10.42.0.100" class="form-input font-mono">
+                        </div>
+                        <small class="box-help">
+                            Définit les baux attribués aux appareils connectés au point d'accès.
+                        </small>
+                    </div>
+                </div>
+
+                <div class="card-footer">
+                    <button type="submit" class="btn-save" id="btn-save-wlan0">
+                        <span class="btn-icon">💾</span> Enregistrer & Appliquer wlan0
+                    </button>
+                </div>
+            </form>
+        </div>
     </div>
 </section>
 
 <style>
-.card {
-    background: white;
-    padding: 20px;
-    border-radius: 8px;
-    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+/* ==================== TYPOGRAPHIE & LAYOUT GLOBAL ==================== */
+.network-interfaces-container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding-bottom: 40px;
 }
-.mt-20 { margin-top: 20px; }
-.mt-10 { margin-top: 10px; }
-.form-group { margin-bottom: 15px; }
-.address-row { display: flex; gap: 10px; margin-bottom: 8px; }
-.address-row input { flex: 1; }
-.btn-remove { 
-    background: #f44336; 
-    color: white; 
-    border: none; 
-    border-radius: 4px; 
-    width: 38px; 
+
+.font-mono {
+    font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+}
+
+/* ==================== EN-TÊTE DE PAGE ==================== */
+.page-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 20px;
+    margin-bottom: 25px;
+    flex-wrap: wrap;
+    background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
+    padding: 20px 24px;
+    border-radius: 12px;
+    border: 1px solid #e2e8f0;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+}
+
+.header-titles {
+    flex: 1;
+    min-width: 280px;
+}
+
+.site-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: #e0f2fe;
+    color: #0369a1;
+    border: 1px solid #bae6fd;
+    padding: 4px 10px;
+    border-radius: 20px;
+    font-size: 0.82rem;
+    font-weight: 500;
+    margin-bottom: 8px;
+}
+
+.page-header h2 {
+    margin: 0 0 6px 0;
+    font-size: 1.45rem;
+    color: #0f172a;
+    font-weight: 700;
+}
+
+.header-subtitle {
+    margin: 0;
+    font-size: 0.88rem;
+    color: #64748b;
+    line-height: 1.45;
+    max-width: 720px;
+}
+
+.header-actions {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.btn-ghost {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: white;
+    color: #334155;
+    border: 1px solid #cbd5e1;
+    padding: 8px 14px;
+    border-radius: 8px;
+    font-size: 0.88rem;
+    font-weight: 600;
+    text-decoration: none;
     cursor: pointer;
-    font-size: 1.2rem;
+    transition: all 0.15s ease;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+}
+
+.btn-ghost:hover {
+    background: #f8fafc;
+    border-color: #94a3b8;
+    color: #0f172a;
+    transform: translateY(-1px);
+}
+
+/* ==================== GRILLE DES CARTES ==================== */
+.interfaces-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));
+    gap: 24px;
+}
+
+.iface-card {
+    background: white;
+    border-radius: 14px;
+    border: 1px solid #e2e8f0;
+    box-shadow: 0 4px 12px rgba(15, 23, 42, 0.04);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    transition: box-shadow 0.2s, border-color 0.2s;
+}
+
+.iface-card:hover {
+    box-shadow: 0 8px 24px rgba(15, 23, 42, 0.07);
+    border-color: #cbd5e1;
+}
+
+/* En-tête de carte */
+.card-top {
+    padding: 18px 20px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid #f1f5f9;
+    background: #fafbfc;
+}
+
+.iface-title-group {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.iface-icon {
+    width: 42px;
+    height: 42px;
+    border-radius: 10px;
     display: flex;
     align-items: center;
     justify-content: center;
+    font-size: 1.35rem;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.04);
 }
-.btn-secondary {
-    background: #f5f5f5;
-    border: 1px solid #ddd;
-    padding: 8px 12px;
+
+.eth-icon {
+    background: #eef2ff;
+    border: 1px solid #e0e7ff;
+}
+
+.wifi-icon {
+    background: #f0fdf4;
+    border: 1px solid #dcfce7;
+}
+
+.iface-name {
+    font-weight: 700;
+    font-size: 1.05rem;
+    color: #0f172a;
+}
+
+.iface-sub {
+    font-size: 0.78rem;
+    color: #64748b;
+    margin-top: 1px;
+}
+
+/* Indicateur de statut (Pilule) */
+.status-indicator {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 20px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+}
+
+.status-indicator .dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    display: inline-block;
+}
+
+.status-online {
+    background: #dcfce7;
+    color: #166534;
+    border: 1px solid #bbf7d0;
+}
+.status-online .dot {
+    background: #22c55e;
+    box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.2);
+}
+
+.status-offline {
+    background: #f1f5f9;
+    color: #64748b;
+    border: 1px solid #e2e8f0;
+}
+.status-offline .dot {
+    background: #94a3b8;
+}
+
+/* Bandeau état live */
+.live-status-bar {
+    display: flex;
+    background: #f8fafc;
+    padding: 10px 20px;
+    border-bottom: 1px solid #edf2f7;
+    font-size: 0.8rem;
+    gap: 18px;
+    flex-wrap: wrap;
+}
+
+.status-item {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+}
+
+.status-item .label {
+    color: #64748b;
+    font-weight: 500;
+}
+
+.status-item .value {
+    color: #1e293b;
+    font-weight: 600;
+}
+
+/* ==================== FORMULAIRES & CHAMPS ==================== */
+.card-form {
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    flex: 1;
+}
+
+.form-section {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.section-label {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #334155;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.label-with-tip {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 2px;
+}
+
+.tip-pill {
+    font-size: 0.72rem;
+    color: #64748b;
+    background: #f1f5f9;
+    padding: 2px 6px;
     border-radius: 4px;
+    font-family: monospace;
+}
+
+.field-hint {
+    font-size: 0.76rem;
+    color: #64748b;
+    line-height: 1.35;
+}
+
+/* Form Controls */
+.form-input, .form-select {
+    width: 100%;
+    padding: 10px 14px;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    font-size: 0.92rem;
+    color: #0f172a;
+    background-color: white;
+    box-sizing: border-box;
+    outline: none;
+    transition: all 0.15s ease;
+}
+
+.form-input:focus, .form-select:focus {
+    border-color: #0284c7;
+    box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.12);
+}
+
+.input-with-icon {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+.input-with-icon .input-icon {
+    position: absolute;
+    left: 12px;
+    color: #94a3b8;
+    pointer-events: none;
+    font-size: 0.95rem;
+}
+
+.input-with-icon .form-input {
+    padding-left: 38px;
+}
+
+.input-with-action {
+    display: flex;
+    gap: 8px;
+    align-items: stretch;
+}
+
+.flex-1 {
+    flex: 1;
+}
+
+.btn-action-icon {
+    background: #f1f5f9;
+    border: 1px solid #cbd5e1;
+    color: #334155;
+    border-radius: 8px;
+    padding: 0 14px;
     cursor: pointer;
-    font-size: 0.9rem;
-}
-.btn-secondary:hover { background: #eee; }
-.form-group label { display: block; margin-bottom: 5px; font-weight: bold; color: #444; }
-.form-group input, .form-group select { 
-    width: 100%; 
-    padding: 10px; 
-    border: 1px solid #ddd; 
-    border-radius: 4px; 
     font-size: 1rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s;
 }
-.help-text { font-size: 0.85em; color: #666; margin-bottom: 15px; }
-.form-actions { margin-top: 20px; border-top: 1px solid #eee; padding-top: 15px; text-align: right; }
-.data-table { width: 100%; border-collapse: collapse; }
-.data-table th { text-align: left; padding: 4px 0; color: #666; width: 80px; font-size: 0.9em; }
-.data-table td { padding: 4px 0; }
-.status-pill.active { background: #e8f5e9; color: #2e7d32; padding: 2px 8px; border-radius: 12px; font-size: 0.8em; }
-.status-pill.inactive { background: #ffebee; color: #c62828; padding: 2px 8px; border-radius: 12px; font-size: 0.8em; }
+
+.btn-action-icon:hover {
+    background: #e2e8f0;
+    color: #0f172a;
+}
+
+.wifi-creds-group {
+    background: #fdfdfd;
+    border: 1px dashed #cbd5e1;
+    border-radius: 10px;
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+/* Adresses multiples */
+.addresses-container {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.address-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.addr-icon {
+    font-size: 1rem;
+    opacity: 0.6;
+    user-select: none;
+}
+
+.btn-remove-addr {
+    background: #fee2e2;
+    color: #dc2626;
+    border: 1px solid #fca5a5;
+    border-radius: 8px;
+    width: 38px;
+    height: 38px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    font-size: 1rem;
+    font-weight: bold;
+    transition: all 0.15s;
+    flex-shrink: 0;
+}
+
+.btn-remove-addr:hover {
+    background: #fecaca;
+    color: #b91c1c;
+}
+
+.btn-add-addr {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    align-self: flex-start;
+    background: #f8fafc;
+    border: 1px dashed #94a3b8;
+    color: #0284c7;
+    font-weight: 600;
+    font-size: 0.82rem;
+    padding: 7px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.15s;
+    margin-top: 4px;
+}
+
+.btn-add-addr:hover {
+    background: #e0f2fe;
+    border-color: #0284c7;
+}
+
+/* Boîte Plage DHCP */
+.dhcp-range-box {
+    background: #fffbeb;
+    border: 1px solid #fde68a;
+    border-radius: 10px;
+    padding: 14px;
+    margin-top: 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.box-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: #92400e;
+    font-weight: 700;
+    font-size: 0.85rem;
+}
+
+.box-help {
+    font-size: 0.76rem;
+    color: #78350f;
+    line-height: 1.35;
+}
+
+.expandable-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    padding-top: 4px;
+    border-top: 1px solid #f1f5f9;
+}
+
+/* Pied de carte / Bouton Save */
+.card-footer {
+    margin-top: auto;
+    padding-top: 18px;
+    border-top: 1px solid #f1f5f9;
+}
+
+.btn-save {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    background: #0284c7;
+    color: white;
+    border: none;
+    padding: 12px 18px;
+    border-radius: 8px;
+    font-size: 0.95rem;
+    font-weight: 600;
+    cursor: pointer;
+    box-shadow: 0 2px 4px rgba(2, 132, 199, 0.2);
+    transition: all 0.15s ease;
+}
+
+.btn-save:hover {
+    background: #0369a1;
+    box-shadow: 0 4px 8px rgba(2, 132, 199, 0.3);
+    transform: translateY(-1px);
+}
+
+.btn-save:active {
+    transform: translateY(0);
+}
+
+.btn-save.loading {
+    opacity: 0.7;
+    cursor: wait;
+}
+
+/* ==================== TOAST NOTIFICATIONS ==================== */
+.toast-container {
+    position: fixed;
+    top: 24px;
+    right: 24px;
+    z-index: 9999;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    pointer-events: none;
+}
+
+.toast {
+    pointer-events: auto;
+    background: white;
+    padding: 14px 18px;
+    border-radius: 10px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.12);
+    border-left: 5px solid #0284c7;
+    font-size: 0.9rem;
+    color: #1e293b;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 280px;
+    max-width: 420px;
+    animation: toastSlideIn 0.3s ease-out;
+    transition: all 0.3s ease;
+}
+
+.toast.success { border-left-color: #22c55e; }
+.toast.error { border-left-color: #ef4444; }
+
+@keyframes toastSlideIn {
+    from { opacity: 0; transform: translateX(50px); }
+    to { opacity: 1; transform: translateX(0); }
+}
+
+@media (max-width: 768px) {
+    .interfaces-grid {
+        grid-template-columns: 1fr;
+    }
+    .page-header {
+        flex-direction: column;
+        align-items: stretch;
+    }
+    .header-actions {
+        width: 100%;
+        justify-content: space-between;
+    }
+    .btn-ghost {
+        flex: 1;
+        justify-content: center;
+    }
+}
 </style>
 
 <script>
+// Toggle de l'affichage des champs IP manuels et du bloc DHCP
 function toggleManualFields(iface, val) {
-    document.getElementById(iface + '-manual-fields').style.display = (val === 'manual' || val === 'shared') ? 'block' : 'none';
+    const manualPanel = document.getElementById(iface + '-manual-fields');
     const dhcpRangeGroup = document.getElementById(iface + '-dhcp-range-group');
+
+    if (manualPanel) {
+        manualPanel.style.display = (val === 'manual' || val === 'shared') ? 'flex' : 'none';
+    }
     if (dhcpRangeGroup) {
-        dhcpRangeGroup.style.display = (val === 'shared') ? 'block' : 'none';
+        dhcpRangeGroup.style.display = (val === 'shared') ? 'flex' : 'none';
     }
 }
 
+// Ajout dynamique de ligne d'adresse IP
 function addAddressRow(iface) {
     const container = document.getElementById(iface + '-addresses-container');
     const div = document.createElement('div');
     div.className = 'address-row';
     div.innerHTML = `
-        <input type="text" name="addresses" value="" placeholder="192.168.1.10/24">
-        <button type="button" class="btn-remove" onclick="removeAddressRow(this)">×</button>
+        <span class="addr-icon">🌐</span>
+        <input type="text" name="addresses" value="" placeholder="Ex: 192.168.1.10/24" class="form-input font-mono">
+        <button type="button" class="btn-remove-addr" onclick="removeAddressRow(this)" title="Supprimer">✕</button>
     `;
     container.appendChild(div);
+    div.querySelector('input').focus();
 }
 
+// Suppression d'une ligne d'adresse
 function removeAddressRow(btn) {
     const row = btn.closest('.address-row');
     const container = row.parentElement;
@@ -180,42 +830,89 @@ function removeAddressRow(btn) {
     }
 }
 
+// Afficher / Masquer le mot de passe
+function togglePasswordVisibility(inputId, btn) {
+    const input = document.getElementById(inputId);
+    if (!input) return;
+    if (input.type === 'password') {
+        input.type = 'text';
+        btn.textContent = '🙈';
+    } else {
+        input.type = 'password';
+        btn.textContent = '👁️';
+    }
+}
+
+// Notification Toast
+function showToast(message, type) {
+    type = type || 'info';
+    const container = document.getElementById('toast-container');
+    if (!container) return;
+
+    const toast = document.createElement('div');
+    toast.className = 'toast ' + type;
+    const icon = type === 'success' ? '✅' : (type === 'error' ? '❌' : 'ℹ️');
+    toast.innerHTML = '<span>' + icon + '</span><div>' + message + '</div>';
+
+    container.appendChild(toast);
+
+    setTimeout(() => {
+        toast.style.opacity = '0';
+        toast.style.transform = 'translateX(50px)';
+        setTimeout(() => toast.remove(), 300);
+    }, 4000);
+}
+
+// Actualisation des SSIDs WiFi
 async function refreshSSIDs() {
     const btn = document.getElementById('btn-refresh-ssids');
+    const icon = document.getElementById('icon-refresh');
     const datalist = document.getElementById('ssids-list');
     const baseUrl = window.CONFIG ? window.CONFIG.baseUrl : '/rpinode';
-    
-    btn.textContent = '...';
-    btn.disabled = true;
-    
+
+    if (btn) btn.disabled = true;
+    if (icon) icon.textContent = '⏳';
+
     try {
         const url = (baseUrl + '/api/network/wifi/list').replace(/\/+/g, '/');
         const response = await fetch(url);
         const ssids = await response.json();
-        
+
         datalist.innerHTML = '';
-        ssids.forEach(ssid => {
-            const option = document.createElement('option');
-            option.value = ssid;
-            datalist.appendChild(option);
-        });
+        if (Array.isArray(ssids)) {
+            ssids.forEach(ssid => {
+                const option = document.createElement('option');
+                option.value = ssid;
+                datalist.appendChild(option);
+            });
+            showToast(ssids.length + ' réseau(x) WiFi détecté(s)', 'info');
+        }
     } catch (e) {
-        console.error('Erreur lors du rafraîchissement des SSIDs', e);
+        console.error('Erreur scan SSIDs', e);
+        showToast('Impossible de scanner les réseaux WiFi', 'error');
     } finally {
-        btn.textContent = '🔄';
-        btn.disabled = false;
+        if (btn) btn.disabled = false;
+        if (icon) icon.textContent = '🔄';
     }
 }
 
-// Charger les SSIDs au chargement de la page
 document.addEventListener('DOMContentLoaded', refreshSSIDs);
 
+// Enregistrement et application de la configuration
 async function saveConfig(event, iface) {
     event.preventDefault();
+    const btn = document.getElementById('btn-save-' + iface);
+    const originalText = btn ? btn.innerHTML : '';
+
+    if (btn) {
+        btn.classList.add('loading');
+        btn.disabled = true;
+        btn.innerHTML = '<span>⏳</span> Application en cours...';
+    }
+
     const formData = new FormData(event.target);
-    
     const baseUrl = window.CONFIG ? window.CONFIG.baseUrl : '/rpinode';
-    
+
     const data = {
         interface: iface,
         method: formData.get('method'),
@@ -223,12 +920,12 @@ async function saveConfig(event, iface) {
         dhcp_range: formData.get('dhcp_range'),
         addresses: formData.getAll('addresses').filter(a => a.trim() !== '').join(',')
     };
-    
+
     if (iface === 'wlan0') {
         data.ssid = formData.get('ssid');
         data.psk = formData.get('psk');
     }
-    
+
     try {
         const url = (baseUrl + '/api/network/profile/save').replace(/\/+/g, '/');
         const response = await fetch(url, {
@@ -236,17 +933,26 @@ async function saveConfig(event, iface) {
             body: JSON.stringify(data),
             headers: { 'Content-Type': 'application/json' }
         });
-        
+
         const res = await response.json();
         if (res.status === 'ok') {
-            alert('Configuration enregistrée et en cours d\'application...');
-            // On laisse un peu de temps à NetworkManager de redémarrer l'interface
-            setTimeout(() => window.location.reload(), 3000);
+            showToast('Configuration ' + iface + ' enregistrée avec succès !', 'success');
+            setTimeout(() => window.location.reload(), 2500);
         } else {
-            alert('Erreur : ' + res.message);
+            showToast('Erreur : ' + (res.message || 'Échec de sauvegarde'), 'error');
+            if (btn) {
+                btn.classList.remove('loading');
+                btn.disabled = false;
+                btn.innerHTML = originalText;
+            }
         }
     } catch (e) {
-        alert('Erreur lors de l\'enregistrement');
+        showToast('Erreur réseau lors de l\'enregistrement', 'error');
+        if (btn) {
+            btn.classList.remove('loading');
+            btn.disabled = false;
+            btn.innerHTML = originalText;
+        }
     }
 }
 </script>

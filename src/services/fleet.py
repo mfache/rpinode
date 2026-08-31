@@ -177,6 +177,8 @@ class FleetClient:
                         "iface": row["interface"],
                         "method": row["method"],
                         "addresses": addrs,
+                        "gateway": row["gateway"],
+                        "dhcp_range": row.get("dhcp_range"),
                         "wifi_ssid": row["ssid"],
                         "wifi_psk": row["psk"],
                         "updated_by": socket.gethostname()
