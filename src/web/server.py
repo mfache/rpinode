@@ -277,9 +277,18 @@ class WebAdminHandler(BaseHTTPRequestHandler):
         base_url = config.get("base_url", "")
         hostname = socket.gethostname()
         version = str(int(time.time()))
+        
+        from services.presence import get_current_site_name
+        site_name = get_current_site_name()
+        
+        widget_cpu = render("widget.html", widget_id="cpu", title="Statut Système", data="Chargement...")
+        widget_net = render("widget.html", widget_id="net", title="Réseau / Chantier", data=site_name)
+        all_widgets = f"{widget_cpu}\n{widget_net}"
+        
         nav_html = render("nav.html", base_url=base_url)
-        content = render("home.html", hostname=hostname)
+        content = render("home.html", user="Admin", widgets=all_widgets)
         final_html = render("layout.html", title="Accueil", hostname=escape(hostname), base_url=escape(base_url), version=version, nav=nav_html, content=content)
+        
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.end_headers()
@@ -319,6 +328,7 @@ class WebAdminHandler(BaseHTTPRequestHandler):
         def get_iface_context(iface, profile, status):
             method = profile["method"] if profile else "auto"
             addresses = profile["addresses"] if profile and profile["addresses"] else ""
+            dhcp_range = profile["dhcp_range"] if profile and "dhcp_range" in profile.keys() and profile["dhcp_range"] else ""
             try:
                 import json
                 addresses_list = json.loads(addresses) if addresses else []
@@ -326,9 +336,9 @@ class WebAdminHandler(BaseHTTPRequestHandler):
                     addresses_list = [addresses]
             except Exception:
                 addresses_list = [a.strip() for a in addresses.split(",") if a.strip()]
-            
+
             if not addresses_list: addresses_list = [""]
-            
+
             addresses_rows = ""
             for addr in addresses_list:
                 addresses_rows += f"""
@@ -340,9 +350,12 @@ class WebAdminHandler(BaseHTTPRequestHandler):
             return {
                 f"{iface}_method_auto_selected": 'selected' if method == "auto" else '',
                 f"{iface}_method_manual_selected": 'selected' if method == "manual" else '',
-                f"{iface}_manual_fields_display": 'block' if method == "manual" else 'none',
+                f"{iface}_method_shared_selected": 'selected' if method == "shared" else '',
+                f"{iface}_manual_fields_display": 'block' if method in ("manual", "shared") else 'none',
+                f"{iface}_dhcp_range_display": 'block' if method == "shared" else 'none',
                 f"{iface}_addresses_rows": addresses_rows,
                 f"{iface}_gateway": profile["gateway"] if profile and profile["gateway"] else "",
+                f"{iface}_dhcp_range": escape(dhcp_range),
                 f"{iface}_ssid": profile["ssid"] if profile and "ssid" in profile.keys() and profile["ssid"] else "",
                 f"{iface}_psk": profile["psk"] if profile and "psk" in profile.keys() and profile["psk"] else ""
             }

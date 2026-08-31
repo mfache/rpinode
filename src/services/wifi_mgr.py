@@ -70,12 +70,13 @@ def manage_wifi(force=False):
         # On utilise une connexion nommée d'après le chantier pour nmcli
         con_name = f"site-{site_id}-wifi"
         _ensure_client_mode(
-            con_name, 
-            wifi_config['ssid'], 
+            con_name,
+            wifi_config['ssid'],
             wifi_config['psk'],
             method=wifi_config['method'],
             addresses=wifi_config['addresses'],
             gateway=wifi_config['gateway'],
+            dhcp_range=wifi_config.get('dhcp_range'),
             force=force
         )
     else:
@@ -104,10 +105,11 @@ def _get_site_wifi_config(site_id):
     with get_db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute(
-            "SELECT ssid, psk, method, addresses, gateway FROM site_network_profiles WHERE site_id = ? AND interface = 'wlan0'",
+            "SELECT ssid, psk, method, addresses, gateway, dhcp_range FROM site_network_profiles WHERE site_id = ? AND interface = 'wlan0'",
             (site_id,)
         )
-        return cursor.fetchone()
+        row = cursor.fetchone()
+        return dict(row) if row else None
 
 def get_visible_ssids():
     """Retourne une liste des SSIDs visibles sans doublons."""
@@ -149,7 +151,7 @@ def _is_ssid_visible(ssid):
     except:
         return False
 
-def _ensure_client_mode(con_name, ssid=None, psk=None, method="auto", addresses=None, gateway=None, force=False):
+def _ensure_client_mode(con_name, ssid=None, psk=None, method="auto", addresses=None, gateway=None, dhcp_range=None, force=False):
     """S'assure que wlan0 est connecté à l'AP spécifié."""
     # 1. Vérifier si déjà connecté à cette connexion
     status = subprocess.run(["nmcli", "-t", "-f", "DEVICE,CONNECTION", "dev", "status"], capture_output=True, text=True)
@@ -175,11 +177,32 @@ def _ensure_client_mode(con_name, ssid=None, psk=None, method="auto", addresses=
                     addrs_list = [addresses]
             except Exception:
                 addrs_list = [a.strip() for a in (addresses or "").split(",") if a.strip()]
-                
+
             addrs_nm = ",".join(addrs_list)
             opts += f"ipv4.method manual ipv4.addresses {shlex.quote(addrs_nm)} "
             if gateway:
                 opts += f"ipv4.gateway {shlex.quote(gateway)} "
+            else:
+                opts += "ipv4.gateway '' "
+        elif method == "shared":
+            import json
+            try:
+                addrs_list = json.loads(addresses) if addresses else []
+                if not isinstance(addrs_list, list):
+                    addrs_list = [addresses]
+            except Exception:
+                addrs_list = [a.strip() for a in (addresses or "").split(",") if a.strip()]
+
+            addrs_nm = ",".join(addrs_list)
+            opts += f"ipv4.method shared ipv4.addresses {shlex.quote(addrs_nm)} "
+            if gateway:
+                opts += f"ipv4.gateway {shlex.quote(gateway)} "
+            else:
+                opts += "ipv4.gateway '' "
+            if dhcp_range:
+                opts += f"ipv4.dhcp-range {shlex.quote(dhcp_range)} "
+            else:
+                opts += "ipv4.dhcp-range '' "
         else:
             opts += "ipv4.method auto "
             

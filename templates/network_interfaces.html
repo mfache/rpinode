@@ -12,6 +12,7 @@
                 <select name="method" onchange="toggleManualFields('eth0', this.value)">
                     <option value="auto" ${eth0_method_auto_selected}>Automatique (DHCP)</option>
                     <option value="manual" ${eth0_method_manual_selected}>Statique (IP Fixe)</option>
+                    <option value="shared" ${eth0_method_shared_selected}>Serveur DHCP local (Réseau partagé)</option>
                 </select>
             </div>
 
@@ -21,10 +22,16 @@
                     ${eth0_addresses_rows}
                 </div>
                 <button type="button" class="btn-secondary" onclick="addAddressRow('eth0')">+ Ajouter une adresse</button>
-                
+
                 <div class="form-group mt-10">
                     <label>Passerelle (optionnel) :</label>
                     <input type="text" name="gateway" value="${eth0_gateway}" placeholder="192.168.1.1">
+                </div>
+                
+                <div class="form-group mt-10" id="eth0-dhcp-range-group" style="display: ${eth0_dhcp_range_display};">
+                    <label>Plage DHCP (ex: 192.168.1.10,192.168.1.100) :</label>
+                    <input type="text" name="dhcp_range" value="${eth0_dhcp_range}" placeholder="Laissez vide pour auto">
+                    <p class="help-text">Utile uniquement si la méthode est "Serveur DHCP local".</p>
                 </div>
             </div>
 
@@ -62,6 +69,7 @@
                 <select name="method" onchange="toggleManualFields('wlan0', this.value)">
                     <option value="auto" ${wlan0_method_auto_selected}>Automatique (DHCP)</option>
                     <option value="manual" ${wlan0_method_manual_selected}>Statique (IP Fixe)</option>
+                    <option value="shared" ${wlan0_method_shared_selected}>Serveur DHCP local (Point d'accès)</option>
                 </select>
             </div>
 
@@ -71,10 +79,16 @@
                     ${wlan0_addresses_rows}
                 </div>
                 <button type="button" class="btn-secondary" onclick="addAddressRow('wlan0')">+ Ajouter une adresse</button>
-                
+
                 <div class="form-group mt-10">
                     <label>Passerelle (optionnel) :</label>
                     <input type="text" name="gateway" value="${wlan0_gateway}" placeholder="192.168.1.1">
+                </div>
+                
+                <div class="form-group mt-10" id="wlan0-dhcp-range-group" style="display: ${wlan0_dhcp_range_display};">
+                    <label>Plage DHCP (ex: 192.168.1.10,192.168.1.100) :</label>
+                    <input type="text" name="dhcp_range" value="${wlan0_dhcp_range}" placeholder="Laissez vide pour auto">
+                    <p class="help-text">Utile uniquement si la méthode est "Serveur DHCP local".</p>
                 </div>
             </div>
 
@@ -137,7 +151,11 @@
 
 <script>
 function toggleManualFields(iface, val) {
-    document.getElementById(iface + '-manual-fields').style.display = val === 'manual' ? 'block' : 'none';
+    document.getElementById(iface + '-manual-fields').style.display = (val === 'manual' || val === 'shared') ? 'block' : 'none';
+    const dhcpRangeGroup = document.getElementById(iface + '-dhcp-range-group');
+    if (dhcpRangeGroup) {
+        dhcpRangeGroup.style.display = (val === 'shared') ? 'block' : 'none';
+    }
 }
 
 function addAddressRow(iface) {
@@ -202,6 +220,7 @@ async function saveConfig(event, iface) {
         interface: iface,
         method: formData.get('method'),
         gateway: formData.get('gateway'),
+        dhcp_range: formData.get('dhcp_range'),
         addresses: formData.getAll('addresses').filter(a => a.trim() !== '').join(',')
     };
     

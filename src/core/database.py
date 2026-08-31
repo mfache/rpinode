@@ -121,4 +121,14 @@ def init_db():
         except Exception as e:
             logger.warning(f"Erreur lors de la migration des colonnes modbus_templates : {e}")
 
+        try:
+            cursor.execute("PRAGMA table_info(site_network_profiles)")
+            cols = [r["name"] for r in cursor.fetchall()]
+            if cols:
+                if "dhcp_range" not in cols:
+                    cursor.execute("ALTER TABLE site_network_profiles ADD COLUMN dhcp_range TEXT")
+                conn.commit()
+        except Exception as e:
+            logger.warning(f"Erreur lors de la migration des colonnes site_network_profiles : {e}")
+
         logger.info("Base de données synchronisée avec le schéma.")

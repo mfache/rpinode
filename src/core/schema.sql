@@ -67,9 +67,10 @@ CREATE TABLE IF NOT EXISTS site_network_profiles (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     site_id INTEGER NOT NULL,
     interface TEXT NOT NULL,            -- 'eth0' ou 'wlan0'
-    method TEXT DEFAULT 'auto',         -- 'auto' (DHCP) ou 'manual'
+    method TEXT DEFAULT 'auto',         -- 'auto' (DHCP) ou 'manual' ou 'shared'
     addresses TEXT,                     -- Adresses CIDR JSON (ex: '["192.168.1.10/24"]')
     gateway TEXT,
+    dhcp_range TEXT,                    -- Plage DHCP si method='shared' (ex: '192.168.1.10,192.168.1.254')
     ssid TEXT,                          -- Pour le WiFi (wlan0)
     psk TEXT,                           -- Mot de passe WiFi (optionnel)
     is_dirty BOOLEAN DEFAULT 0,         -- 1 si modifié localement et non synchronisé
