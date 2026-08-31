@@ -868,7 +868,7 @@ async function refreshSSIDs() {
     const btn = document.getElementById('btn-refresh-ssids');
     const icon = document.getElementById('icon-refresh');
     const datalist = document.getElementById('ssids-list');
-    const baseUrl = window.CONFIG ? window.CONFIG.baseUrl : '/rpinode';
+    const baseUrl = window.CONFIG?.baseUrl || '';
 
     if (btn) btn.disabled = true;
     if (icon) icon.textContent = '⏳';
@@ -911,7 +911,7 @@ async function saveConfig(event, iface) {
     }
 
     const formData = new FormData(event.target);
-    const baseUrl = window.CONFIG ? window.CONFIG.baseUrl : '/rpinode';
+    const baseUrl = window.CONFIG?.baseUrl || '';
 
     const data = {
         interface: iface,

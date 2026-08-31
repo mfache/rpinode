@@ -2,14 +2,14 @@
   "name": "rpinode Admin",
   "short_name": "rpinode",
   "description": "Interface d'administration rpinode",
-  "start_url": "/rpinode/",
-  "scope": "/rpinode/",
+  "start_url": "/",
+  "scope": "/",
   "display": "standalone",
   "background_color": "#2c3e50",
   "theme_color": "#2c3e50",
   "icons": [
     {
-      "src": "/rpinode/static/DELTA-Thermic-v3_reverse.png",
+      "src": "/static/DELTA-Thermic-v3_reverse.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any maskable"

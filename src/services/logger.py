@@ -84,6 +84,8 @@ def run_modbus_logging_cycle(now, last_poll_times, last_recorded_values, last_st
     if not site_name or site_name == "Inconnu":
         return
 
+    # 1. On récupère les points à lire
+    points_to_read = []
     with get_db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("SELECT id FROM sites WHERE name = ?", (site_name,))
@@ -92,7 +94,6 @@ def run_modbus_logging_cycle(now, last_poll_times, last_recorded_values, last_st
             return
         site_id = site_row["id"]
         
-        # Récupérer tous les points suivis (Live) et/ou enregistrés (Historique)
         cursor.execute(
             """
             SELECT p.*, d.name as device_name, d.protocol, d.address, d.port,
@@ -107,32 +108,63 @@ def run_modbus_logging_cycle(now, last_poll_times, last_recorded_values, last_st
         
         for p in points:
             pid = p["id"]
-            # Si le point est enregistré, respecter sa cadence, sinon cadence par défaut 5s pour le live
             if p.get("is_recorded"):
                 interval = CADENCE_MAP.get(p.get("cadence", "1m"), 60)
             else:
                 interval = 5
             
-            if now - last_poll_times.get(pid, 0) < interval:
-                continue
-            last_poll_times[pid] = now
+            if now - last_poll_times.get(pid, 0) >= interval:
+                last_poll_times[pid] = now
+                points_to_read.append(p)
+
+    # 2. Lecture des points (HORS transaction DB)
+    read_results = []
+    for p in points_to_read:
+        pid = p["id"]
+        protocol = p["protocol"]
+        address = p["address"]
+        port = p["port"] or 502
+        unit = p.get("slave_unit") or (int(address) if protocol == "mstp" else 1)
+        func = p["function"]
+        reg = p["reg"]
+        base = p.get("base", 0)
+        type_str = p["type"]
+        scale = p["scale"]
+        unit_str = f" {p['unit']}" if p.get("unit") else ""
+        
+        try:
+            val_str, disp_val = read_point_value(protocol, address, port, unit, func, reg, type_str, scale, base=base, timeout=timeout)
+            read_results.append({
+                "point": p,
+                "val_str": val_str,
+                "disp_val": disp_val,
+                "unit_str": unit_str,
+                "error": None
+            })
+        except Exception as e:
+            read_results.append({
+                "point": p,
+                "val_str": None,
+                "disp_val": None,
+                "unit_str": unit_str,
+                "error": e
+            })
+
+    # 3. Mise à jour de la DB et MQTT
+    if not read_results:
+        return
+
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        for res in read_results:
+            p = res["point"]
+            pid = p["id"]
+            val_str = res["val_str"]
+            disp_val = res["disp_val"]
+            unit_str = res["unit_str"]
+            e = res["error"]
             
-            protocol = p["protocol"]
-            address = p["address"]
-            port = p["port"] or 502
-            unit = p.get("slave_unit") or (int(address) if protocol == "mstp" else 1)
-            func = p["function"]
-            reg = p["reg"]
-            base = p.get("base", 0)
-            type_str = p["type"]
-            scale = p["scale"]
-            unit_str = f" {p['unit']}" if p.get("unit") else ""
-            
-            try:
-                val_str, disp_val = read_point_value(protocol, address, port, unit, func, reg, type_str, scale, base=base, timeout=timeout)
-                if val_str is None:
-                    continue
-                
+            if e is None and val_str is not None:
                 # Réinitialiser le compteur d'erreurs en cas de succès
                 consecutive_errors[pid] = 0
                 
@@ -142,7 +174,7 @@ def run_modbus_logging_cycle(now, last_poll_times, last_recorded_values, last_st
                     (val_str, int(now), pid)
                 )
 
-                # Publication temps réel vers le broker MQTT local pour le flux SSE
+                # Publication temps réel MQTT
                 full_display = f"{disp_val}{unit_str}"
                 mqtt_payload = {
                     "point_id": pid,
@@ -155,24 +187,23 @@ def run_modbus_logging_cycle(now, last_poll_times, last_recorded_values, last_st
                 }
                 mqtt_client.publish(f"rpinode/modbus/point/{pid}", mqtt_payload)
                 
-                # Enregistrement dans les tendances (si le point est coché pour enregistrement)
+                # Enregistrement dans les tendances
                 if p.get("is_recorded"):
                     changed = (val_str != last_recorded_values.get(pid))
                     heartbeat_due = (now - last_store_ts.get(pid, 0)) >= HEARTBEAT_SECONDS
                     
                     if changed or heartbeat_due:
                         ts = int(now)
-                        obj_id = f"FC{func:02d}_{reg}"
+                        obj_id = f"FC{p['function']:02d}_{p['reg']}"
                         record_trend(cursor, site_id, "modbus", ts, p["device_name"], obj_id, val_str)
                         last_recorded_values[pid] = val_str
                         last_store_ts[pid] = ts
-            except Exception as e:
+            else:
                 err_count = consecutive_errors.get(pid, 0) + 1
                 consecutive_errors[pid] = err_count
                 
-                # Tolérance : on conserve la dernière valeur connue pendant les n-1 premiers cycles d'échec
+                # Tolérance
                 if err_count < retries and p.get("last_value") is not None:
-                    logger.debug(f"Modbus logger: Échec cycle {err_count}/{retries} pour {pid} ({p.get('name')}), dernière valeur conservée.")
                     full_display = f"{p['last_value']}{unit_str}"
                     mqtt_payload = {
                         "point_id": pid,
@@ -186,7 +217,6 @@ def run_modbus_logging_cycle(now, last_poll_times, last_recorded_values, last_st
                     }
                     mqtt_client.publish(f"rpinode/modbus/point/{pid}", mqtt_payload)
                 elif err_count >= retries:
-                    logger.warning(f"Modbus logger: Échec confirmé ({err_count}/{retries}) pour {pid} ({p.get('name')}) : {e}")
                     mqtt_payload = {
                         "point_id": pid,
                         "value": None,
@@ -194,11 +224,9 @@ def run_modbus_logging_cycle(now, last_poll_times, last_recorded_values, last_st
                         "name": p.get("name"),
                         "device_name": p.get("device_name"),
                         "ts": int(now),
-                        "error": str(e)
+                        "error": str(e) if e else "Valeur vide"
                     }
                     mqtt_client.publish(f"rpinode/modbus/point/{pid}", mqtt_payload)
-
-        conn.commit()
 
 def run_bacnet_logging_cycle(timestamp, timeout=45):
     """Gère la lecture et l'enregistrement des points BACnet."""
@@ -206,6 +234,9 @@ def run_bacnet_logging_cycle(timestamp, timeout=45):
     if not site_name or site_name == "Inconnu":
         return
 
+    # 1. On récupère le site_id et les requêtes (Transaction courte)
+    requests = []
+    site_id = None
     with get_db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("SELECT id FROM sites WHERE name = ?", (site_name,))
@@ -214,24 +245,37 @@ def run_bacnet_logging_cycle(timestamp, timeout=45):
             return
         site_id = site_row["id"]
         
-        run_bacnet_cycle(cursor, site_id, timestamp, timeout=timeout)
-        conn.commit()
+        # Logique de préparation des requêtes (BACNET_POINTS_FILE ou DB)
+        # On extrait la logique de run_bacnet_cycle pour la rendre plus propre
+        requests = prepare_bacnet_requests(cursor, site_id)
 
-def run_bacnet_cycle(cursor, site_id, timestamp, timeout=45):
-    """Gère la lecture des points BACnet via le script services/bacnet_reader.py"""
+    if not requests:
+        return
+
+    # 2. Lecture BACnet (HORS transaction DB - peut prendre jusqu'à 45s)
+    results = perform_bacnet_read(requests, timeout)
+
+    # 3. Enregistrement des résultats (Transaction courte)
+    if results:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            for res in results:
+                if res.get("status") == "ok":
+                    dev_id = next((r["device_id"] for r in requests if r["addr"] == res["addr"] and r["obj"] == res["obj"]), res["instance"])
+                    record_trend(cursor, site_id, "bacnet", timestamp, str(dev_id), res["obj"], res["value"])
+            conn.commit()
+
+def prepare_bacnet_requests(cursor, site_id):
+    """Prépare la liste des points BACnet à lire."""
     requests = []
-    
-    # Priorité 1 : Fichier JSON (si présent, pour compatibilité ou forçage)
     if BACNET_POINTS_FILE.exists():
         try:
             with open(BACNET_POINTS_FILE, "r", encoding="utf-8") as f:
                 data = json.load(f)
-                # On s'attend à un format {"points": [{"addr": "...", "obj": "...", "instance": 123}, ...]}
                 requests = data.get("points", [])
         except Exception as e:
             logger.warning(f"Fichier {BACNET_POINTS_FILE} illisible : {e}")
     
-    # Priorité 2 : Base de données (si aucune requête via fichier)
     if not requests:
         try:
             cursor.execute(
@@ -250,30 +294,23 @@ def run_bacnet_cycle(cursor, site_id, timestamp, timeout=45):
                         "addr": dev["network_address"],
                         "instance": dev["device_instance"],
                         "obj": obj["obj"],
-                        "device_id": str(dev["device_instance"]) # Pour le stockage trend
+                        "device_id": str(dev["device_instance"])
                     })
         except Exception as e:
             logger.error(f"Erreur lecture BACnet DB : {e}")
+    return requests
 
-    if not requests:
-        return
-
-    # Appel du script externe
+def perform_bacnet_read(requests, timeout):
+    """Exécute l'appel au reader BACnet externe."""
     try:
-        # Chemin absolu vers le reader
         reader_path = os.path.join(os.path.dirname(__file__), "bacnet_reader.py")
-        
-        # Utilisation du venv BACnet s'il existe
         bacnet_python = "/opt/boitier-bacnet/venv/bin/python"
         if not os.path.exists(bacnet_python):
             bacnet_python = sys.executable
             
         process = subprocess.Popen(
             [bacnet_python, reader_path],
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
         )
         stdout, stderr = process.communicate(input=json.dumps(requests), timeout=timeout)
         
@@ -281,20 +318,14 @@ def run_bacnet_cycle(cursor, site_id, timestamp, timeout=45):
             data = json.loads(stdout)
             if "error" in data:
                 logger.warning(f"Erreur retournée par le reader BACnet : {data['error']}")
-            
-            for res in data.get("results", []):
-                if res.get("status") == "ok":
-                    # On retrouve le device_id d'origine pour l'enregistrement
-                    # (Dans un système réel, on passerait un ID de contexte)
-                    dev_id = next((r["device_id"] for r in requests if r["addr"] == res["addr"] and r["obj"] == res["obj"]), res["instance"])
-                    record_trend(cursor, site_id, "bacnet", timestamp, str(dev_id), res["obj"], res["value"])
+            return data.get("results", [])
         else:
             logger.error(f"Le reader BACnet a échoué (code {process.returncode}) : {stderr}")
-
     except subprocess.TimeoutExpired:
         logger.warning("Le reader BACnet a expiré (timeout).")
     except Exception as e:
         logger.error(f"Erreur lors de l'appel au reader BACnet : {e}")
+    return []
 
 def simulate_value(name):
     """Simule une valeur réaliste basée sur le nom du point."""

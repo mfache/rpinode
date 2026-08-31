@@ -52,6 +52,28 @@ def candidate_ifaces():
     """Interfaces LAN à examiner."""
     return ["eth0", "wlan0"]
 
+def get_local_macs():
+    """Retourne la liste des adresses MAC locales du boîtier."""
+    macs = set()
+    for iface in candidate_ifaces() + ["wwan0"]:
+        try:
+            with open(f"/sys/class/net/{iface}/address") as f:
+                mac = f.read().strip().lower()
+                if mac and mac != "00:00:00:00:00:00":
+                    macs.add(mac)
+        except OSError:
+            pass
+    return macs
+
+def get_local_ips():
+    """Retourne la liste des adresses IPv4 locales du boîtier."""
+    ips = set()
+    for iface in candidate_ifaces() + ["wwan0"]:
+        net = iface_ipv4(iface)
+        if net:
+            ips.add(net[0])
+    return ips
+
 def iface_ipv4(iface):
     """(ip, prefix) de l'interface, ou None si elle n'a pas d'adresse IPv4."""
     try:
@@ -150,6 +172,13 @@ async def sweep_iface(iface, ip_str, prefix):
 
     await asyncio.sleep(0.5)  # Temps de mise à jour de la table ARP
 
+    local_mac = ""
+    try:
+        with open(f"/sys/class/net/{iface}/address") as f:
+            local_mac = f.read().strip().lower()
+    except OSError:
+        pass
+
     alive = []
     try:
         arp_out = subprocess.check_output(
@@ -162,25 +191,19 @@ async def sweep_iface(iface, ip_str, prefix):
         parts = line.split()
         if len(parts) >= 3:
             ip_h = parts[0]
-            # Un appareil est vivant s'il a répondu au ping OU s'il est actif dans l'ARP (REACHABLE/DELAY)
+            # Ignorer l'adresse de notre propre interface
+            if ip_h == ip_str:
+                continue
             state = parts[-1] if parts else ""
             if ip_h in alive_ips or state in ["REACHABLE", "DELAY"]:
                 try:
                     ipaddress.IPv4Address(ip_h)
                     if "lladdr" in parts:
-                        mac_h = parts[parts.index("lladdr") + 1]
-                        if mac_h and mac_h != "<incomplete>":
+                        mac_h = parts[parts.index("lladdr") + 1].lower()
+                        if mac_h and mac_h != "<incomplete>" and mac_h != local_mac:
                             alive.append((ip_h, mac_h))
                 except (ValueError, IndexError):
                     pass
-
-    # Ajouter l'IP du boîtier lui-même si on l'a vu (ou par sécurité)
-    try:
-        with open(f"/sys/class/net/{iface}/address") as f:
-            if ip_str in alive_ips or True: # On force notre propre présence si l'interface est UP
-                alive.append((ip_str, f.read().strip()))
-    except OSError:
-        pass
         
     return alive
 
@@ -194,19 +217,27 @@ def load_ipscan_results():
 
     try:
         with get_db_connection() as conn:
+            # On récupère les MACs locales du boîtier pour les exclure
+            local_macs = list(get_local_macs())
+            mac_filter = ""
+            params = [site_id]
+            if local_macs:
+                mac_filter = f" AND mac NOT IN ({','.join(['?']*len(local_macs))})"
+                params.extend(local_macs)
+
             # On récupère le timestamp du dernier scan pour ce chantier
             row_last = conn.execute(
-                "SELECT MAX(last_seen) as last_scan FROM discovered_devices WHERE site_id = ?",
-                (site_id,)
+                f"SELECT MAX(last_seen) as last_scan FROM discovered_devices WHERE site_id = ?{mac_filter}",
+                params
             ).fetchone()
             last_at = row_last["last_scan"] if row_last and row_last["last_scan"] else "Jamais"
 
             # On récupère les équipements vus pour le site actuel
-            rows = conn.execute("""
+            rows = conn.execute(f"""
                 SELECT * FROM discovered_devices 
-                WHERE site_id = ?
+                WHERE site_id = ?{mac_filter}
                 ORDER BY last_seen DESC, last_ip ASC
-            """, (site_id,)).fetchall()
+            """, params).fetchall()
             for row in rows:
                 d = dict(row)
                 d["ip"] = d.get("last_ip") or "Inconnu"
@@ -244,6 +275,8 @@ async def run_ip_scan():
     try:
         found = {}  # ip -> (mac, iface)
         scanned_ifaces = []
+        local_ips = get_local_ips()
+        local_macs = get_local_macs()
         
         for iface in candidate_ifaces():
             net = iface_ipv4(iface)
@@ -252,8 +285,9 @@ async def run_ip_scan():
             ip_str, prefix = net
             scanned_ifaces.append(iface)
             for ip_h, mac_h in await sweep_iface(iface, ip_str, prefix):
-                if ip_h not in found:
-                    found[ip_h] = (mac_h, iface)
+                if ip_h not in local_ips and mac_h not in local_macs:
+                    if ip_h not in found:
+                        found[ip_h] = (mac_h, iface)
 
         if not scanned_ifaces:
             logger.warning("Aucune interface LAN n'a d'adresse IP.")
@@ -299,6 +333,16 @@ def update_db_results(devices, ifaces=None):
         with get_db_connection() as conn:
             for d in devices:
                 ports_json = json.dumps(d.get("ports", []))
+                mac_clean = d["mac"].lower()
+                ip_clean = d["ip"]
+
+                # Libère l'IP sur les autres équipements éventuels du même chantier
+                conn.execute("""
+                    UPDATE discovered_devices
+                    SET last_ip = NULL
+                    WHERE site_id = ? AND mac != ? AND last_ip = ?
+                """, (site_id, mac_clean, ip_clean))
+
                 conn.execute("""
                     INSERT INTO discovered_devices (
                         site_id, mac, vendor, last_ip, last_ports, last_iface,
@@ -318,7 +362,7 @@ def update_db_results(devices, ifaces=None):
                         modbus_info = COALESCE(EXCLUDED.modbus_info, discovered_devices.modbus_info),
                         last_seen = EXCLUDED.last_seen
                 """, (
-                    site_id, d["mac"].lower(), d["vendor"], d["ip"], ports_json, d["iface"],
+                    site_id, mac_clean, d["vendor"], ip_clean, ports_json, d["iface"],
                     d.get("bacnet_instance"), d.get("bacnet_name"), d.get("modbus_info"),
                     d.get("last_seen", datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
                 ))

@@ -9,7 +9,7 @@ DEFAULT_CONFIG = {
     "hostname": "rpinode-01",
     "port": 8081,
     "debug": True,
-    "base_url": "/rpinode",
+    "base_url": "",
     "fleet_url": "https://docs.deltathermic.be/reports/api",
     "fleet_secret": "",  # Peut être défini via la variable d'environnement FLEET_SECRET
     "fleet_token": "",    # Jeton obtenu après enregistrement

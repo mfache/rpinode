@@ -124,7 +124,7 @@ form input[type="checkbox"] { width: auto; margin-right: 5px; }
 </style>
 
 <script>
-const baseUrl = window.CONFIG ? window.CONFIG.baseUrl : '/rpinode';
+const baseUrl = window.CONFIG?.baseUrl || '';
 const SITE_ID = "${site_id}";
 const STORAGE_KEY = 'modbus_tools_state_' + SITE_ID;
 

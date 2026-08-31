@@ -167,6 +167,10 @@ class WebAdminHandler(BaseHTTPRequestHandler):
             self.handle_fleet_register()
         elif path == "/api/scan/ip/start":
             self.handle_ip_scan_start()
+        elif path == "/api/scan/ip/delete":
+            self.handle_ip_device_delete()
+        elif path == "/api/scan/ip/purge_offline":
+            self.handle_ip_scan_purge_offline()
         elif path == "/api/scan/ip/annotate":
             self.handle_ip_annotate()
         elif path == "/api/modbus/tools/probe":
@@ -1162,6 +1166,7 @@ class WebAdminHandler(BaseHTTPRequestHandler):
                         info_str = f" <small style='color:#e67e22'>({', '.join(bacnet_info)})</small>" if bacnet_info else ""
                         formatted_ports.append(f"<a href='{base_url}/scan/bacnet?ip={d['ip']}' style='color: #e67e22; font-weight: bold;'>47808 (BACnet)</a>{info_str}")
                     elif p == 80: formatted_ports.append(f"<a href='http://{d['ip']}' target='_blank' style='color: #3498db;'>80</a>")
+                    elif p == 443: formatted_ports.append(f"<a href='https://{d['ip']}' target='_blank' style='color: #9b59b6;'>443</a>")
                     else: formatted_ports.append(str(p))
                 ports_str = ", ".join(formatted_ports) if formatted_ports else "<span style='opacity:0.4;'>Aucun</span>"
                 annots = d.get("annotations_json")
@@ -1174,7 +1179,8 @@ class WebAdminHandler(BaseHTTPRequestHandler):
                     val = annots.get(col["column_key"], "")
                     custom_cells += f'<td class="editable" onclick="editCell(event, \'{mac}\', \'{col["column_key"]}\', \'{col["column_label"]}\')">{escape(str(val))}</td>'
                 sync_indicator = "<span class='sync-pending' title='En attente de synchronisation'>☁️</span>" if is_dirty else ""
-                devices_rows += f"<tr class='{row_class}'><td style='font-family: monospace; {ip_style}'>{status_dot}{escape(d.get('ip'))}</td><td style='font-family: monospace; font-size: 0.85em; color: #666;'>{escape(mac)}</td><td class='editable' onclick=\"editVendor('{mac}', '{escape(vendor)}')\">{escape(vendor)} {sync_indicator}</td><td>{ports_str}</td>{custom_cells}<td><small style='color:#999;'>{escape(d.get('iface'))}</small></td></tr>"
+                delete_btn = f"<button class='btn-icon-sm' title='Supprimer de l\\'inventaire' onclick=\"deleteDevice('{mac}', '{escape(d.get('ip', ''))}')\">🗑️</button>"
+                devices_rows += f"<tr class='{row_class}' id='device-row-{mac.replace(':', '')}'><td style='font-family: monospace; {ip_style}'>{status_dot}{escape(d.get('ip'))}</td><td style='font-family: monospace; font-size: 0.85em; color: #666;'>{escape(mac)}</td><td class='editable' onclick=\"editVendor('{mac}', '{escape(vendor)}')\">{escape(vendor)} {sync_indicator}</td><td>{ports_str}</td>{custom_cells}<td><small style='color:#999;'>{escape(d.get('iface'))}</small></td><td style='text-align:center;'>{delete_btn}</td></tr>"
         else: devices_rows = "<tr><td colspan='10' style='text-align:center; padding: 40px; color: #999;'>Aucun résultat.</td></tr>"
         return devices_rows, global_scanned_at, custom_columns
 
@@ -1800,17 +1806,21 @@ class WebAdminHandler(BaseHTTPRequestHandler):
     def handle_ip_annotate(self):
         content_length = int(self.headers.get('Content-Length', 0))
         post_data = self.rfile.read(content_length)
+        logger.info(f"handle_ip_annotate: body={post_data.decode('utf-8')}")
         try:
             data = json.loads(post_data)
             mac = data.get('mac', '').lower()
             vendor = data.get('vendor')
             annotations = data.get('annotations')
             
+            logger.info(f"handle_ip_annotate: mac={mac}, vendor={vendor}, annotations={annotations}")
+            
             if not mac:
                 return self.send_json({"status": "error", "message": "MAC manquante"})
                 
             from services.presence import get_current_site_id
             site_id = get_current_site_id()
+            logger.info(f"handle_ip_annotate: site_id={site_id}")
             if not site_id:
                 return self.send_json({"status": "error", "message": "Aucun chantier actif"})
                 
@@ -1819,6 +1829,7 @@ class WebAdminHandler(BaseHTTPRequestHandler):
                 if vendor:
                     # Global (mac_vendors) - Clé OUI sur 8 caractères (ex: 00:11:22)
                     prefix = mac[:8].upper()
+                    logger.info(f"handle_ip_annotate: updating vendor for prefix={prefix}")
                     conn.execute("""
                         INSERT INTO mac_vendors (prefix, vendor, is_dirty) 
                         VALUES (?, ?, 1) 
@@ -1834,11 +1845,13 @@ class WebAdminHandler(BaseHTTPRequestHandler):
                 
                 # 2. Mise à jour Annotations si fournies
                 if annotations is not None:
+                    logger.info(f"handle_ip_annotate: updating annotations={annotations}")
                     row = conn.execute("SELECT annotations_json FROM discovered_devices WHERE site_id = ? AND mac = ?", (site_id, mac)).fetchone()
                     existing = json.loads(row["annotations_json"]) if row and row["annotations_json"] else {}
                     if isinstance(annotations, dict):
                         existing.update(annotations)
                     
+                    logger.info(f"handle_ip_annotate: new annotations_json={json.dumps(existing)}")
                     conn.execute("""
                         INSERT INTO discovered_devices (site_id, mac, annotations_json, is_dirty)
                         VALUES (?, ?, ?, 1)
@@ -1847,14 +1860,63 @@ class WebAdminHandler(BaseHTTPRequestHandler):
                 
                 conn.commit()
             
-            # Synchronisation optionnelle avec la flotte si enregistré
-            if fleet.is_registered():
-                # On pourrait déclencher une synchro ici ou laisser le cycle faire
-                pass
-                
+            logger.info("handle_ip_annotate: success")
             return self.send_json({"status": "ok"})
         except Exception as e:
-            logger.error(f"Erreur handle_ip_annotate : {e}")
+            logger.error(f"Erreur handle_ip_annotate : {e}", exc_info=True)
+            self.send_json({"status": "error", "message": str(e)})
+
+    def handle_ip_device_delete(self):
+        try:
+            content_length = int(self.headers.get("Content-Length", 0))
+            post_data = self.rfile.read(content_length)
+            params = json.loads(post_data)
+            mac = params.get("mac", "").lower()
+
+            if not mac:
+                return self.send_json({"status": "error", "message": "Adresse MAC manquante"})
+
+            from services.presence import get_current_site_id
+            site_id = get_current_site_id()
+            if not site_id:
+                return self.send_json({"status": "error", "message": "Chantier introuvable"})
+
+            with get_db_connection() as conn:
+                conn.execute("DELETE FROM discovered_devices WHERE site_id = ? AND mac = ?", (site_id, mac))
+                conn.commit()
+
+            self.send_json({"status": "ok", "message": "Équipement supprimé"})
+        except Exception as e:
+            logger.error(f"Erreur handle_ip_device_delete : {e}", exc_info=True)
+            self.send_json({"status": "error", "message": str(e)})
+
+    def handle_ip_scan_purge_offline(self):
+        try:
+            from services.presence import get_current_site_id
+            site_id = get_current_site_id()
+            if not site_id:
+                return self.send_json({"status": "error", "message": "Chantier introuvable"})
+
+            with get_db_connection() as conn:
+                row_last = conn.execute(
+                    "SELECT MAX(last_seen) as last_scan FROM discovered_devices WHERE site_id = ?",
+                    (site_id,)
+                ).fetchone()
+
+                if row_last and row_last["last_scan"]:
+                    last_scan = row_last["last_scan"]
+                    cursor = conn.execute(
+                        "DELETE FROM discovered_devices WHERE site_id = ? AND (last_seen != ? OR last_seen IS NULL)",
+                        (site_id, last_scan)
+                    )
+                    deleted_count = cursor.rowcount
+                    conn.commit()
+                else:
+                    deleted_count = 0
+
+            self.send_json({"status": "ok", "message": f"{deleted_count} équipement(s) hors-ligne purgé(s)", "deleted": deleted_count})
+        except Exception as e:
+            logger.error(f"Erreur handle_ip_scan_purge_offline : {e}", exc_info=True)
             self.send_json({"status": "error", "message": str(e)})
 
     def send_json(self, data):

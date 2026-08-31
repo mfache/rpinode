@@ -78,7 +78,7 @@
 </style>
 
 <script>
-const baseUrl = window.CONFIG ? window.CONFIG.baseUrl : '/rpinode';
+const baseUrl = window.CONFIG?.baseUrl || '';
 let autoRefreshTimer = null;
 let lastValues = {};
 

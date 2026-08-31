@@ -185,7 +185,7 @@ document.addEventListener("DOMContentLoaded", () => {
             for (let p of portsList) {
                 if (p === 502) {
                     let m = data.modbus_info ? ` <small style='color:#2ecc71'>(${data.modbus_info})</small>` : '';
-                    portsHtml.push(`<a href='${baseUrl}/scan/modbus?ip=${data.ip}' style='color: #2ecc71; font-weight: bold;'>502 (Modbus)</a>${m}`);
+                    portsHtml.push(`<a href='${baseUrl}/modbus/tools?ip=${data.ip}' style='color: #2ecc71; font-weight: bold;'>502 (Modbus)</a>${m}`);
                 } else if (p === 47808) {
                     let b = [];
                     if (data.bacnet_instance) b.push(`Inst: ${data.bacnet_instance}`);
@@ -194,6 +194,8 @@ document.addEventListener("DOMContentLoaded", () => {
                     portsHtml.push(`<a href='${baseUrl}/scan/bacnet?ip=${data.ip}' style='color: #e67e22; font-weight: bold;'>47808 (BACnet)</a>${info}`);
                 } else if (p === 80) {
                     portsHtml.push(`<a href='http://${data.ip}' target='_blank' style='color: #3498db;'>80</a>`);
+                } else if (p === 443) {
+                    portsHtml.push(`<a href='https://${data.ip}' target='_blank' style='color: #9b59b6;'>443</a>`);
                 } else {
                     portsHtml.push(p);
                 }

@@ -312,7 +312,7 @@
 </style>
 
 <script>
-const baseUrl = window.CONFIG ? window.CONFIG.baseUrl : '/rpinode';
+const baseUrl = window.CONFIG?.baseUrl || '';
 
 function showAddDeviceModal() {
     document.getElementById('modal-add-device').style.display = 'flex';

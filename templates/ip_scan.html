@@ -5,6 +5,9 @@
             <span id="scan-status" class="status-badge ${is_running_class}">
                 ${is_running_text}
             </span>
+            <button class="btn-secondary" onclick="purgeOffline()" title="Supprimer tous les équipements hors-ligne de l'inventaire">
+                🧹 Purger hors-ligne
+            </button>
             <button id="btn-start-scan" class="btn-primary" onclick="startIpScan()" ${is_running_class == 'running' ? 'disabled' : ''}>
                 🔍 Lancer un Scan
             </button>
@@ -44,6 +47,7 @@
                         <th>Ports</th>
                         ${custom_headers}
                         <th>Interface</th>
+                        <th style="width: 35px; text-align: center;"></th>
                     </tr>
                 </thead>
                 <tbody id="ipscan-results-body">
@@ -140,7 +144,7 @@ th.sort-desc::after { content: " ▼"; font-size: 0.7em; }
 </style>
 
 <script>
-    const baseUrl = window.CONFIG ? window.CONFIG.baseUrl : '/rpinode';
+    const baseUrl = window.CONFIG?.baseUrl || '';
 
     async function startIpScan() {
         const btn = document.getElementById('btn-start-scan');
@@ -222,30 +226,98 @@ th.sort-desc::after { content: " ▼"; font-size: 0.7em; }
     }
 
     async function editCell(event, mac, colKey, colLabel) {
-        const currentCell = event.target;
-        const currentVal = currentCell.textContent;
-        const newVal = prompt(`Modifier "${colLabel}" :`, currentVal);
-        if (newVal === null || newVal === currentVal) return;
-        
-        // On récupère les annotations existantes si on peut, ou on envoie juste la mise à jour
-        // Le backend merge déjà les annotations dans discovered_devices
-        const annotations = {};
-        annotations[colKey] = newVal;
-        saveAnnotation(mac, { annotations: annotations });
+        try {
+            console.log("editCell called", {mac, colKey, colLabel});
+            let currentCell = event.target;
+            while (currentCell && currentCell.tagName !== 'TD') {
+                currentCell = currentCell.parentElement;
+            }
+            if (!currentCell) return;
+
+            const currentVal = currentCell.textContent.trim();
+            const newVal = prompt(`Modifier "${colLabel}" :`, currentVal);
+            console.log("prompt result", newVal);
+            if (newVal === null || newVal === currentVal) return;
+            
+            const annotations = {};
+            annotations[colKey] = newVal;
+            console.log("saving annotation", annotations);
+            await saveAnnotation(mac, { annotations: annotations });
+        } catch (err) {
+            console.error(err);
+            alert("Erreur locale JS : " + err.message);
+        }
     }
 
     async function saveAnnotation(mac, data) {
+        console.log("saveAnnotation", {mac, data});
         try {
             const url = (baseUrl + '/api/scan/ip/annotate').replace(/\/+/g, '/');
+            console.log("POST url", url);
             const response = await fetch(url, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ mac: mac, ...data })
             });
+            
+            if (!response.ok) {
+                const text = await response.text();
+                throw new Error("Erreur HTTP " + response.status + ": " + text);
+            }
+            
             const res = await response.json();
-            if (res.status === 'ok') window.location.reload();
-            else alert("Erreur lors de l'enregistrement : " + (res.message || "Erreur inconnue"));
-        } catch (e) { alert("Erreur réseau"); }
+            console.log("POST result", res);
+            if (res.status === 'ok') {
+                console.log("Success, reloading...");
+                window.location.reload();
+            } else {
+                alert("Erreur retournée par le serveur : " + (res.message || "Erreur inconnue"));
+            }
+        } catch (e) { 
+            console.error("Network or parsing error", e);
+            alert("Erreur lors de la sauvegarde : " + e.message); 
+        }
+    }
+
+    async function deleteDevice(mac, ip) {
+        if (!confirm(`Supprimer l'équipement ${ip ? ip + ' (' + mac + ')' : mac} de l'inventaire ?`)) return;
+        try {
+            const url = (baseUrl + '/api/scan/ip/delete').replace(/\/+/g, '/');
+            const res = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ mac: mac })
+            });
+            const data = await res.json();
+            if (data.status === 'ok') {
+                const row = document.getElementById('device-row-' + mac.replace(/:/g, ''));
+                if (row) row.remove();
+                else window.location.reload();
+            } else {
+                alert("Erreur: " + data.message);
+            }
+        } catch (e) {
+            alert("Erreur réseau lors de la suppression");
+        }
+    }
+
+    async function purgeOffline() {
+        if (!confirm("Supprimer tous les équipements hors-ligne de l'inventaire de ce chantier ?")) return;
+        try {
+            const url = (baseUrl + '/api/scan/ip/purge_offline').replace(/\/+/g, '/');
+            const res = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+            });
+            const data = await res.json();
+            if (data.status === 'ok') {
+                window.location.reload();
+            } else {
+                alert("Erreur: " + data.message);
+            }
+        } catch (e) {
+            alert("Erreur réseau lors de la purge");
+        }
     }
 
     // Gestion de la visibilité des colonnes

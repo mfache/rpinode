@@ -10,12 +10,8 @@ BLUE='\033[0;34m'
 RED='\033[0;31m'
 NC='\033[0m'
 
-# Réinitialisation forcée du terminal
-stty sane
-printf "\033[c" # Reset terminal hardware (optionnel mais radical)
-
 function step() {
-    printf "\r\033[K${BLUE}  > %s...${NC}" "$1"
+    printf "${BLUE}  > %s...${NC}" "$1"
     step_start=$(date +%s%3N)
 }
 

@@ -1,9 +1,9 @@
-const CACHE_NAME = 'rpinode-v9';
+const CACHE_NAME = 'rpinode-v10';
 const ASSETS = [
-  '/rpinode/manifest.json',
-  '/rpinode/static/style.css',
-  '/rpinode/static/app.js',
-  '/rpinode/static/DELTA-Thermic-v3_reverse.png'
+  '/manifest.json',
+  '/static/style.css',
+  '/static/app.js',
+  '/static/DELTA-Thermic-v3_reverse.png'
 ];
 
 self.addEventListener('install', (event) => {
@@ -42,9 +42,9 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Pour les pages HTML / Navigation (ex: /rpinode/) : NETWORK FIRST
+  // Pour les pages HTML / Navigation : NETWORK FIRST
   // On va chercher la dernière version sur le serveur, et on ne se replie sur le cache que si on est hors-ligne.
-  if (event.request.mode === 'navigate' || url.endsWith('/rpinode') || url.endsWith('/rpinode/')) {
+  if (event.request.mode === 'navigate') {
     event.respondWith(
       fetch(event.request)
         .then((networkResponse) => {
