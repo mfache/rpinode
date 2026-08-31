@@ -1,0 +1,663 @@
+<section class="logs-container">
+    <!-- En-tête de page -->
+    <div class="page-header">
+        <div class="header-titles">
+            <div class="site-badge">
+                <span class="badge-icon">📍</span>
+                <span>Chantier : <strong>${site_name}</strong></span>
+            </div>
+            <h2>Journaux d'activité (Logs Système)</h2>
+            <p class="header-subtitle">
+                Visualisation et filtrage en temps réel des événements internes de rpinode (Modbus, Réseau, Flotte, Wifi, Système).
+            </p>
+        </div>
+        <div class="header-actions">
+            <button type="button" class="btn-primary" onclick="fetchLogs()" id="btn-refresh-logs">
+                <span id="refresh-icon">🔄</span> Actualiser
+            </button>
+            <button type="button" class="btn-ghost" id="btn-auto-refresh" onclick="toggleAutoRefresh()">
+                <span id="auto-dot" class="dot-live"></span> <span id="auto-text">Direct (3s)</span>
+            </button>
+            <a href="${base_url}/api/monitor/logs/download" class="btn-ghost" download="rpinode.log" title="Télécharger le fichier de log brut">
+                <span>⬇️</span> Télécharger
+            </a>
+        </div>
+    </div>
+
+    <!-- Barre de filtres & recherche -->
+    <div class="card filter-bar">
+        <div class="filters-row">
+            <div class="filter-item">
+                <label for="filter-level">Niveau :</label>
+                <select id="filter-level" onchange="fetchLogs()" class="form-select">
+                    <option value="">Tous les niveaux</option>
+                    <option value="ERROR">🔴 ERROR uniquement</option>
+                    <option value="WARNING">🟡 WARNING & ERROR</option>
+                    <option value="INFO">🔵 INFO, WARNING & ERROR</option>
+                    <option value="DEBUG">⚪ DEBUG (Tous)</option>
+                </select>
+            </div>
+
+            <div class="filter-item">
+                <label for="filter-module">Module :</label>
+                <select id="filter-module" onchange="fetchLogs()" class="form-select">
+                    <option value="">Tous les modules</option>
+                    <option value="services.fleet">services.fleet (Flotte / Synchro)</option>
+                    <option value="services.modbus_mgr">services.modbus_mgr (Modbus)</option>
+                    <option value="services.logger">services.logger (Enregistreur Trends)</option>
+                    <option value="services.wifi_mgr">services.wifi_mgr (Gestionnaire WiFi)</option>
+                    <option value="services.network">services.network (Réseau & DHCP)</option>
+                    <option value="web.server">web.server (Serveur Web)</option>
+                    <option value="services.tracker">services.tracker (Localisation)</option>
+                    <option value="services.reporter">services.reporter (Reporter MQTT)</option>
+                    <option value="services.ipscan">services.ipscan (Scanner IP)</option>
+                    <option value="services.bacnet_mgr">services.bacnet_mgr (BACnet)</option>
+                </select>
+            </div>
+
+            <div class="filter-item search-item">
+                <label for="filter-search">Recherche de texte :</label>
+                <div class="search-input-wrapper">
+                    <span class="search-icon">🔍</span>
+                    <input type="text" id="filter-search" placeholder="Ex: locked, timeout, 502, error..." oninput="debounceFetchLogs()" class="form-input">
+                    <button type="button" class="btn-clear-search" onclick="clearSearch()" title="Effacer la recherche">✕</button>
+                </div>
+            </div>
+
+            <div class="filter-item limit-item">
+                <label for="filter-limit">Lignes :</label>
+                <select id="filter-limit" onchange="fetchLogs()" class="form-select">
+                    <option value="50">50 lignes</option>
+                    <option value="150" selected>150 lignes</option>
+                    <option value="300">300 lignes</option>
+                    <option value="600">600 lignes</option>
+                    <option value="1000">1000 lignes</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="filter-meta-row">
+            <div class="logs-stats">
+                <span>Affichage : <strong id="displayed-count">0</strong> ligne(s)</span>
+                <span class="meta-sep">•</span>
+                <span>Fichier : <code>rpinode.log</code> (<span id="log-file-size">${log_file_size}</span>)</span>
+            </div>
+            <div class="filter-toggles">
+                <label class="toggle-label" title="Faire défiler automatiquement vers les logs les plus récents">
+                    <input type="checkbox" id="cb-autoscroll" checked>
+                    <span>Auto-scroll en bas</span>
+                </label>
+                <button type="button" class="btn-small-ghost" onclick="clearLogConsole()">Vider l'écran</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Console d'affichage des logs -->
+    <div class="card console-card">
+        <div id="logs-console" class="logs-terminal font-mono">
+            <div class="log-loading">
+                <div class="spinner"></div>
+                <p>Chargement des journaux d'activité...</p>
+            </div>
+        </div>
+    </div>
+</section>
+
+<style>
+/* ==================== LAYOUT ==================== */
+.logs-container {
+    max-width: 1400px;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    padding-bottom: 30px;
+}
+
+.font-mono {
+    font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, Monaco, monospace;
+}
+
+/* ==================== PAGE HEADER ==================== */
+.page-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 20px;
+    flex-wrap: wrap;
+    background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
+    padding: 20px 24px;
+    border-radius: 12px;
+    border: 1px solid #e2e8f0;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+}
+
+.header-titles {
+    flex: 1;
+    min-width: 280px;
+}
+
+.site-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: #e0f2fe;
+    color: #0369a1;
+    border: 1px solid #bae6fd;
+    padding: 4px 10px;
+    border-radius: 20px;
+    font-size: 0.82rem;
+    font-weight: 500;
+    margin-bottom: 8px;
+}
+
+.page-header h2 {
+    margin: 0 0 6px 0;
+    font-size: 1.45rem;
+    color: #0f172a;
+    font-weight: 700;
+}
+
+.header-subtitle {
+    margin: 0;
+    font-size: 0.88rem;
+    color: #64748b;
+    line-height: 1.45;
+    max-width: 720px;
+}
+
+.header-actions {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.btn-primary {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: #0284c7;
+    color: white;
+    border: none;
+    padding: 9px 16px;
+    border-radius: 8px;
+    font-size: 0.88rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    box-shadow: 0 2px 4px rgba(2, 132, 199, 0.2);
+}
+
+.btn-primary:hover {
+    background: #0369a1;
+    transform: translateY(-1px);
+}
+
+.btn-ghost {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: white;
+    color: #334155;
+    border: 1px solid #cbd5e1;
+    padding: 8px 14px;
+    border-radius: 8px;
+    font-size: 0.88rem;
+    font-weight: 600;
+    text-decoration: none;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.btn-ghost:hover {
+    background: #f8fafc;
+    border-color: #94a3b8;
+    color: #0f172a;
+}
+
+.btn-ghost.active {
+    background: #f0fdf4;
+    border-color: #86efac;
+    color: #166534;
+}
+
+.dot-live {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #22c55e;
+    display: inline-block;
+    animation: pulse-live 1.5s infinite;
+}
+
+@keyframes pulse-live {
+    0% { transform: scale(0.95); opacity: 0.8; }
+    50% { transform: scale(1.3); opacity: 1; }
+    100% { transform: scale(0.95); opacity: 0.8; }
+}
+
+/* ==================== FILTRES ==================== */
+.filter-bar {
+    background: white;
+    padding: 16px 20px;
+    border-radius: 12px;
+    border: 1px solid #e2e8f0;
+    box-shadow: 0 2px 6px rgba(15, 23, 42, 0.03);
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.filters-row {
+    display: flex;
+    gap: 14px;
+    flex-wrap: wrap;
+    align-items: flex-end;
+}
+
+.filter-item {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    flex: 1;
+    min-width: 170px;
+}
+
+.filter-item.search-item {
+    flex: 2;
+    min-width: 260px;
+}
+
+.filter-item.limit-item {
+    flex: 0 0 120px;
+    min-width: 110px;
+}
+
+.filter-item label {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: #475569;
+}
+
+.form-select, .form-input {
+    padding: 8px 12px;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    font-size: 0.88rem;
+    color: #0f172a;
+    background: white;
+    box-sizing: border-box;
+    outline: none;
+    transition: all 0.15s;
+}
+
+.form-select:focus, .form-input:focus {
+    border-color: #0284c7;
+    box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.12);
+}
+
+.search-input-wrapper {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+.search-input-wrapper .search-icon {
+    position: absolute;
+    left: 10px;
+    font-size: 0.85rem;
+    opacity: 0.5;
+    pointer-events: none;
+}
+
+.search-input-wrapper .form-input {
+    width: 100%;
+    padding-left: 32px;
+    padding-right: 28px;
+}
+
+.btn-clear-search {
+    position: absolute;
+    right: 8px;
+    background: none;
+    border: none;
+    color: #94a3b8;
+    cursor: pointer;
+    font-size: 0.9rem;
+    padding: 2px 4px;
+}
+
+.btn-clear-search:hover {
+    color: #0f172a;
+}
+
+.filter-meta-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 0.8rem;
+    color: #64748b;
+    padding-top: 10px;
+    border-top: 1px solid #f1f5f9;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.logs-stats {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.meta-sep {
+    color: #cbd5e1;
+}
+
+.filter-toggles {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+}
+
+.toggle-label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    user-select: none;
+}
+
+.btn-small-ghost {
+    background: #f1f5f9;
+    border: 1px solid #e2e8f0;
+    padding: 3px 8px;
+    border-radius: 4px;
+    font-size: 0.76rem;
+    color: #475569;
+    cursor: pointer;
+}
+.btn-small-ghost:hover {
+    background: #e2e8f0;
+    color: #0f172a;
+}
+
+/* ==================== CONSOLE TERMINAL ==================== */
+.console-card {
+    background: #0f172a;
+    border-radius: 12px;
+    border: 1px solid #1e293b;
+    box-shadow: 0 4px 16px rgba(15, 23, 42, 0.12);
+    overflow: hidden;
+    padding: 0;
+}
+
+.logs-terminal {
+    height: 620px;
+    overflow-y: auto;
+    padding: 14px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    background: #090d16;
+    color: #e2e8f0;
+    font-size: 0.82rem;
+    line-height: 1.5;
+}
+
+/* Ligne de log */
+.log-row {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+    padding: 3px 6px;
+    border-radius: 4px;
+    transition: background 0.1s;
+    word-break: break-word;
+}
+
+.log-row:hover {
+    background: rgba(255, 255, 255, 0.04);
+}
+
+.log-time {
+    color: #64748b;
+    white-space: nowrap;
+    flex-shrink: 0;
+    font-size: 0.78rem;
+}
+
+.log-badge {
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    flex-shrink: 0;
+    letter-spacing: 0.4px;
+    text-align: center;
+    width: 62px;
+}
+
+.log-badge.INFO { background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3); }
+.log-badge.WARNING { background: rgba(251, 191, 36, 0.15); color: #fbbf24; border: 1px solid rgba(251, 191, 36, 0.3); }
+.log-badge.ERROR { background: rgba(248, 113, 113, 0.2); color: #f87171; border: 1px solid rgba(248, 113, 113, 0.4); }
+.log-badge.DEBUG { background: rgba(148, 163, 184, 0.15); color: #94a3b8; border: 1px solid rgba(148, 163, 184, 0.3); }
+.log-badge.RAW { background: rgba(255, 255, 255, 0.1); color: #cbd5e1; }
+
+.log-module {
+    color: #a78bfa;
+    white-space: nowrap;
+    flex-shrink: 0;
+    font-size: 0.78rem;
+    max-width: 170px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.log-msg {
+    flex: 1;
+    color: #f1f5f9;
+    white-space: pre-wrap;
+    word-break: break-all;
+}
+
+.log-row.ERROR .log-msg {
+    color: #fca5a5;
+    font-weight: 500;
+}
+
+.log-row.WARNING .log-msg {
+    color: #fde68a;
+}
+
+/* État de chargement / vide */
+.log-loading, .log-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    color: #64748b;
+    gap: 12px;
+}
+
+.spinner {
+    width: 28px;
+    height: 28px;
+    border: 3px solid rgba(255, 255, 255, 0.1);
+    border-top-color: #0284c7;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+@media (max-width: 800px) {
+    .filters-row {
+        flex-direction: column;
+        align-items: stretch;
+    }
+    .filter-item {
+        width: 100%;
+    }
+    .logs-terminal {
+        height: 480px;
+        font-size: 0.76rem;
+    }
+    .log-row {
+        flex-direction: column;
+        gap: 3px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        padding-bottom: 6px;
+    }
+}
+</style>
+
+<script>
+const baseUrl = window.CONFIG ? window.CONFIG.baseUrl : '/rpinode';
+let autoRefreshTimer = null;
+let debounceTimer = null;
+let isFirstLoad = true;
+
+// Récupération et affichage des logs via l'API
+async function fetchLogs(silent = false) {
+    const level = document.getElementById('filter-level').value;
+    const module = document.getElementById('filter-module').value;
+    const search = document.getElementById('filter-search').value.trim();
+    const limit = document.getElementById('filter-limit').value;
+
+    const btnRefresh = document.getElementById('btn-refresh-logs');
+    const iconRefresh = document.getElementById('refresh-icon');
+
+    if (!silent && iconRefresh) iconRefresh.textContent = '⏳';
+
+    const params = new URLSearchParams();
+    if (level) params.set('level', level);
+    if (module) params.set('module', module);
+    if (search) params.set('search', search);
+    if (limit) params.set('limit', limit);
+
+    try {
+        const url = (baseUrl + '/api/monitor/logs?' + params.toString()).replace(/\/+/g, '/').replace(':/', '://');
+        const res = await fetch(url);
+        const data = await res.json();
+
+        if (data.status === 'ok') {
+            renderLogs(data.logs || []);
+            const countEl = document.getElementById('displayed-count');
+            if (countEl) countEl.textContent = (data.logs || []).length;
+            if (data.file_size) {
+                const sizeEl = document.getElementById('log-file-size');
+                if (sizeEl) sizeEl.textContent = data.file_size;
+            }
+        }
+    } catch (e) {
+        console.error('Erreur chargement logs:', e);
+        if (!silent) {
+            const consoleEl = document.getElementById('logs-console');
+            if (consoleEl) {
+                consoleEl.innerHTML = '<div class="log-empty"><p style="color:#f87171;">❌ Impossible de joindre le serveur pour charger les logs.</p></div>';
+            }
+        }
+    } finally {
+        if (!silent && iconRefresh) iconRefresh.textContent = '🔄';
+    }
+}
+
+// Rendu HTML des lignes de logs
+function renderLogs(logs) {
+    const consoleEl = document.getElementById('logs-console');
+    if (!consoleEl) return;
+
+    if (!logs || logs.length === 0) {
+        consoleEl.innerHTML = '<div class="log-empty"><p>Aucun événement correspondant aux critères de recherche.</p></div>';
+        return;
+    }
+
+    let html = '';
+    for (let i = 0; i < logs.length; i++) {
+        const item = logs[i];
+        const lvl = escapeHtml(item.level || 'INFO');
+        const time = escapeHtml(item.time || '');
+        const mod = escapeHtml(item.module || '');
+        const msg = escapeHtml(item.msg || item.raw || '');
+
+        html += '<div class="log-row ' + lvl + '">' +
+            '<span class="log-time">' + time + '</span>' +
+            '<span class="log-badge ' + lvl + '">' + lvl + '</span>' +
+            (mod ? '<span class="log-module" title="' + mod + '">' + mod + '</span>' : '') +
+            '<span class="log-msg">' + msg + '</span>' +
+        '</div>';
+    }
+
+    consoleEl.innerHTML = html;
+
+    // Auto-scroll en bas
+    const autoScroll = document.getElementById('cb-autoscroll');
+    if (autoScroll && autoScroll.checked) {
+        consoleEl.scrollTop = consoleEl.scrollHeight;
+    }
+}
+
+function escapeHtml(str) {
+    if (!str) return '';
+    return str
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+}
+
+function debounceFetchLogs() {
+    clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(() => fetchLogs(), 300);
+}
+
+function clearSearch() {
+    const input = document.getElementById('filter-search');
+    if (input) {
+        input.value = '';
+        fetchLogs();
+    }
+}
+
+function clearLogConsole() {
+    const consoleEl = document.getElementById('logs-console');
+    if (consoleEl) {
+        consoleEl.innerHTML = '<div class="log-empty"><p>Écran vidé par l\'utilisateur. Cliquez sur Actualiser pour recharger.</p></div>';
+    }
+}
+
+// Gestion du rafraîchissement automatique
+function toggleAutoRefresh() {
+    const btn = document.getElementById('btn-auto-refresh');
+    const text = document.getElementById('auto-text');
+    const dot = document.getElementById('auto-dot');
+
+    if (autoRefreshTimer) {
+        clearInterval(autoRefreshTimer);
+        autoRefreshTimer = null;
+        if (btn) btn.classList.remove('active');
+        if (text) text.textContent = 'Direct : Pause';
+        if (dot) dot.style.background = '#94a3b8';
+    } else {
+        autoRefreshTimer = setInterval(() => fetchLogs(true), 3000);
+        if (btn) btn.classList.add('active');
+        if (text) text.textContent = 'Direct (3s)';
+        if (dot) dot.style.background = '#22c55e';
+    }
+}
+
+// Initialisation au chargement
+document.addEventListener('DOMContentLoaded', () => {
+    fetchLogs();
+    // Active le rafraîchissement auto par défaut
+    const btn = document.getElementById('btn-auto-refresh');
+    if (btn) btn.classList.add('active');
+    autoRefreshTimer = setInterval(() => fetchLogs(true), 3000);
+});
+</script>

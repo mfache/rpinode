@@ -73,7 +73,11 @@ class WebAdminHandler(BaseHTTPRequestHandler):
         elif path == "/api/network/wifi/list":
             from services.wifi_mgr import get_visible_ssids
             return self.send_json(get_visible_ssids())
-        
+        elif path == "/api/monitor/logs":
+            return self.handle_logs_api(query)
+        elif path == "/api/monitor/logs/download":
+            return self.handle_logs_download()
+
         if path == "/":
             return self.serve_home()
         elif path == "/network/overview":
@@ -98,6 +102,8 @@ class WebAdminHandler(BaseHTTPRequestHandler):
             return self.serve_trends_view()
         elif path == "/monitor/system":
             return self.serve_system_status()
+        elif path == "/monitor/logs":
+            return self.serve_logs_view()
         elif path == "/scan/ip":
             return self.serve_ip_scan()
             
@@ -1540,6 +1546,147 @@ class WebAdminHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.end_headers()
         self.wfile.write(final_html.encode("utf-8"))
+
+    def serve_logs_view(self):
+        import os
+        from core.paths import LOG_FILE
+        from services.presence import get_current_site_name
+
+        config = load_config()
+        base_url = config.get("base_url", "")
+        hostname = socket.gethostname()
+        version = str(int(time.time()))
+        site_name = get_current_site_name()
+
+        log_file_size = "0 Ko"
+        if LOG_FILE.exists():
+            try:
+                sz = os.path.getsize(LOG_FILE)
+                if sz >= 1024 * 1024:
+                    log_file_size = f"{sz / (1024 * 1024):.1f} Mo"
+                else:
+                    log_file_size = f"{sz / 1024:.0f} Ko"
+            except Exception:
+                pass
+
+        content = render(
+            "logs_view.html",
+            site_name=escape(site_name),
+            hostname=escape(hostname),
+            base_url=escape(base_url),
+            log_file_size=escape(log_file_size)
+        )
+        nav_html = render("nav.html", base_url=base_url)
+        final_html = render("layout.html", title="Journaux d'activité (Logs)", hostname=escape(hostname), base_url=escape(base_url), version=version, nav=nav_html, content=content)
+
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.end_headers()
+        self.wfile.write(final_html.encode("utf-8"))
+
+    def handle_logs_api(self, query):
+        import os
+        import re
+        from core.paths import LOG_FILE
+
+        try:
+            limit = min(int(query.get("limit", [150])[0]), 1000)
+        except Exception:
+            limit = 150
+
+        level_filter = query.get("level", [""])[0].upper()
+        module_filter = query.get("module", [""])[0].lower()
+        search_filter = query.get("search", [""])[0].lower()
+
+        log_file_size = "0 Ko"
+        if LOG_FILE.exists():
+            try:
+                sz = os.path.getsize(LOG_FILE)
+                if sz >= 1024 * 1024:
+                    log_file_size = f"{sz / (1024 * 1024):.1f} Mo"
+                else:
+                    log_file_size = f"{sz / 1024:.0f} Ko"
+            except Exception:
+                pass
+
+        parsed_logs = []
+        if LOG_FILE.exists():
+            pattern = re.compile(r'^(\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}(?:,\d+)?)\s-\s([^\s]+)\s-\s([A-Z]+)\s-\s(.*)$')
+            try:
+                with open(LOG_FILE, "r", encoding="utf-8", errors="replace") as f:
+                    lines = f.readlines()
+
+                # On parcourt les lignes depuis la fin
+                for line in reversed(lines):
+                    line_str = line.strip()
+                    if not line_str:
+                        continue
+
+                    m = pattern.match(line_str)
+                    if m:
+                        t, mod, lvl, msg = m.groups()
+                    else:
+                        t, mod, lvl, msg = "", "", "RAW", line_str
+
+                    # Filtre par niveau
+                    if level_filter:
+                        if level_filter == "ERROR" and lvl != "ERROR":
+                            continue
+                        elif level_filter == "WARNING" and lvl not in ("WARNING", "ERROR"):
+                            continue
+                        elif level_filter == "INFO" and lvl not in ("INFO", "WARNING", "ERROR"):
+                            continue
+                        elif level_filter == "DEBUG" and lvl not in ("DEBUG", "INFO", "WARNING", "ERROR"):
+                            continue
+
+                    # Filtre par module
+                    if module_filter and module_filter not in mod.lower():
+                        continue
+
+                    # Filtre par recherche textuelle
+                    if search_filter:
+                        full_text = f"{t} {mod} {lvl} {msg}".lower()
+                        if search_filter not in full_text:
+                            continue
+
+                    parsed_logs.append({
+                        "time": t,
+                        "module": mod,
+                        "level": lvl,
+                        "msg": msg
+                    })
+
+                    if len(parsed_logs) >= limit:
+                        break
+
+                parsed_logs.reverse()
+            except Exception as e:
+                logger.error(f"Erreur lecture logs: {e}")
+
+        self.send_json({
+            "status": "ok",
+            "logs": parsed_logs,
+            "file_size": log_file_size
+        })
+
+    def handle_logs_download(self):
+        from core.paths import LOG_FILE
+        if not LOG_FILE.exists():
+            self.send_error(404, "Fichier log introuvable")
+            return
+
+        try:
+            with open(LOG_FILE, "rb") as f:
+                content = f.read()
+
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Content-Disposition", "attachment; filename=rpinode.log")
+            self.send_header("Content-Length", str(len(content)))
+            self.end_headers()
+            self.wfile.write(content)
+        except Exception as e:
+            self.send_error(500, str(e))
 
     def handle_restart(self):
         self.send_response(200)
