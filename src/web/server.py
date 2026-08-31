@@ -906,13 +906,111 @@ class WebAdminHandler(BaseHTTPRequestHandler):
         base_url = config.get("base_url", "")
         hostname = socket.gethostname()
         version = str(int(time.time()))
-        
-        target_ip = query.get("ip", [""])[0] if "ip" in query else "Non définie"
-        
-        content = render("modbus_tools.html", target_ip=target_ip)
+        from core.database import get_db_connection
+        from services.presence import get_current_site_name
+        site_name = get_current_site_name()
+
+        target_ip = query.get("address", query.get("ip", [""]))[0]
+        target_port = query.get("port", ["502"])[0]
+        target_unit = query.get("unit", query.get("slave_unit", ["1"]))[0]
+
+        discovered_ips_options = ""
+        discovered_pills_html = ""
+        devices_map = {}
+
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT id FROM sites WHERE name = ?", (site_name,))
+            site_row = cursor.fetchone()
+            site_id = site_row["id"] if site_row else None
+
+            # 1. Appareils découverts lors du scan IP (port 502 ouvert ou modbus_info présent)
+            query_sql = """
+                SELECT DISTINCT last_ip, vendor, modbus_info, annotations_json, site_id
+                FROM discovered_devices
+                WHERE last_ip IS NOT NULL AND last_ip != ''
+                  AND (last_ports LIKE '%502%' OR (modbus_info IS NOT NULL AND modbus_info != ''))
+                ORDER BY (CASE WHEN site_id = ? THEN 0 ELSE 1 END), last_ip ASC
+            """
+            cursor.execute(query_sql, (site_id or 0,))
+            rows = cursor.fetchall()
+
+            # 2. Appareils Modbus déjà configurés sur le chantier
+            if site_id:
+                cursor.execute("SELECT name, protocol, address, port, slave_unit FROM modbus_devices WHERE site_id = ?", (site_id,))
+                for dev in cursor.fetchall():
+                    if dev["address"] and dev["protocol"] == "tcp":
+                        if dev["address"] not in devices_map:
+                            devices_map[dev["address"]] = {
+                                "ip": dev["address"],
+                                "label": f"{dev['address']} - {dev['name']}",
+                                "unit": str(dev["slave_unit"] or 1),
+                                "port": str(dev["port"] or 502),
+                                "vendor": dev["name"]
+                            }
+
+            for r in rows:
+                ip = r["last_ip"]
+                if ip not in devices_map:
+                    vendor = r["vendor"] or "Équipement"
+                    modbus_info = r["modbus_info"] or ""
+                    custom_name = ""
+                    if r["annotations_json"]:
+                        try:
+                            ann = json.loads(r["annotations_json"])
+                            custom_name = ann.get("Nom") or ann.get("Name") or ann.get("Description") or ""
+                        except Exception:
+                            pass
+
+                    # Détection d'un premier Unit ID par défaut
+                    first_unit = "1"
+                    if modbus_info and "Units:" in modbus_info:
+                        try:
+                            u_part = modbus_info.split("Units:", 1)[1].strip()
+                            first_u = [u.strip() for u in u_part.split(",") if u.strip().isdigit() and int(u.strip()) > 0]
+                            if first_u:
+                                first_unit = first_u[0]
+                        except Exception:
+                            pass
+
+                    label_desc = custom_name or vendor
+                    label = f"{ip} ({label_desc})" if label_desc else ip
+                    if modbus_info:
+                        label += f" [{modbus_info}]"
+
+                    devices_map[ip] = {
+                        "ip": ip,
+                        "label": label,
+                        "unit": first_unit,
+                        "port": "502",
+                        "vendor": label_desc
+                    }
+
+        # Construction des options pour datalist et des boutons rapides (pills)
+        for ip, info in devices_map.items():
+            discovered_ips_options += f'<option value="{escape(ip)}">{escape(info["label"])}</option>\n'
+            pill_label = info["vendor"] if info["vendor"] and info["vendor"] != "Inconnu" else "Modbus"
+            discovered_pills_html += f"""
+            <button type="button" class="btn-ip-pill" onclick="selectModbusIp('{escape(ip)}', '{escape(info['unit'])}', '{escape(info['port'])}')">
+                <span class="pill-icon">🔌</span>
+                <span class="pill-ip font-mono">{escape(ip)}</span>
+                <span class="pill-desc">({escape(pill_label)})</span>
+            </button>
+            """
+
+        content = render(
+            "modbus_tools.html",
+            target_ip=escape(target_ip),
+            target_port=escape(target_port),
+            target_unit=escape(target_unit),
+            discovered_ips_options=discovered_ips_options,
+            discovered_pills_html=discovered_pills_html,
+            has_discovered_ips="block" if devices_map else "none",
+            total_discovered=str(len(devices_map))
+        )
         nav_html = render("nav.html", base_url=base_url)
         final_html = render("layout.html", title="Outils Modbus", hostname=escape(hostname), base_url=escape(base_url), version=version, nav=nav_html, content=content)
-        
+
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.end_headers()

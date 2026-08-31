@@ -13,23 +13,39 @@
                     <!-- <option value="rtu">RTU/Série</option> (À réactiver plus tard) -->
                 </select>
             </div>
-            <div>
+            <div style="flex: 1; min-width: 200px;">
                 <label>Adresse IP :</label>
-                <input type="text" id="address" name="address" value="${target_ip}" required>
+                <input type="text" id="address" name="address" value="${target_ip}" list="discovered-modbus-ips" placeholder="Ex: 192.168.1.100" autocomplete="off" required>
+                <datalist id="discovered-modbus-ips">
+                    ${discovered_ips_options}
+                </datalist>
             </div>
             <div>
                 <label>Port :</label>
-                <input type="number" id="port" name="port" value="502" style="width: 80px;" required>
+                <input type="number" id="port" name="port" value="${target_port}" style="width: 80px;" required>
             </div>
             <div>
                 <label>Unit ID (Esclave) :</label>
-                <input type="number" id="unit" name="unit" value="1" min="0" max="255" style="width: 80px;" required>
+                <input type="number" id="unit" name="unit" value="${target_unit}" min="0" max="255" style="width: 80px;" required>
             </div>
             <div>
                 <label>Timeout (s) :</label>
                 <input type="number" id="timeout" name="timeout" value="1.0" min="0.1" max="10.0" step="0.1" style="width: 80px;" required>
             </div>
         </form>
+
+        <!-- Suggestions d'adresses IP Modbus découvertes -->
+        <div id="discovered-ips-container" style="display: ${has_discovered_ips}; margin-top: 15px; padding-top: 12px; border-top: 1px dashed #e2e8f0;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; flex-wrap: wrap; gap: 6px;">
+                <span style="font-size: 0.82rem; font-weight: 600; color: #475569; display: flex; align-items: center; gap: 5px;">
+                    <span>💡</span> Équipements Modbus détectés (${total_discovered}) :
+                </span>
+                <small style="font-size: 0.75rem; color: #94a3b8;">Cliquez sur un équipement pour préremplir l'IP et l'Unit ID</small>
+            </div>
+            <div class="pills-wrapper" style="display: flex; gap: 8px; flex-wrap: wrap;">
+                ${discovered_pills_html}
+            </div>
+        </div>
     </div>
 
     <div class="tools-grid">
@@ -112,7 +128,31 @@ form input[type="checkbox"] { width: auto; margin-right: 5px; }
 .probe-table th, .probe-table td { padding: 5px; border: 1px solid #ddd; text-align: left; }
 .probe-table th { background: #eee; }
 
-/* Styles pour la lecture détaillée */
+/* Styles pour les suggestions IP */
+.btn-ip-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: #f8fafc;
+    border: 1px solid #cbd5e1;
+    border-radius: 20px;
+    padding: 4px 10px;
+    font-size: 0.82rem;
+    color: #1e293b;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+.btn-ip-pill:hover {
+    background: #e0f2fe;
+    border-color: #0284c7;
+    color: #0369a1;
+    transform: translateY(-1px);
+}
+.btn-ip-pill .pill-icon { font-size: 0.85rem; }
+.btn-ip-pill .pill-ip { font-weight: 600; }
+.btn-ip-pill .pill-desc { color: #64748b; font-size: 0.76rem; }
+.btn-ip-pill:hover .pill-desc { color: #0284c7; }
+.font-mono { font-family: monospace; }
 .read-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; margin-top: 10px; }
 .val-box { background: #fff; border: 1px solid #ddd; padding: 8px; border-radius: 4px; text-align: center; }
 .val-box .addr { font-size: 0.8em; color: #888; display: block; }
@@ -122,6 +162,16 @@ form input[type="checkbox"] { width: auto; margin-right: 5px; }
 
 <script>
 const baseUrl = window.CONFIG ? window.CONFIG.baseUrl : '/rpinode';
+
+function selectModbusIp(ip, unit, port) {
+    const f = document.getElementById('form-connection');
+    if (f) {
+        if (ip) f.address.value = ip;
+        if (unit && unit !== 'None' && unit !== '') f.unit.value = unit;
+        if (port && port !== 'None' && port !== '') f.port.value = port;
+        f.address.focus();
+    }
+}
 
 function getConnParams() {
     const f = document.getElementById('form-connection');
@@ -160,10 +210,10 @@ async function runProbe(e) {
         if (data.status === 'ok') {
             renderProbeResults(data.results);
         } else {
-            document.getElementById('results-area').innerHTML = `<div class="card" style="border-left: 4px solid #e74c3c;"><h4>Erreur</h4><p>${data.message}</p></div>`;
+            document.getElementById('results-area').innerHTML = '<div class="card" style="border-left: 4px solid #e74c3c;"><h4>Erreur</h4><p>' + (data.message || 'Erreur inconnue') + '</p></div>';
         }
     } catch (err) {
-        document.getElementById('results-area').innerHTML = `<div class="card" style="border-left: 4px solid #e74c3c;"><h4>Erreur</h4><p>${err}</p></div>`;
+        document.getElementById('results-area').innerHTML = '<div class="card" style="border-left: 4px solid #e74c3c;"><h4>Erreur</h4><p>' + err + '</p></div>';
     } finally {
         btn.disabled = false;
         btn.textContent = "Lancer la recherche";
@@ -171,47 +221,46 @@ async function runProbe(e) {
 }
 
 function renderProbeResults(results) {
-    let html = `<div class="card"><h3>Résultats de la recherche brute</h3>`;
+    let html = '<div class="card"><h3>Résultats de la recherche brute</h3>';
     const labels = {1: 'FC01 Coils', 2: 'FC02 Discrete Inputs', 3: 'FC03 Holding Registers', 4: 'FC04 Input Registers'};
-    
+
     let anyFound = false;
-    
+
     for (const [funcStr, res] of Object.entries(results)) {
         const func = parseInt(funcStr);
         let bits_txt = [];
-        if (res.illegal) bits_txt.push(`${res.illegal} exception(s) illégale(s) (normal)`);
-        if (res.timeout) bits_txt.push(`${res.timeout} non-réponse(s)`);
-        if (res.other) bits_txt.push(`${res.other} erreur(s) diverse(s)`);
-        
-        let summary = `${res.found.length} bloc(s) trouvé(s) !`;
-        if (bits_txt.length > 0) summary += ` (${bits_txt.join(', ')})`;
-        
-        html += `<div class="probe-func-result">
-            <h4>${labels[func]}</h4>
-            <div class="probe-summary">${summary}</div>
-        `;
-        
+        if (res.illegal) bits_txt.push(res.illegal + ' exception(s) illégale(s) (normal)');
+        if (res.timeout) bits_txt.push(res.timeout + ' non-réponse(s)');
+        if (res.other) bits_txt.push(res.other + ' erreur(s) diverse(s)');
+
+        let summary = res.found.length + ' bloc(s) trouvé(s) !';
+        if (bits_txt.length > 0) summary += ' (' + bits_txt.join(', ') + ')';
+
+        html += '<div class="probe-func-result">' +
+            '<h4>' + labels[func] + '</h4>' +
+            '<div class="probe-summary">' + summary + '</div>';
+
         if (res.found.length > 0) {
             anyFound = true;
-            html += `<table class="probe-table"><tr><th width="80">Adresse(s)</th><th>Valeurs brutes</th></tr>`;
+            html += '<table class="probe-table"><tr><th width="80">Adresse(s)</th><th>Valeurs brutes</th></tr>';
             for (const f of res.found) {
                 const startAddr = f[0];
                 const vals = f[1];
                 const endAddr = startAddr + vals.length - 1;
-                const addrStr = startAddr === endAddr ? `${startAddr}` : `${startAddr}–${endAddr}`;
+                const addrStr = startAddr === endAddr ? '' + startAddr : startAddr + '–' + endAddr;
                 const valsStr = vals.join(', ');
-                html += `<tr><td>${addrStr}</td><td>${valsStr}</td></tr>`;
+                html += '<tr><td>' + addrStr + '</td><td>' + valsStr + '</td></tr>';
             }
-            html += `</table>`;
+            html += '</table>';
         }
-        html += `</div>`;
+        html += '</div>';
     }
-    
+
     if (!anyFound) {
-        html += `<p style="color: #e67e22;"><b>Aucun registre valide trouvé dans la plage.</b> L'appareil est-il bien adressé (Unit ID correct ?) ou avez-vous ciblé la bonne plage ?</p>`;
+        html += '<p style="color: #e67e22;"><b>Aucun registre valide trouvé dans la plage.</b> L\'appareil est-il bien adressé (Unit ID correct ?) ou avez-vous ciblé la bonne plage ?</p>';
     }
-    
-    html += `</div>`;
+
+    html += '</div>';
     document.getElementById('results-area').innerHTML = html;
 }
 
@@ -219,7 +268,7 @@ async function runRead(e) {
     e.preventDefault();
     const btn = e.target.querySelector('button[type="submit"]');
     btn.disabled = true;
-    
+
     const params = getConnParams();
     const form = new FormData(e.target);
     params.function = parseInt(form.get("function"));
@@ -234,47 +283,46 @@ async function runRead(e) {
             body: JSON.stringify(params)
         });
         const data = await res.json();
-        
+
         if (data.status === 'ok') {
             renderReadResults(params, data.values);
         } else {
-            document.getElementById('results-area').innerHTML = `<div class="card" style="border-left: 4px solid #e74c3c;"><h4>Erreur</h4><p>${data.message}</p></div>`;
+            document.getElementById('results-area').innerHTML = '<div class="card" style="border-left: 4px solid #e74c3c;"><h4>Erreur</h4><p>' + (data.message || 'Erreur inconnue') + '</p></div>';
         }
     } catch (err) {
-        document.getElementById('results-area').innerHTML = `<div class="card" style="border-left: 4px solid #e74c3c;"><h4>Erreur</h4><p>${err}</p></div>`;
+        document.getElementById('results-area').innerHTML = '<div class="card" style="border-left: 4px solid #e74c3c;"><h4>Erreur</h4><p>' + err + '</p></div>';
     } finally {
         btn.disabled = false;
     }
 }
 
 function renderReadResults(params, values) {
-    let html = `<div class="card">
-        <h3>Résultats de la lecture détaillée (FC0${params.function})</h3>
-        <p class="hint">Lecture de ${values.length} point(s) à partir de l'adresse ${params.address_start}.</p>
-        <div class="read-grid">
-    `;
-    
+    let html = '<div class="card">' +
+        '<h3>Résultats de la lecture détaillée (FC0' + params.function + ')</h3>' +
+        '<p class="hint">Lecture de ' + values.length + ' point(s) à partir de l\'adresse ' + params.address_start + '.</p>' +
+        '<div class="read-grid">';
+
     for (let i = 0; i < values.length; i++) {
         const addr = params.address_start + i;
         const v = values[i];
-        
+
         if (params.function === 1 || params.function === 2) {
-            html += `<div class="val-box">
-                <span class="addr">@${addr}</span>
-                <span class="val" style="color: ${v ? '#2ecc71' : '#e74c3c'}">${v ? 'ON' : 'OFF'}</span>
-            </div>`;
+            html += '<div class="val-box">' +
+                '<span class="addr">@' + addr + '</span>' +
+                '<span class="val" style="color: ' + (v ? '#2ecc71' : '#e74c3c') + '">' + (v ? 'ON' : 'OFF') + '</span>' +
+            '</div>';
         } else {
             const int16 = v > 32767 ? v - 65536 : v; // Signed Int16
             const hex = "0x" + v.toString(16).padStart(4, '0').toUpperCase();
-            html += `<div class="val-box">
-                <span class="addr">@${addr}</span>
-                <span class="val">${int16}</span>
-                <span class="hex">${hex} / ${v} (U)</span>
-            </div>`;
+            html += '<div class="val-box">' +
+                '<span class="addr">@' + addr + '</span>' +
+                '<span class="val">' + int16 + '</span>' +
+                '<span class="hex">' + hex + ' / ' + v + ' (U)</span>' +
+            '</div>';
         }
     }
-    
-    html += `</div></div>`;
+
+    html += '</div></div>';
     document.getElementById('results-area').innerHTML = html;
 }
 </script>
