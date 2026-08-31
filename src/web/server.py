@@ -96,6 +96,8 @@ class WebAdminHandler(BaseHTTPRequestHandler):
             return self.serve_bacnet_mgr()
         elif path == "/monitor/suivi":
             return self.serve_trends_view()
+        elif path == "/monitor/system":
+            return self.serve_system_status()
         elif path == "/scan/ip":
             return self.serve_ip_scan()
             
@@ -117,6 +119,8 @@ class WebAdminHandler(BaseHTTPRequestHandler):
 
         if path == "/api/restart":
             self.handle_restart()
+        elif path == "/api/system/sync/test":
+            self.handle_sync_test()
         elif path == "/api/reboot":
             self.handle_system_action("reboot")
         elif path == "/api/shutdown":
@@ -1354,6 +1358,188 @@ class WebAdminHandler(BaseHTTPRequestHandler):
             )
             self.send_json({"status": "ok", "message": "Appareil Modbus ajouté"})
         except Exception as e: self.send_error(400, str(e))
+
+    def handle_sync_test(self):
+        try:
+            from services.fleet import fleet
+            from services.gsm import get_gsm_info
+            gsm_info = get_gsm_info()
+            res = fleet.sync_location(gsm_info)
+            if res is not None:
+                self.send_json({"status": "ok", "message": "Données synchronisées avec succès auprès de docs.deltathermic.be"})
+            else:
+                self.send_json({"status": "error", "message": "Le serveur distant n'a pas répondu ou a rejeté la synchronisation."})
+        except Exception as e:
+            logger.error(f"Erreur test sync: {e}")
+            self.send_json({"status": "error", "message": str(e)})
+
+    def serve_system_status(self):
+        import shutil
+        from core.sys import get_sys, ping_check
+        from core.paths import LOG_FILE
+        from services.presence import get_current_site_name
+        from services.network import get_interface_status, get_tailscale_status
+        from services.gsm import get_gsm_info
+        from services.fleet import fleet
+
+        config = load_config()
+        base_url = config.get("base_url", "")
+        hostname = socket.gethostname()
+        version = str(int(time.time()))
+        site_name = get_current_site_name()
+
+        # 1. Ressources matérielles
+        cpu_temp_val = float(get_sys("cpu_temp") if get_sys("cpu_temp") != "N/A" else 0)
+        cpu_temp_class = "temp-hot" if cpu_temp_val > 75 else ("temp-warm" if cpu_temp_val > 60 else "temp-normal")
+        uptime = get_sys("uptime")
+
+        # RAM
+        total_ram = used_ram = ram_percent = 0
+        try:
+            with open("/proc/meminfo") as f:
+                mem = {}
+                for line in f:
+                    p = line.split(":")
+                    if len(p) == 2:
+                        mem[p[0].strip()] = int(p[1].split()[0])
+            total_ram = mem.get("MemTotal", 0) // 1024
+            avail_ram = mem.get("MemAvailable", 0) // 1024
+            used_ram = total_ram - avail_ram
+            ram_percent = int((used_ram / total_ram) * 100) if total_ram else 0
+        except Exception:
+            pass
+
+        # Disque
+        try:
+            d_total, d_used, d_free = shutil.disk_usage("/")
+            disk_total_go = d_total // (2**30)
+            disk_used_go = d_used // (2**30)
+            disk_percent = int((d_used / d_total) * 100) if d_total else 0
+        except Exception:
+            disk_total_go = disk_used_go = disk_percent = 0
+
+        # 2. WAN & Réseaux
+        wwan_status = get_interface_status("wwan0")
+        wlan_status = get_interface_status("wlan0")
+        ts_status = get_tailscale_status()
+        gsm_info = get_gsm_info()
+        has_internet = ping_check(target="8.8.8.8", timeout=2)
+
+        wan_is_up = wwan_status.get("active", False)
+        wan_card_class = "card-ok" if (wan_is_up and has_internet) else ("card-warning" if wan_is_up else "card-danger")
+        wan_badge_class = "badge-ok" if (wan_is_up and has_internet) else ("badge-warning" if wan_is_up else "badge-danger")
+        wan_icon_class = "icon-green" if (wan_is_up and has_internet) else ("icon-orange" if wan_is_up else "icon-red")
+        wan_status_label = "Connecté (4G)" if (wan_is_up and has_internet) else ("Sans Internet" if wan_is_up else "Hors ligne (4G)")
+        wan_ip_display = wwan_status.get("ip", "--")
+        wan_ping_class = "text-ok" if has_internet else "text-danger"
+        wan_ping_label = "Opérationnel (OK)" if has_internet else "Inaccessible (Échec)"
+
+        gsm_cell_desc = f"MCC:{gsm_info.get('mcc') or '--'} MNC:{gsm_info.get('mnc') or '--'}"
+        if gsm_info.get("enodeb"):
+            gsm_cell_desc += f" | eNodeB:{gsm_info['enodeb']} (Secteur {gsm_info.get('sector', '--')})"
+
+        # 3. Synchronisation & Serveur Central
+        fleet_url = fleet.base_url
+        fleet_reg_status = "Enregistré (Jeton valide)" if fleet.is_registered() else "Non enregistré (Sans jeton)"
+
+        # Test de liaison à docs.deltathermic.be
+        sync_ok = False
+        sync_diag_msg = "En cours de vérification..."
+        sync_diag_class = "text-warning"
+        try:
+            import requests
+            probe_resp = requests.get(f"{fleet_url}/chantiers", headers=fleet._headers(), timeout=3)
+            if probe_resp.status_code == 200:
+                sync_ok = True
+                sync_diag_msg = "Connecté & Opérationnel (HTTP 200 OK)"
+                sync_diag_class = "text-ok"
+            elif probe_resp.status_code == 401:
+                sync_diag_msg = "Jeton d'authentification invalide ou expiré (401)"
+                sync_diag_class = "text-danger"
+            else:
+                sync_diag_msg = f"Réponse serveur en anomalie (Code {probe_resp.status_code})"
+                sync_diag_class = "text-warning"
+        except requests.exceptions.ConnectionError as ce:
+            err_str = str(ce)
+            if "Network is unreachable" in err_str:
+                sync_diag_msg = "Liaison 4G/WAN coupée : Réseau inaccessible"
+            elif "Name or service not known" in err_str or "Failed to resolve" in err_str:
+                sync_diag_msg = "Échec de résolution DNS (docs.deltathermic.be)"
+            else:
+                sync_diag_msg = f"Connexion impossible ({err_str[:60]})"
+            sync_diag_class = "text-danger"
+        except requests.exceptions.Timeout:
+            sync_diag_msg = "Délai d'attente dépassé (Timeout sur docs.deltathermic.be)"
+            sync_diag_class = "text-danger"
+        except Exception as e:
+            sync_diag_msg = f"Erreur : {str(e)[:60]}"
+            sync_diag_class = "text-danger"
+
+        sync_card_class = "card-ok" if sync_ok else "card-danger"
+        sync_badge_class = "badge-ok" if sync_ok else "badge-danger"
+        sync_icon_class = "icon-green" if sync_ok else "icon-red"
+        sync_status_label = "Synchronisé" if sync_ok else "Erreur de Synchro"
+
+        # Derniers logs
+        sync_logs_list = []
+        if LOG_FILE.exists():
+            try:
+                with open(LOG_FILE, "r", encoding="utf-8", errors="replace") as f:
+                    lines = f.readlines()
+                for line in reversed(lines):
+                    if any(k in line for k in ("services.fleet", "sync", "reports/api", "wwan0", "4G", "relevés synchronisés")):
+                        sync_logs_list.append(line.strip())
+                        if len(sync_logs_list) >= 5:
+                            break
+                sync_logs_list.reverse()
+            except Exception:
+                pass
+
+        sync_recent_logs_html = escape("\n".join(sync_logs_list)) if sync_logs_list else "Aucune anomalie récente dans les journaux."
+
+        wlan_mode = "Point d'Accès AP" if wlan_status.get("is_dhcp_server") else "Client"
+        wlan_desc = f"{wlan_status.get('ip', '--')} ({wlan_mode})"
+
+        content = render(
+            "system_status.html",
+            site_name=escape(site_name),
+            hostname=escape(hostname),
+            uptime=escape(uptime),
+            cpu_temp=f"{cpu_temp_val:.1f}",
+            cpu_temp_class=cpu_temp_class,
+            ram_usage=f"{used_ram} Mo / {total_ram} Mo",
+            ram_percent=str(ram_percent),
+            disk_usage=f"{disk_used_go} Go / {disk_total_go} Go",
+            disk_percent=str(disk_percent),
+            wan_card_class=wan_card_class,
+            wan_badge_class=wan_badge_class,
+            wan_icon_class=wan_icon_class,
+            wan_status_label=wan_status_label,
+            wan_ip=escape(wan_ip_display),
+            wan_ping_class=wan_ping_class,
+            wan_ping_label=wan_ping_label,
+            gsm_cell_desc=escape(gsm_cell_desc),
+            ts_ip=escape(ts_status.get("ip", "--")),
+            ts_status=escape(ts_status.get("status", "--")),
+            wlan_desc=escape(wlan_desc),
+            fleet_url=escape(fleet_url),
+            fleet_reg_status=escape(fleet_reg_status),
+            sync_card_class=sync_card_class,
+            sync_badge_class=sync_badge_class,
+            sync_icon_class=sync_icon_class,
+            sync_status_label=sync_status_label,
+            sync_diag_msg=escape(sync_diag_msg),
+            sync_diag_class=sync_diag_class,
+            sync_last_time=time.strftime("%Y-%m-%d %H:%M:%S"),
+            sync_recent_logs=sync_recent_logs_html
+        )
+        nav_html = render("nav.html", base_url=base_url)
+        final_html = render("layout.html", title="État Système & Synchronisation", hostname=escape(hostname), base_url=escape(base_url), version=version, nav=nav_html, content=content)
+
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.end_headers()
+        self.wfile.write(final_html.encode("utf-8"))
 
     def handle_restart(self):
         self.send_response(200)

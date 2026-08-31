@@ -234,3 +234,9 @@ main {
 .hover-pass:hover .real-pass {
     display: inline;
 }
+
+@keyframes pulse-sync {
+    0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(243, 156, 18, 0.7); }
+    70% { transform: scale(1.15); box-shadow: 0 0 0 6px rgba(243, 156, 18, 0); }
+    100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(243, 156, 18, 0); }
+}
