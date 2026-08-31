@@ -178,7 +178,7 @@ class FleetClient:
                         "method": row["method"],
                         "addresses": addrs,
                         "gateway": row["gateway"],
-                        "dhcp_range": row.get("dhcp_range"),
+                        "dhcp_range": row["dhcp_range"] if "dhcp_range" in row.keys() else None,
                         "wifi_ssid": row["ssid"],
                         "wifi_psk": row["psk"],
                         "updated_by": socket.gethostname()

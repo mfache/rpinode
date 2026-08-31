@@ -33,7 +33,7 @@ def apply_site_network_profiles(site_id):
         applied_ifaces.append(iface)
         
         if iface == "eth0":
-            _apply_eth0_profile(method, p["addresses"], p["gateway"], p.get("dhcp_range"))
+            _apply_eth0_profile(method, p["addresses"], p["gateway"], p["dhcp_range"] if "dhcp_range" in p.keys() else None)
         elif iface == "wlan0":
             # Pour wlan0, on délègue au wifi_mgr qui gère les priorités (RPIRESCUE, AP, etc.)
             try:
