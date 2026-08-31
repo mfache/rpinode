@@ -997,7 +997,9 @@ class WebAdminHandler(BaseHTTPRequestHandler):
             target_ip=escape(target_ip),
             target_port=escape(target_port),
             target_unit=escape(target_unit),
-            discovered_ips_options=discovered_ips_options
+            discovered_ips_options=discovered_ips_options,
+            site_name=escape(site_name),
+            site_id=str(site_id or 0)
         )
         nav_html = render("nav.html", base_url=base_url)
         final_html = render("layout.html", title="Outils Modbus", hostname=escape(hostname), base_url=escape(base_url), version=version, nav=nav_html, content=content)

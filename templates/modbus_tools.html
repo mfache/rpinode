@@ -125,6 +125,97 @@ form input[type="checkbox"] { width: auto; margin-right: 5px; }
 
 <script>
 const baseUrl = window.CONFIG ? window.CONFIG.baseUrl : '/rpinode';
+const SITE_ID = "${site_id}";
+const STORAGE_KEY = 'modbus_tools_state_' + SITE_ID;
+
+function saveSessionState() {
+    if (!SITE_ID || SITE_ID === '0') return;
+    try {
+        const connForm = document.getElementById('form-connection');
+        const probeForm = document.getElementById('form-probe');
+        const readForm = document.getElementById('form-read');
+
+        const state = {
+            conn: {
+                protocol: connForm && connForm.protocol ? connForm.protocol.value : 'tcp',
+                address: connForm && connForm.address ? connForm.address.value : '',
+                port: connForm && connForm.port ? connForm.port.value : '502',
+                unit: connForm && connForm.unit ? connForm.unit.value : '1',
+                timeout: connForm && connForm.timeout ? connForm.timeout.value : '1.0'
+            },
+            probe: {
+                funcs: probeForm ? Array.from(probeForm.querySelectorAll('input[name="funcs"]:checked')).map(cb => cb.value) : [],
+                start: probeForm && probeForm.start ? probeForm.start.value : '0',
+                end: probeForm && probeForm.end ? probeForm.end.value : '100',
+                block: probeForm && probeForm.block ? probeForm.block.value : '20'
+            },
+            read: {
+                function: readForm && readForm.function ? readForm.function.value : '3',
+                address_start: readForm && readForm.address_start ? readForm.address_start.value : '0',
+                count: readForm && readForm.count ? readForm.count.value : '10'
+            }
+        };
+        sessionStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    } catch (e) {
+        console.error('Erreur sauvegarde session:', e);
+    }
+}
+
+function restoreSessionState() {
+    if (!SITE_ID || SITE_ID === '0') return;
+    try {
+        const raw = sessionStorage.getItem(STORAGE_KEY);
+        if (!raw) return;
+        const state = JSON.parse(raw);
+        if (!state) return;
+
+        const connForm = document.getElementById('form-connection');
+        const probeForm = document.getElementById('form-probe');
+        const readForm = document.getElementById('form-read');
+
+        const urlParams = new URLSearchParams(window.location.search);
+        const urlHasIp = urlParams.has('ip') || urlParams.has('address');
+
+        if (state.conn && connForm) {
+            if (!urlHasIp && state.conn.address) connForm.address.value = state.conn.address;
+            if (state.conn.protocol) connForm.protocol.value = state.conn.protocol;
+            if (state.conn.port && !urlParams.has('port')) connForm.port.value = state.conn.port;
+            if (state.conn.unit && !urlParams.has('unit')) connForm.unit.value = state.conn.unit;
+            if (state.conn.timeout) connForm.timeout.value = state.conn.timeout;
+        }
+
+        if (state.probe && probeForm) {
+            if (state.probe.funcs && Array.isArray(state.probe.funcs)) {
+                probeForm.querySelectorAll('input[name="funcs"]').forEach(cb => {
+                    cb.checked = state.probe.funcs.includes(cb.value);
+                });
+            }
+            if (state.probe.start !== undefined && state.probe.start !== '') probeForm.start.value = state.probe.start;
+            if (state.probe.end !== undefined && state.probe.end !== '') probeForm.end.value = state.probe.end;
+            if (state.probe.block !== undefined && state.probe.block !== '') probeForm.block.value = state.probe.block;
+        }
+
+        if (state.read && readForm) {
+            if (state.read.function) readForm.function.value = state.read.function;
+            if (state.read.address_start !== undefined && state.read.address_start !== '') readForm.address_start.value = state.read.address_start;
+            if (state.read.count !== undefined && state.read.count !== '') readForm.count.value = state.read.count;
+        }
+    } catch (e) {
+        console.error('Erreur restauration session:', e);
+    }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    restoreSessionState();
+
+    ['form-connection', 'form-probe', 'form-read'].forEach(id => {
+        const form = document.getElementById(id);
+        if (form) {
+            form.addEventListener('input', saveSessionState);
+            form.addEventListener('change', saveSessionState);
+        }
+    });
+});
 
 function getConnParams() {
     const f = document.getElementById('form-connection');
