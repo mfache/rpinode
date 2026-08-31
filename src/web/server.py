@@ -907,8 +907,9 @@ class WebAdminHandler(BaseHTTPRequestHandler):
         hostname = socket.gethostname()
         version = str(int(time.time()))
         from core.database import get_db_connection
-        from services.presence import get_current_site_name
+        from services.presence import get_current_site_id, get_current_site_name
         site_name = get_current_site_name()
+        site_id = get_current_site_id()
 
         target_ip = query.get("address", query.get("ip", [""]))[0]
         target_port = query.get("port", ["502"])[0]
@@ -918,73 +919,75 @@ class WebAdminHandler(BaseHTTPRequestHandler):
         discovered_pills_html = ""
         devices_map = {}
 
-        with get_db_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT id FROM sites WHERE name = ?", (site_name,))
-            site_row = cursor.fetchone()
-            site_id = site_row["id"] if site_row else None
+        if site_id:
+            with get_db_connection() as conn:
+                cursor = conn.cursor()
 
-            # 1. Appareils découverts lors du scan IP (port 502 ouvert ou modbus_info présent)
-            query_sql = """
-                SELECT DISTINCT last_ip, vendor, modbus_info, annotations_json, site_id
-                FROM discovered_devices
-                WHERE last_ip IS NOT NULL AND last_ip != ''
-                  AND (last_ports LIKE '%502%' OR (modbus_info IS NOT NULL AND modbus_info != ''))
-                ORDER BY (CASE WHEN site_id = ? THEN 0 ELSE 1 END), last_ip ASC
-            """
-            cursor.execute(query_sql, (site_id or 0,))
-            rows = cursor.fetchall()
-
-            # 2. Appareils Modbus déjà configurés sur le chantier
-            if site_id:
-                cursor.execute("SELECT name, protocol, address, port, slave_unit FROM modbus_devices WHERE site_id = ?", (site_id,))
+                # 1. Appareils Modbus configurés sur le chantier courant
+                cursor.execute(
+                    "SELECT name, protocol, address, port, slave_unit FROM modbus_devices WHERE site_id = ?",
+                    (site_id,)
+                )
                 for dev in cursor.fetchall():
                     if dev["address"] and dev["protocol"] == "tcp":
-                        if dev["address"] not in devices_map:
-                            devices_map[dev["address"]] = {
-                                "ip": dev["address"],
-                                "label": f"{dev['address']} - {dev['name']}",
+                        ip = dev["address"]
+                        if ip not in devices_map:
+                            devices_map[ip] = {
+                                "ip": ip,
+                                "label": f"{ip} - {dev['name']}",
                                 "unit": str(dev["slave_unit"] or 1),
                                 "port": str(dev["port"] or 502),
                                 "vendor": dev["name"]
                             }
 
-            for r in rows:
-                ip = r["last_ip"]
-                if ip not in devices_map:
-                    vendor = r["vendor"] or "Équipement"
-                    modbus_info = r["modbus_info"] or ""
-                    custom_name = ""
-                    if r["annotations_json"]:
-                        try:
-                            ann = json.loads(r["annotations_json"])
-                            custom_name = ann.get("Nom") or ann.get("Name") or ann.get("Description") or ""
-                        except Exception:
-                            pass
+                # 2. Appareils découverts lors du scan IP pour le chantier courant UNIQUEMENT
+                query_sql = """
+                    SELECT DISTINCT last_ip, vendor, modbus_info, annotations_json
+                    FROM discovered_devices
+                    WHERE site_id = ?
+                      AND last_ip IS NOT NULL AND last_ip != ''
+                      AND (last_ports LIKE '%502%' OR (modbus_info IS NOT NULL AND modbus_info != ''))
+                    ORDER BY last_ip ASC
+                """
+                cursor.execute(query_sql, (site_id,))
+                rows = cursor.fetchall()
 
-                    # Détection d'un premier Unit ID par défaut
-                    first_unit = "1"
-                    if modbus_info and "Units:" in modbus_info:
-                        try:
-                            u_part = modbus_info.split("Units:", 1)[1].strip()
-                            first_u = [u.strip() for u in u_part.split(",") if u.strip().isdigit() and int(u.strip()) > 0]
-                            if first_u:
-                                first_unit = first_u[0]
-                        except Exception:
-                            pass
+                for r in rows:
+                    ip = r["last_ip"]
+                    if ip not in devices_map:
+                        vendor = r["vendor"] or "Équipement"
+                        modbus_info = r["modbus_info"] or ""
+                        custom_name = ""
+                        if r["annotations_json"]:
+                            try:
+                                ann = json.loads(r["annotations_json"])
+                                custom_name = ann.get("Nom") or ann.get("Name") or ann.get("Description") or ""
+                            except Exception:
+                                pass
 
-                    label_desc = custom_name or vendor
-                    label = f"{ip} ({label_desc})" if label_desc else ip
-                    if modbus_info:
-                        label += f" [{modbus_info}]"
+                        # Détection d'un premier Unit ID par défaut
+                        first_unit = "1"
+                        if modbus_info and "Units:" in modbus_info:
+                            try:
+                                u_part = modbus_info.split("Units:", 1)[1].strip()
+                                first_u = [u.strip() for u in u_part.split(",") if u.strip().isdigit() and int(u.strip()) > 0]
+                                if first_u:
+                                    first_unit = first_u[0]
+                            except Exception:
+                                pass
 
-                    devices_map[ip] = {
-                        "ip": ip,
-                        "label": label,
-                        "unit": first_unit,
-                        "port": "502",
-                        "vendor": label_desc
-                    }
+                        label_desc = custom_name or vendor
+                        label = f"{ip} ({label_desc})" if label_desc else ip
+                        if modbus_info:
+                            label += f" [{modbus_info}]"
+
+                        devices_map[ip] = {
+                            "ip": ip,
+                            "label": label,
+                            "unit": first_unit,
+                            "port": "502",
+                            "vendor": label_desc
+                        }
 
         # Construction des options pour datalist et des boutons rapides (pills)
         for ip, info in devices_map.items():
