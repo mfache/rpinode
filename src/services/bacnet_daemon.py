@@ -153,10 +153,10 @@ class BacnetMqttDaemon:
                         timeout=2.0
                     )
                     info["name"] = str(name)
-                except Exception:
+                except (Exception, ErrorRejectAbortNack):
                     pass
                     
-        except Exception as e:
+        except (Exception, ErrorRejectAbortNack) as e:
             info["error"] = str(e)
             
         self.mqtt_client.publish(f"rpinode/bacnet/res/probe/{job_id}", json.dumps(info))
@@ -174,7 +174,7 @@ class BacnetMqttDaemon:
                     timeout=5.0
                 )
                 obj_list = obj_list_raw
-            except Exception as e:
+            except (Exception, ErrorRejectAbortNack) as e:
                 logger.warning(f"Echec lecture globale object-list (timeout/invalid), tentative index par index: {e}")
                 try:
                     length_raw = await asyncio.wait_for(
@@ -189,7 +189,7 @@ class BacnetMqttDaemon:
                             timeout=2.0
                         )
                         obj_list.append(obj_raw)
-                except Exception as ex2:
+                except (Exception, ErrorRejectAbortNack) as ex2:
                     raise Exception(f"Echec lecture index par index: {ex2}")
             
             if not obj_list:
@@ -208,7 +208,7 @@ class BacnetMqttDaemon:
                         timeout=2.0
                     )
                     name = str(name_raw)
-                except Exception:
+                except (Exception, ErrorRejectAbortNack):
                     name = "Inconnu"
                     
                 # Valeur
@@ -218,7 +218,7 @@ class BacnetMqttDaemon:
                         timeout=2.0
                     )
                     val = str(val_raw)
-                except Exception:
+                except (Exception, ErrorRejectAbortNack):
                     val = None
                     
                 results.append({
@@ -226,7 +226,7 @@ class BacnetMqttDaemon:
                     "name": name,
                     "value": val
                 })
-        except Exception as e:
+        except (Exception, ErrorRejectAbortNack) as e:
             results = [{"error": str(e)}]
             
         self.mqtt_client.publish(f"rpinode/bacnet/res/discover/{job_id}", json.dumps({"status": "ok" if "error" not in (results[0] if results else {}) else "error", "objects": results, "message": results[0].get("error") if results and "error" in results[0] else ""}))
@@ -251,7 +251,7 @@ class BacnetMqttDaemon:
                         timeout=2.0
                     )
                     val = val_raw
-                except Exception as e:
+                except (Exception, ErrorRejectAbortNack) as e:
                     val = f"Erreur: {e}"
                 
                 results.append({
@@ -261,7 +261,7 @@ class BacnetMqttDaemon:
                     "object_name": obj_name,
                     "value": str(val) if val is not None else None
                 })
-        except Exception as e:
+        except (Exception, ErrorRejectAbortNack) as e:
             logger.error(f"Who-Has error: {e}")
             results = [{"error": str(e)}]
             
@@ -278,7 +278,7 @@ class BacnetMqttDaemon:
                     timeout=5.0
                 )
                 obj_list = obj_list_raw
-            except Exception as e:
+            except (Exception, ErrorRejectAbortNack) as e:
                 logger.warning(f"Echec lecture globale object-list (timeout/invalid), tentative index par index: {e}")
                 try:
                     length_raw = await asyncio.wait_for(
@@ -296,9 +296,9 @@ class BacnetMqttDaemon:
                                 timeout=1.0
                             )
                             obj_list.append(obj)
-                        except Exception:
+                        except (Exception, ErrorRejectAbortNack):
                             pass
-                except Exception as fallback_e:
+                except (Exception, ErrorRejectAbortNack) as fallback_e:
                     # Renvoyer l'erreur spécifique du fallback plutôt qu'une erreur silencieuse
                     err_msg = str(fallback_e)
                     if not err_msg:
@@ -346,11 +346,11 @@ class BacnetMqttDaemon:
                             "name": str(name) if name else target_obj,
                             "value": str(val) if val is not None else ""
                         })
-                    except Exception:
+                    except (Exception, ErrorRejectAbortNack):
                         pass
         except asyncio.TimeoutError:
             results = {"error": "Délai dépassé lors de l'interrogation de l'équipement BACnet (Timeout global)."}
-        except Exception as e:
+        except (Exception, ErrorRejectAbortNack) as e:
             err_msg = str(e)
             if not err_msg:
                 err_msg = f"Erreur BACnet inattendue: {type(e).__name__}"
@@ -364,7 +364,7 @@ class BacnetMqttDaemon:
             iam_list = await self.app.who_is(low, high, timeout=4)
             for iam in iam_list:
                 self.on_i_am_received(self.app, iam)
-        except Exception as e:
+        except (Exception, ErrorRejectAbortNack) as e:
             logger.error(f"Erreur Who-Is: {e}")
 
     async def process_reads(self, job_id, points):
@@ -387,7 +387,7 @@ class BacnetMqttDaemon:
                 err = f"BACnet Error: {e}"
             except asyncio.TimeoutError:
                 err = "Timeout"
-            except Exception as e:
+            except (Exception, ErrorRejectAbortNack) as e:
                 err = str(e)
             
             results.append({

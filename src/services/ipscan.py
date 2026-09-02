@@ -8,7 +8,6 @@ import re
 import socket
 import sqlite3
 import subprocess
-import sys
 
 from core.config import load_config, save_config
 from core.database import get_db_connection
@@ -383,46 +382,78 @@ async def enrich_results(devices):
     if tasks:
         await asyncio.gather(*tasks)
 
-async def enrich_bacnet_device(d):
-    """Tente de trouver l'instance BACnet."""
-    logger.info(f"Enrichissement BACnet pour {d['ip']}...")
-    reader_path = os.path.join(os.path.dirname(__file__), "bacnet_reader.py")
-    bacnet_python = "/opt/boitier-bacnet/venv/bin/python"
-    if not os.path.exists(bacnet_python):
-        bacnet_python = sys.executable
-        
-    try:
-        proc = await asyncio.create_subprocess_exec(
-            bacnet_python, reader_path, "probe", d["ip"],
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
-        )
-        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=15)
-        if proc.returncode == 0:
-            info = json.loads(stdout.decode())
-            if "instance" in info:
-                d["bacnet_instance"] = info["instance"]
-                        
-                # Résolution du fabricant BACnet via la base de connaissance
-                vendor_name = info.get("name", "Automate BACnet")
-                if info.get("vendor_id"):
-                    try:
-                        with get_db_connection() as conn:
-                            row = conn.execute(
-                                "SELECT name FROM bacnet_vendors WHERE vendor_id = ?", 
-                                (info["vendor_id"],)
-                            ).fetchone()
-                            if row:
-                                vendor_name = row["name"]
-                            else:
-                                vendor_name = f"Fabricant #{info['vendor_id']}"
-                    except:
-                        pass
+async def _probe_bacnet_via_daemon(ip, timeout=8.0):
+    """
+    Demande au démon BACnet MQTT unifié (bacnet_daemon.py, bacpypes3) de sonder une IP.
+    Évite de faire tourner un second processus BACnet concurrent (ancien bacnet_reader.py
+    en parsing UDP brut), qui entrait en conflit avec le démon principal sur le port 47808
+    et produisait des instances corrompues.
+    """
+    import queue
+    import uuid
 
-                d["bacnet_name"] = vendor_name
-                update_db_results([d])
-                from services.mqtt_service import mqtt_client
-                mqtt_client.publish("rpinode/ipscan/host_ready", json.dumps(d))
+    import paho.mqtt.client as mqtt
+
+    from services.mqtt_service import mqtt_client
+
+    job_id = str(uuid.uuid4())
+    res_queue = queue.Queue()
+
+    def on_msg(client, userdata, msg):
+        try:
+            res_queue.put(json.loads(msg.payload.decode("utf-8")))
+        except Exception:
+            pass
+
+    try:
+        temp_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
+    except AttributeError:
+        temp_client = mqtt.Client()
+    temp_client.on_message = on_msg
+    temp_client.connect("127.0.0.1", 1883, 60)
+    temp_client.loop_start()
+    temp_client.subscribe(f"rpinode/bacnet/res/probe/{job_id}")
+
+    try:
+        mqtt_client.publish("rpinode/bacnet/cmd/probe", {"job_id": job_id, "ip": ip})
+        loop = asyncio.get_running_loop()
+        try:
+            return await loop.run_in_executor(None, res_queue.get, True, timeout)
+        except queue.Empty:
+            return None
+    finally:
+        temp_client.loop_stop()
+        temp_client.disconnect()
+
+async def enrich_bacnet_device(d):
+    """Tente de trouver l'instance BACnet via le démon MQTT unifié (bacpypes3)."""
+    logger.info(f"Enrichissement BACnet pour {d['ip']}...")
+
+    try:
+        info = await _probe_bacnet_via_daemon(d["ip"], timeout=8.0)
+        if info and "instance" in info:
+            d["bacnet_instance"] = info["instance"]
+
+            # Résolution du fabricant BACnet via la base de connaissance
+            vendor_name = info.get("name", "Automate BACnet")
+            if info.get("vendor_id"):
+                try:
+                    with get_db_connection() as conn:
+                        row = conn.execute(
+                            "SELECT name FROM bacnet_vendors WHERE vendor_id = ?",
+                            (info["vendor_id"],)
+                        ).fetchone()
+                        if row:
+                            vendor_name = row["name"]
+                        else:
+                            vendor_name = f"Fabricant #{info['vendor_id']}"
+                except Exception:
+                    pass
+
+            d["bacnet_name"] = vendor_name
+            update_db_results([d])
+            from services.mqtt_service import mqtt_client
+            mqtt_client.publish("rpinode/ipscan/host_ready", json.dumps(d))
     except Exception as e:
         logger.warning(f"Échec enrichissement BACnet pour {d['ip']}: {e}")
 
