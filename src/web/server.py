@@ -1478,10 +1478,13 @@ class WebAdminHandler(BaseHTTPRequestHandler):
                         formatted_ports.append(f"<a href='{base_url}/modbus/tools?ip={d['ip']}' style='color: #2ecc71; font-weight: bold;'>502 (Modbus)</a>{modbus_info}")
                     elif p == 47808:
                         bacnet_info = []
-                        if d.get("bacnet_instance"): bacnet_info.append(f"Inst: {d['bacnet_instance']}")
+                        inst_param = ""
+                        if d.get("bacnet_instance"): 
+                            bacnet_info.append(f"Inst: {d['bacnet_instance']}")
+                            inst_param = f"&instance={d['bacnet_instance']}"
                         if d.get("bacnet_name") and d.get("bacnet_name") != "Automate BACnet": bacnet_info.append(d["bacnet_name"])
                         info_str = f" <small style='color:#e67e22'>({', '.join(bacnet_info)})</small>" if bacnet_info else ""
-                        formatted_ports.append(f"<a href='{base_url}/bacnet/tools?ip={d['ip']}' style='color: #e67e22; font-weight: bold;'>47808 (BACnet)</a>{info_str}")
+                        formatted_ports.append(f"<a href='{base_url}/bacnet/tools?ip={d['ip']}{inst_param}' style='color: #e67e22; font-weight: bold;'>47808 (BACnet)</a>{info_str}")
                     elif p == 80: formatted_ports.append(f"<a href='http://{d['ip']}' target='_blank' style='color: #3498db;'>80</a>")
                     elif p == 443: formatted_ports.append(f"<a href='https://{d['ip']}' target='_blank' style='color: #9b59b6;'>443</a>")
                     else: formatted_ports.append(str(p))
