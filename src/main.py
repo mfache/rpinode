@@ -82,6 +82,15 @@ def main():
         if not os.path.exists(bacnet_python):
             bacnet_python = sys.executable
 
+        # Certains chemins de redémarrage (ex: /api/restart qui utilise os.execve) ne
+        # déclenchent jamais les hooks atexit, ce qui peut laisser un ancien démon orphelin
+        # tourner en parallèle et se battre avec le nouveau sur le port UDP 47808. On s'assure
+        # donc de tuer toute instance résiduelle avant d'en lancer une nouvelle.
+        try:
+            subprocess.run(["pkill", "-f", daemon_path], check=False)
+        except Exception as e:
+            bacnet_logger.warning(f"Impossible de nettoyer les anciens démons BACnet: {e}")
+
         bacnet_logger.info(f"Démarrage de bacnet_daemon via {bacnet_python}")
         try:
             # Lancer le démon comme un sous-processus continu

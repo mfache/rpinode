@@ -237,7 +237,7 @@ class BacnetMqttDaemon:
             logger.info(f"Envoi Who-Has pour: {object_name}")
             ihave_list = await self.app.who_has(object_name=object_name, timeout=5.0)
             for res in ihave_list:
-                dev_id = res.iHaveDeviceIdentifier[1]
+                dev_id = res.deviceIdentifier[1]
                 obj_id_type = res.objectIdentifier[0]
                 obj_id_inst = res.objectIdentifier[1]
                 obj_name = str(res.objectName)
