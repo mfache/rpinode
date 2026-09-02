@@ -202,3 +202,55 @@ CREATE TABLE IF NOT EXISTS modbus_points (
     FOREIGN KEY (device_id) REFERENCES modbus_devices(id) ON DELETE CASCADE,
     UNIQUE(device_id, function, reg)
 );
+
+-- Points BACnet sélectionnés pour le Suivi (Live) et/ou l'Enregistrement (Historique)
+CREATE TABLE IF NOT EXISTS bacnet_points (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    site_id INTEGER NOT NULL,
+    device_id INTEGER,                  -- Lien vers bacnet_devices (optionnel)
+    network_address TEXT NOT NULL,      -- IP ou adresse MAC MSTP
+    device_instance INTEGER NOT NULL,   -- ID de l'équipement BACnet
+    object_id TEXT NOT NULL,            -- ex: "analog-input:1"
+    name TEXT,
+    is_monitored BOOLEAN DEFAULT 1,
+    is_recorded BOOLEAN DEFAULT 0,
+    cadence TEXT DEFAULT '1m',
+    last_value TEXT,
+    last_read_ts INTEGER,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (site_id) REFERENCES sites(id) ON DELETE CASCADE,
+    FOREIGN KEY (device_id) REFERENCES bacnet_devices(id) ON DELETE SET NULL
+);
+
+-- Dictionnaire local de tous les points BACnet connus (construit à la demande),
+-- utilisé pour la recherche globale par nom/joker sans avoir à re-scanner le réseau.
+-- Rattaché au chantier (site_id) : si le rpinode change de chantier, ces points ne
+-- doivent plus apparaître dans les recherches. is_dirty/sync_updated_at permettent
+-- de synchroniser le dictionnaire vers le serveur central (docs).
+CREATE TABLE IF NOT EXISTS bacnet_points_catalog (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    site_id INTEGER NOT NULL,            -- Chantier propriétaire de ce point
+    network_address TEXT NOT NULL,      -- IP (ou adresse routable) de l'appareil
+    device_instance INTEGER NOT NULL,   -- Instance BACnet de l'appareil
+    object_id TEXT NOT NULL,            -- ex: "analog-value:55"
+    object_name TEXT,                   -- Libellé du point (object-name)
+    is_dirty BOOLEAN DEFAULT 1,         -- 1 si non encore synchronisé vers docs
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    sync_updated_at DATETIME,           -- Date de dernière synchro réussie
+    FOREIGN KEY (site_id) REFERENCES sites(id) ON DELETE CASCADE,
+    UNIQUE(site_id, device_instance, object_id)
+);
+
+-- État de la construction du dictionnaire BACnet (ligne unique)
+CREATE TABLE IF NOT EXISTS bacnet_catalog_status (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    status TEXT DEFAULT 'idle',         -- idle | scheduled | running | done | error
+    scheduled_at DATETIME,
+    started_at DATETIME,
+    finished_at DATETIME,
+    total_devices INTEGER DEFAULT 0,
+    done_devices INTEGER DEFAULT 0,
+    failed_devices INTEGER DEFAULT 0,
+    last_error TEXT
+);
+INSERT OR IGNORE INTO bacnet_catalog_status (id) VALUES (1);

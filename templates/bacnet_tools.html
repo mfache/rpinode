@@ -51,6 +51,72 @@
         </div>
     </div>
     <div class="card params-card" style="margin-top: 30px;">
+        <h3>📚 Dictionnaire local des points BACnet</h3>
+        <p class="form-hint" style="margin-bottom: 10px;">
+            Construit une fois (ou sur planification) la liste de tous les points de tous les appareils déjà repérés par le scan réseau.
+            Une fois construit, la recherche ci-dessous est instantanée et supporte les jokers (<code>*</code> = n'importe quelle suite de caractères, <code>?</code> = un caractère).
+        </p>
+        <div id="catalog-status-line" style="margin-bottom: 12px; font-size: 0.9em; color: #475569;">Chargement du statut...</div>
+        <div style="display: flex; gap: 15px; align-items: flex-end; flex-wrap: wrap;">
+            <div>
+                <button type="button" class="btn-primary" id="btn-build-now" onclick="buildCatalogNow()">⚡ Construire maintenant</button>
+            </div>
+            <div>
+                <label style="display:block; font-size:0.85em; font-weight:bold; color:#475569; margin-bottom:5px;">Ou planifier à une heure précise :</label>
+                <div style="display:flex; gap:8px;">
+                    <input type="datetime-local" id="catalog-schedule-when" style="padding:8px 12px; border:1px solid #cbd5e1; border-radius:4px;">
+                    <button type="button" class="btn-secondary" onclick="scheduleCatalogBuild()">🕒 Planifier</button>
+                </div>
+            </div>
+            <div>
+                <button type="button" class="btn-secondary" id="btn-cancel-build" onclick="cancelCatalogBuild()" style="display:none;">✕ Annuler la planification</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="card params-card">
+        <h3>🔍 Recherche par nom (avec jokers)</h3>
+        <form id="form-catalog-search" style="display: flex; gap: 15px; align-items: flex-end; flex-wrap: wrap;" onsubmit="event.preventDefault(); runCatalogSearch();">
+            <div style="flex: 1; min-width: 220px;">
+                <label>Motif recherché :</label>
+                <input type="text" id="catalog_pattern" placeholder="Ex: BExt25'R'Flr*'R*'RHvacCoo'RTemp" style="width: 100%;" required>
+            </div>
+            <div>
+                <button type="submit" class="btn-primary" id="btn-catalog-search" style="height: 38px;">🔍 Rechercher dans le dictionnaire</button>
+            </div>
+        </form>
+    </div>
+
+    <div id="catalog-loading" style="display: none; padding: 20px; text-align: center; color: #16a085; font-weight: bold;">
+        <span style="font-size: 1.5em; display: inline-block; animation: spin 1s linear infinite;">🔍</span> Recherche et lecture des valeurs en direct...
+    </div>
+
+    <div id="catalog-results-area" style="display: none; margin-top: 20px;">
+        <div class="card" style="padding: 0;">
+            <div style="padding: 15px; background: #f0fdf4; border-bottom: 1px solid #bbf7d0; display: flex; justify-content: space-between; align-items: center;">
+                <h3 style="margin: 0; color: #166534;">Résultats <span id="catalog-count" class="badge-count-main" style="background: #16a085;">0</span></h3>
+                <span id="catalog-truncated-msg" style="display:none; color:#d97706; font-size:0.85em;">⚠️ Résultats tronqués, affinez votre recherche</span>
+            </div>
+            <div style="max-height: 40vh; overflow-y: auto;">
+                <table class="data-table" id="catalog-table">
+                    <thead>
+                        <tr>
+                            <th>IP / Adresse</th>
+                            <th>Device ID</th>
+                            <th>Object ID</th>
+                            <th>Libellé</th>
+                            <th>Valeur (en direct)</th>
+                        </tr>
+                    </thead>
+                    <tbody id="catalog-tbody">
+                        <!-- Rempli en JS -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div class="card params-card" style="margin-top: 30px;">
         <h3>Recherche globale de point (Who-Has)</h3>
         <p class="form-hint" style="margin-bottom: 10px;">Interroge dynamiquement tout le réseau BACnet pour trouver les équipements possédant un objet spécifique (par son nom).</p>
         <form id="form-whohas" style="display: flex; gap: 15px; align-items: flex-end; flex-wrap: wrap;" onsubmit="event.preventDefault(); runWhoHas();">
@@ -285,4 +351,150 @@ async function runWhoHas() {
         document.getElementById('whohas-loading').style.display = 'none';
     }
 }
+
+let catalogPollTimer = null;
+
+function formatDateTime(iso) {
+    if (!iso) return null;
+    try {
+        return new Date(iso).toLocaleString('fr-BE');
+    } catch (e) {
+        return iso;
+    }
+}
+
+async function loadCatalogStatus() {
+    try {
+        const url = (baseUrl + '/api/bacnet/catalog/status').replace(/\/+/g, '/');
+        const res = await fetch(url);
+        const s = await res.json();
+
+        const line = document.getElementById('catalog-status-line');
+        const cancelBtn = document.getElementById('btn-cancel-build');
+        const buildBtn = document.getElementById('btn-build-now');
+
+        let msg = `<strong>${s.catalog_count || 0}</strong> point(s) au dictionnaire`;
+        if (s.last_built_at) {
+            msg += ` &middot; dernière mise à jour : ${formatDateTime(s.last_built_at)}`;
+        } else {
+            msg += ` &middot; jamais construit`;
+        }
+
+        if (s.status === 'scheduled') {
+            msg += `<br>🕒 Construction planifiée pour le <strong>${formatDateTime(s.scheduled_at)}</strong>`;
+            cancelBtn.style.display = 'inline-block';
+            buildBtn.disabled = false;
+        } else if (s.status === 'running') {
+            msg += `<br>⚡ Construction en cours... (${s.done_devices || 0} / ${s.total_devices || 0} appareils, ${s.failed_devices || 0} échec(s))`;
+            cancelBtn.style.display = 'none';
+            buildBtn.disabled = true;
+        } else {
+            cancelBtn.style.display = 'none';
+            buildBtn.disabled = false;
+            if (s.status === 'error' && s.last_error) {
+                msg += `<br><span style="color:#dc2626;">Erreur lors de la dernière construction : ${s.last_error}</span>`;
+            }
+        }
+        line.innerHTML = msg;
+
+        const needsPolling = (s.status === 'running' || s.status === 'scheduled');
+        if (needsPolling && !catalogPollTimer) {
+            catalogPollTimer = setInterval(loadCatalogStatus, 4000);
+        } else if (!needsPolling && catalogPollTimer) {
+            clearInterval(catalogPollTimer);
+            catalogPollTimer = null;
+        }
+    } catch (e) {
+        document.getElementById('catalog-status-line').textContent = "Impossible de récupérer le statut du dictionnaire.";
+    }
+}
+
+async function buildCatalogNow() {
+    if (!confirm("Lancer maintenant la construction du dictionnaire ? Cette opération interroge tous les appareils BACnet déjà connus et peut prendre plusieurs minutes.")) return;
+    try {
+        const url = (baseUrl + '/api/bacnet/catalog/build').replace(/\/+/g, '/');
+        await fetch(url, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ when: null }) });
+        loadCatalogStatus();
+    } catch (e) {
+        alert("Erreur réseau: " + e);
+    }
+}
+
+async function scheduleCatalogBuild() {
+    const when = document.getElementById('catalog-schedule-when').value;
+    if (!when) {
+        alert("Choisissez une date et une heure.");
+        return;
+    }
+    try {
+        const url = (baseUrl + '/api/bacnet/catalog/build').replace(/\/+/g, '/');
+        await fetch(url, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ when: when }) });
+        loadCatalogStatus();
+    } catch (e) {
+        alert("Erreur réseau: " + e);
+    }
+}
+
+async function cancelCatalogBuild() {
+    try {
+        const url = (baseUrl + '/api/bacnet/catalog/cancel').replace(/\/+/g, '/');
+        await fetch(url, { method: 'POST' });
+        loadCatalogStatus();
+    } catch (e) {
+        alert("Erreur réseau: " + e);
+    }
+}
+
+async function runCatalogSearch() {
+    const pattern = document.getElementById('catalog_pattern').value.trim();
+    if (!pattern) return;
+
+    document.getElementById('btn-catalog-search').disabled = true;
+    document.getElementById('catalog-loading').style.display = 'block';
+    document.getElementById('catalog-results-area').style.display = 'none';
+
+    try {
+        const url = (baseUrl + '/api/bacnet/catalog/search').replace(/\/+/g, '/');
+        const res = await fetch(url, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ pattern: pattern })
+        });
+        const data = await res.json();
+        const tbody = document.getElementById('catalog-tbody');
+        tbody.innerHTML = '';
+
+        if (data.status === 'ok') {
+            const results = data.objects || [];
+            document.getElementById('catalog-count').textContent = results.length;
+            document.getElementById('catalog-truncated-msg').style.display = data.truncated ? 'inline' : 'none';
+
+            if (results.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: #94a3b8; padding: 20px;">Aucun point ne correspond à ce motif dans le dictionnaire.<br><small>Le dictionnaire a-t-il déjà été construit ?</small></td></tr>';
+            } else {
+                results.forEach((obj) => {
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `
+                        <td><code style="background: #f1f5f9; padding: 2px 6px; border-radius: 4px;">${obj.address}</code></td>
+                        <td><strong>${obj.device_id}</strong></td>
+                        <td>${obj.object_id}</td>
+                        <td>${obj.object_name}</td>
+                        <td><strong>${obj.value !== null && obj.value !== undefined ? obj.value : '—'}</strong></td>
+                    `;
+                    tbody.appendChild(tr);
+                });
+            }
+            document.getElementById('catalog-results-area').style.display = 'block';
+        } else {
+            alert("Erreur: " + (data.message || "Recherche échouée."));
+        }
+    } catch (e) {
+        alert("Erreur réseau: " + e);
+    } finally {
+        document.getElementById('btn-catalog-search').disabled = false;
+        document.getElementById('catalog-loading').style.display = 'none';
+    }
+}
+
+loadCatalogStatus();
 </script>

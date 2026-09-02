@@ -75,6 +75,8 @@ class WebAdminHandler(BaseHTTPRequestHandler):
             return self.handle_site_search_external()
         elif path == "/api/fleet/status":
             return self.handle_fleet_status()
+        elif path == "/api/bacnet/catalog/status":
+            return self.handle_bacnet_catalog_status()
         elif path == "/api/network/wifi/list":
             from services.wifi_mgr import get_visible_ssids
             return self.send_json(get_visible_ssids())
@@ -178,6 +180,12 @@ class WebAdminHandler(BaseHTTPRequestHandler):
             self.handle_bacnet_tools_discover()
         elif path == "/api/bacnet/tools/whohas":
             self.handle_bacnet_tools_whohas()
+        elif path == "/api/bacnet/catalog/build":
+            self.handle_bacnet_catalog_build()
+        elif path == "/api/bacnet/catalog/cancel":
+            self.handle_bacnet_catalog_cancel()
+        elif path == "/api/bacnet/catalog/search":
+            self.handle_bacnet_catalog_search()
         elif path == "/api/table/columns/add":
             self.handle_column_add()
         elif path == "/api/table/columns/delete":
@@ -1323,13 +1331,121 @@ class WebAdminHandler(BaseHTTPRequestHandler):
             })
 
             try:
-                result = res_queue.get(timeout=10.0)
+                result = res_queue.get(timeout=15.0)
+                if result.get("status") == "ok" and result.get("objects"):
+                    try:
+                        from services.bacnet_catalog import upsert_device_points
+                        from services.presence import get_current_site_id
+                        site_id = get_current_site_id()
+                        if site_id:
+                            upsert_device_points(site_id, ip, device_instance, result["objects"])
+                    except Exception as e:
+                        logger.debug(f"Mise à jour du dictionnaire BACnet ignorée : {e}")
                 self.send_json(result)
             except queue.Empty:
                 self.send_json({"status": "error", "message": "Délai d'attente dépassé (aucune réponse de l'équipement BACnet)"})
             finally:
                 temp_client.loop_stop()
                 temp_client.disconnect()
+        except Exception as e:
+            self.send_json({"status": "error", "message": str(e)})
+
+    def handle_bacnet_catalog_status(self):
+        from services.bacnet_catalog import get_status
+        self.send_json(get_status())
+
+    def handle_bacnet_catalog_build(self):
+        content_length = int(self.headers.get('Content-Length', 0))
+        post_data = self.rfile.read(content_length) if content_length else b"{}"
+        try:
+            data = json.loads(post_data) if post_data else {}
+            when = data.get("when")  # None = immédiat, sinon chaîne ISO datetime
+            from services.bacnet_catalog import schedule_build
+            scheduled_at = schedule_build(when)
+            self.send_json({"status": "ok", "scheduled_at": scheduled_at})
+        except Exception as e:
+            self.send_json({"status": "error", "message": str(e)})
+
+    def handle_bacnet_catalog_cancel(self):
+        try:
+            from services.bacnet_catalog import cancel_build
+            cancel_build()
+            self.send_json({"status": "ok"})
+        except Exception as e:
+            self.send_json({"status": "error", "message": str(e)})
+
+    def handle_bacnet_catalog_search(self):
+        content_length = int(self.headers.get('Content-Length', 0))
+        post_data = self.rfile.read(content_length)
+        try:
+            data = json.loads(post_data)
+            pattern = (data.get("pattern") or "").strip()
+            if not pattern:
+                raise ValueError("Motif de recherche manquant")
+
+            from services.bacnet_catalog import search_points
+            matches = search_points(pattern)
+
+            if not matches:
+                self.send_json({"status": "ok", "objects": [], "truncated": False})
+                return
+
+            # On limite le nombre de lectures en direct pour éviter qu'un joker trop
+            # large (ex: juste "*") ne déclenche des centaines de lectures BACnet d'un coup.
+            MAX_LIVE_READS = 100
+            truncated = len(matches) > MAX_LIVE_READS
+            matches_to_read = matches[:MAX_LIVE_READS]
+
+            points = [
+                {"address": m["network_address"], "object_id": m["object_id"], "device_id": m["device_instance"]}
+                for m in matches_to_read
+            ]
+
+            job_id = str(uuid.uuid4())
+            res_queue = queue.Queue()
+
+            def on_msg(client, userdata, msg):
+                try:
+                    res_queue.put(json.loads(msg.payload.decode('utf-8')))
+                except Exception:
+                    pass
+
+            try:
+                temp_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
+            except AttributeError:
+                temp_client = mqtt.Client()
+            temp_client.on_message = on_msg
+            temp_client.connect("127.0.0.1", 1883, 60)
+            temp_client.loop_start()
+            temp_client.subscribe(f"rpinode/bacnet/res/read/{job_id}")
+
+            mqtt_client.publish("rpinode/bacnet/cmd/read", {"job_id": job_id, "points": points})
+
+            try:
+                values = res_queue.get(timeout=10.0)
+            except queue.Empty:
+                values = []
+            finally:
+                temp_client.loop_stop()
+                temp_client.disconnect()
+
+            values_map = {
+                (v.get("address"), v.get("object_id")): v.get("value")
+                for v in (values or []) if isinstance(v, dict)
+            }
+
+            objects = []
+            for m in matches_to_read:
+                key = (m["network_address"], m["object_id"])
+                objects.append({
+                    "device_id": m["device_instance"],
+                    "address": m["network_address"],
+                    "object_id": m["object_id"],
+                    "object_name": m["object_name"],
+                    "value": values_map.get(key)
+                })
+
+            self.send_json({"status": "ok", "objects": objects, "truncated": truncated})
         except Exception as e:
             self.send_json({"status": "error", "message": str(e)})
 

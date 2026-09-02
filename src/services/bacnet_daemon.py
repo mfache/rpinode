@@ -96,6 +96,12 @@ class BacnetMqttDaemon:
                     object_name = payload.get("object_name")
                     if object_name:
                         asyncio.create_task(self.process_whohas(job_id, object_name))
+                elif topic == "rpinode/bacnet/cmd/catalog":
+                    job_id = payload.get("job_id", "default")
+                    ip = payload.get("ip")
+                    device_instance = payload.get("device_instance")
+                    if ip and device_instance:
+                        asyncio.create_task(self.process_catalog(job_id, ip, device_instance))
             await asyncio.sleep(0.1)
 
     def on_mqtt_connect(self, client, userdata, flags, rc, properties=None):
@@ -105,6 +111,7 @@ class BacnetMqttDaemon:
         client.subscribe("rpinode/bacnet/cmd/probe")
         client.subscribe("rpinode/bacnet/cmd/discover")
         client.subscribe("rpinode/bacnet/cmd/whohas")
+        client.subscribe("rpinode/bacnet/cmd/catalog")
 
     def on_mqtt_message(self, client, userdata, msg):
         topic = msg.topic
@@ -161,37 +168,48 @@ class BacnetMqttDaemon:
             
         self.mqtt_client.publish(f"rpinode/bacnet/res/probe/{job_id}", json.dumps(info))
 
+    async def _read_object_list(self, ip, device_instance, max_objs=400):
+        """
+        Lit la liste complète des identifiants d'objets d'un device. Tente d'abord une
+        lecture globale de object-list, puis se replie sur une lecture index par index
+        si l'équipement ne supporte pas la lecture groupée (fréquent sur les petits automates).
+        """
+        objid = f"device:{device_instance}"
+        try:
+            obj_list_raw = await asyncio.wait_for(
+                self.app.read_property(Address(ip), objid, "object-list"),
+                timeout=5.0
+            )
+            return obj_list_raw
+        except (Exception, ErrorRejectAbortNack) as e:
+            logger.warning(f"Echec lecture globale object-list (timeout/invalid), tentative index par index: {e}")
+            try:
+                length_raw = await asyncio.wait_for(
+                    self.app.read_property(Address(ip), objid, "object-list", array_index=0),
+                    timeout=5.0
+                )
+                length = int(length_raw)
+                obj_list = []
+                # Limiter pour ne pas bloquer trop longtemps si l'équipement est énorme
+                for i in range(1, min(length, max_objs) + 1):
+                    try:
+                        obj = await asyncio.wait_for(
+                            self.app.read_property(Address(ip), objid, "object-list", array_index=i),
+                            timeout=2.0
+                        )
+                        obj_list.append(obj)
+                    except (Exception, ErrorRejectAbortNack):
+                        pass
+                return obj_list
+            except (Exception, ErrorRejectAbortNack) as ex2:
+                raise Exception(f"Echec lecture index par index: {ex2}")
+
     async def process_discover(self, job_id, ip, device_instance):
         """Lit la propriété object-list du device et récupère le nom de chaque objet."""
         results = []
         try:
-            objid = f"device:{device_instance}"
-            # 1. Lire la liste des objets
-            obj_list = None
-            try:
-                obj_list_raw = await asyncio.wait_for(
-                    self.app.read_property(Address(ip), objid, "object-list"),
-                    timeout=5.0
-                )
-                obj_list = obj_list_raw
-            except (Exception, ErrorRejectAbortNack) as e:
-                logger.warning(f"Echec lecture globale object-list (timeout/invalid), tentative index par index: {e}")
-                try:
-                    length_raw = await asyncio.wait_for(
-                        self.app.read_property(Address(ip), objid, "object-list", array_index=0),
-                        timeout=5.0
-                    )
-                    length = int(length_raw)
-                    obj_list = []
-                    for i in range(1, length + 1):
-                        obj_raw = await asyncio.wait_for(
-                            self.app.read_property(Address(ip), objid, "object-list", array_index=i),
-                            timeout=2.0
-                        )
-                        obj_list.append(obj_raw)
-                except (Exception, ErrorRejectAbortNack) as ex2:
-                    raise Exception(f"Echec lecture index par index: {ex2}")
-            
+            obj_list = await self._read_object_list(ip, device_instance)
+
             if not obj_list:
                 raise Exception("object-list vide ou illisible")
 
@@ -231,6 +249,45 @@ class BacnetMqttDaemon:
             
         self.mqtt_client.publish(f"rpinode/bacnet/res/discover/{job_id}", json.dumps({"status": "ok" if "error" not in (results[0] if results else {}) else "error", "objects": results, "message": results[0].get("error") if results and "error" in results[0] else ""}))
 
+    # Types d'objets considérés comme des "points" exploitables pour le dictionnaire
+    # (on exclut les fichiers, journaux, classes de notification, vues structurées, etc.)
+    CATALOG_POINT_PREFIXES = ("analog-", "binary-", "multi-state-", "loop")
+
+    async def process_catalog(self, job_id, ip, device_instance):
+        """
+        Version légère de process_discover pour la construction du dictionnaire de points :
+        ne lit que le nom (pas la valeur) et uniquement pour les types d'objets utiles,
+        afin de rester rapide même appliqué à des centaines d'appareils.
+        """
+        results = []
+        try:
+            obj_list = await self._read_object_list(ip, device_instance)
+
+            if not obj_list:
+                raise Exception("object-list vide ou illisible")
+
+            for obj in obj_list:
+                obj_type_str = str(obj[0])
+                obj_inst = obj[1]
+
+                if not obj_type_str.startswith(self.CATALOG_POINT_PREFIXES):
+                    continue
+
+                obj_str = f"{obj_type_str}:{obj_inst}"
+                try:
+                    name_raw = await asyncio.wait_for(
+                        self.app.read_property(Address(ip), obj_str, "object-name"),
+                        timeout=2.0
+                    )
+                    results.append({"object_id": obj_str, "name": str(name_raw)})
+                except (Exception, ErrorRejectAbortNack):
+                    pass
+        except (Exception, ErrorRejectAbortNack) as e:
+            self.mqtt_client.publish(f"rpinode/bacnet/res/catalog/{job_id}", json.dumps({"status": "error", "message": str(e)}))
+            return
+
+        self.mqtt_client.publish(f"rpinode/bacnet/res/catalog/{job_id}", json.dumps({"status": "ok", "objects": results}))
+
     async def process_whohas(self, job_id, object_name):
         results = []
         try:
@@ -266,97 +323,6 @@ class BacnetMqttDaemon:
             results = [{"error": str(e)}]
             
         self.mqtt_client.publish(f"rpinode/bacnet/res/whohas/{job_id}", json.dumps(results))
-        """Lit la propriété object-list du device et récupère le nom de chaque objet."""
-        results = []
-        try:
-            objid = f"device:{device_instance}"
-            # 1. Lire la liste des objets
-            obj_list = None
-            try:
-                obj_list_raw = await asyncio.wait_for(
-                    self.app.read_property(Address(ip), objid, "object-list"),
-                    timeout=5.0
-                )
-                obj_list = obj_list_raw
-            except (Exception, ErrorRejectAbortNack) as e:
-                logger.warning(f"Echec lecture globale object-list (timeout/invalid), tentative index par index: {e}")
-                try:
-                    length_raw = await asyncio.wait_for(
-                        self.app.read_property(Address(ip), objid, "object-list", array_index=0),
-                        timeout=5.0
-                    )
-                    length = int(length_raw)
-                    obj_list = []
-                    # Limiter pour ne pas bloquer trop longtemps si l'équipement est énorme
-                    max_objs = min(length, 200)
-                    for i in range(1, max_objs + 1):
-                        try:
-                            obj = await asyncio.wait_for(
-                                self.app.read_property(Address(ip), objid, "object-list", array_index=i),
-                                timeout=1.0
-                            )
-                            obj_list.append(obj)
-                        except (Exception, ErrorRejectAbortNack):
-                            pass
-                except (Exception, ErrorRejectAbortNack) as fallback_e:
-                    # Renvoyer l'erreur spécifique du fallback plutôt qu'une erreur silencieuse
-                    err_msg = str(fallback_e)
-                    if not err_msg:
-                        err_msg = type(fallback_e).__name__
-                    raise Exception(f"Impossible de lire l'object-list (globale ou segmentée). Erreur de fallback: {err_msg}")
-
-            # 2. Pour chaque objet, lire son nom et optionnellement sa present-value
-            if obj_list:
-                # obj_list est souvent une liste de tuples (type_objet, instance) ou d'objets structurés BACpypes3
-                for obj in obj_list:
-                    # En bacpypes3, un object identifier ressemble à ("analog-input", 1)
-                    if isinstance(obj, tuple) and len(obj) == 2:
-                        type_obj, inst = obj[0], obj[1]
-                        target_obj = f"{type_obj}:{inst}"
-                    else:
-                        target_obj = str(obj)
-
-                    # Ignorer l'objet device lui-même
-                    if target_obj.startswith("device"):
-                        continue
-
-                    # On ne garde que les types d'entrées/sorties intéressantes (AI, AO, AV, BI, BO, BV, MSI, MSO, MSV)
-                    if not any(target_obj.startswith(prefix) for prefix in ("analog-", "binary-", "multi-state-")):
-                        continue
-
-                    try:
-                        name = await asyncio.wait_for(
-                            self.app.read_property(Address(ip), target_obj, "object-name"),
-                            timeout=1.0
-                        )
-                        # Pour plus de concision (AI:1 au lieu de analog-input:1)
-                        # mais pour BACpypes3 il vaut mieux garder le nom exact pour les lectures futures
-                        
-                        try:
-                            # Tentative de lecture de la valeur
-                            val = await asyncio.wait_for(
-                                self.app.read_property(Address(ip), target_obj, "present-value"),
-                                timeout=1.0
-                            )
-                        except:
-                            val = None
-
-                        results.append({
-                            "object_id": target_obj,
-                            "name": str(name) if name else target_obj,
-                            "value": str(val) if val is not None else ""
-                        })
-                    except (Exception, ErrorRejectAbortNack):
-                        pass
-        except asyncio.TimeoutError:
-            results = {"error": "Délai dépassé lors de l'interrogation de l'équipement BACnet (Timeout global)."}
-        except (Exception, ErrorRejectAbortNack) as e:
-            err_msg = str(e)
-            if not err_msg:
-                err_msg = f"Erreur BACnet inattendue: {type(e).__name__}"
-            results = {"error": err_msg}
-
-        self.mqtt_client.publish(f"rpinode/bacnet/res/discover/{job_id}", json.dumps(results))
 
     async def send_whois(self, low=None, high=None):
         logger.info(f"Envoi Who-Is ({low} - {high})")
@@ -368,13 +334,14 @@ class BacnetMqttDaemon:
             logger.error(f"Erreur Who-Is: {e}")
 
     async def process_reads(self, job_id, points):
-        """Lit une liste de points et publie le résultat."""
-        results = []
-        for p in points:
+        """Lit une liste de points en parallèle (chaque appareil étant indépendant, le temps
+        total reste borné par le timeout d'un seul point plutôt que par leur somme) et
+        publie le résultat."""
+        async def _read_one(p):
             addr = p.get("address")
             obj_id = p.get("object_id") # ex: "analogInput:1"
             dev_id = p.get("device_id")
-            
+
             res_val = None
             err = None
             try:
@@ -389,15 +356,16 @@ class BacnetMqttDaemon:
                 err = "Timeout"
             except (Exception, ErrorRejectAbortNack) as e:
                 err = str(e)
-            
-            results.append({
+
+            return {
                 "device_id": dev_id,
                 "address": addr,
                 "object_id": obj_id,
                 "value": str(res_val) if res_val is not None else None,
                 "error": err
-            })
-            
+            }
+
+        results = list(await asyncio.gather(*(_read_one(p) for p in points))) if points else []
         self.mqtt_client.publish(f"rpinode/bacnet/res/read/{job_id}", json.dumps(results))
 
 if __name__ == "__main__":

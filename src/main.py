@@ -73,6 +73,11 @@ def main():
     # Démarrage du reporter MQTT (Bridge données internes -> MQTT)
     reporter.start()
 
+    # Planificateur du dictionnaire de points BACnet (construction à la demande + synchro flotte)
+    from services.bacnet_catalog import run_scheduler_loop as run_bacnet_catalog_scheduler
+    bacnet_catalog_thread = threading.Thread(target=run_bacnet_catalog_scheduler, daemon=True)
+    bacnet_catalog_thread.start()
+
     # Démarrage du démon BACnet unifié (MQTT), utilisé par les outils BACnet (discover, who-has, ...)
     def run_bacnet_daemon():
         bacnet_logger = logging.getLogger("BACnetDaemonRunner")

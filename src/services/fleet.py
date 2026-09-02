@@ -478,6 +478,34 @@ class FleetClient:
             logger.error(f"Erreur lors de la synchro des templates BACnet : {e}")
             return False
 
+    def sync_bacnet_points_catalog(self, points):
+        """
+        Envoie un lot du dictionnaire local de points BACnet vers le serveur central
+        (docs), compressé en gzip (l'endpoint /sync le décompresse désormais, comme
+        /logs). Chaque point porte le chantier_id (external_id) auquel il appartient,
+        le serveur central agrégeant les données de plusieurs chantiers.
+        """
+        if not self.is_registered():
+            return False
+        if not points:
+            return True
+
+        try:
+            payload = json.dumps({"bacnet_points_catalog": points}).encode("utf-8")
+            compressed_payload = gzip.compress(payload)
+
+            headers = self._headers()
+            headers["Content-Encoding"] = "gzip"
+            headers["Content-Type"] = "application/json"
+
+            resp = requests.post(f"{self.base_url}/sync", data=compressed_payload, headers=headers, timeout=30)
+            if resp.status_code == 200:
+                return resp.json().get("ok", False)
+            return False
+        except Exception as e:
+            logger.error(f"Erreur lors de la synchro du dictionnaire de points BACnet : {e}")
+            return False
+
     def send_logs(self, logs):
         """Envoie des logs applicatifs vers le serveur central (avec compression gzip)."""
         if not self.is_registered():
