@@ -1,0 +1,195 @@
+<section class="configuration-mqtt">
+    <div class="header-with-actions" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 10px;">
+        <div>
+            <h2>📡 Moniteur MQTT (Live)</h2>
+            <p class="hint">Affiche en temps réel les messages transitant sur le broker local (Mosquitto).</p>
+        </div>
+        <div style="display: flex; gap: 10px; align-items: center;">
+            <input type="text" id="mqtt-topic-filter" value="#" style="padding: 8px 12px; border-radius: 6px; border: 1px solid #ccc; font-family: monospace; width: 220px;" placeholder="Filtre (ex: rpinode/modbus/#)" title="Saisissez un topic MQTT à écouter (ex: # pour tout, rpinode/# pour l'app)" onkeydown="if(event.key === 'Enter') restartMqttStream()">
+            <button class="btn-primary" onclick="restartMqttStream()" title="Appliquer le filtre">
+                <span>🔄</span> Écouter
+            </button>
+            <button class="btn-secondary" onclick="clearMqttLog()" title="Effacer l'affichage">
+                <span>🗑️</span> Vider
+            </button>
+            <button class="btn-primary" id="btn-toggle-stream" onclick="toggleMqttStream()" style="width: 130px;">
+                <span>⏸️</span> Suspendre
+            </button>
+        </div>
+    </div>
+
+    <div class="config-card" style="background: #1e1e1e; color: #d4d4d4; padding: 15px; border-radius: 8px; box-shadow: inset 0 2px 4px rgba(0,0,0,0.5); min-height: 400px; display: flex; flex-direction: column;">
+        <div id="mqtt-log-container" style="flex: 1; overflow-y: auto; font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; height: 60vh; word-wrap: break-word;">
+            <div id="mqtt-placeholder" style="color: #6a9955;">// Écoute du broker MQTT en cours sur tous les topics (#)...</div>
+        </div>
+    </div>
+</section>
+
+<style>
+.mqtt-msg {
+    margin-bottom: 6px;
+    padding-bottom: 6px;
+    border-bottom: 1px dashed #333;
+}
+.mqtt-time {
+    color: #569cd6;
+    margin-right: 8px;
+}
+.mqtt-topic {
+    color: #ce9178;
+    font-weight: bold;
+    margin-right: 8px;
+}
+.mqtt-payload {
+    color: #dcdcaa;
+}
+.mqtt-payload.json {
+    color: #9cdcfe;
+}
+</style>
+
+<script>
+const baseUrl = window.CONFIG?.baseUrl || '';
+let mqttEventSource = null;
+let isPaused = false;
+let messageCount = 0;
+const MAX_MESSAGES = 1000;
+
+function formatTime() {
+    const d = new Date();
+    return d.toLocaleTimeString() + '.' + String(d.getMilliseconds()).padStart(3, '0');
+}
+
+function tryParseJSON(str) {
+    try {
+        const obj = JSON.parse(str);
+        return JSON.stringify(obj, null, 2);
+    } catch (e) {
+        return null;
+    }
+}
+
+function restartMqttStream() {
+    clearMqttLog();
+    
+    const topicFilter = document.getElementById('mqtt-topic-filter').value || '#';
+    const placeholder = document.getElementById('mqtt-placeholder');
+    if (placeholder) {
+        placeholder.textContent = `// Écoute du broker MQTT en cours sur le topic (${topicFilter})...`;
+    }
+    
+    startMqttStream();
+}
+
+function startMqttStream() {
+    if (mqttEventSource) {
+        mqttEventSource.close();
+    }
+    
+    const topicFilter = encodeURIComponent(document.getElementById('mqtt-topic-filter').value || '#');
+    mqttEventSource = new EventSource(baseUrl + '/api/mqtt/stream?topic=' + topicFilter);
+    
+    mqttEventSource.onmessage = function(event) {
+        if (isPaused) return;
+        
+        try {
+            const data = JSON.parse(event.data);
+            appendMqttMessage(data.topic, data.payload);
+        } catch (e) {
+            console.error("Erreur parsing MQTT SSE", e);
+        }
+    };
+    
+    mqttEventSource.onerror = function() {
+        if (!isPaused) {
+            console.warn("Déconnexion du flux MQTT. Reconnexion automatique...");
+        }
+    };
+}
+
+function appendMqttMessage(topic, payloadStr) {
+    const container = document.getElementById('mqtt-log-container');
+    if (!container) return;
+
+    const placeholder = document.getElementById('mqtt-placeholder');
+    if (placeholder) {
+        placeholder.remove();
+    }
+
+    const div = document.createElement('div');
+    div.className = 'mqtt-msg';
+    
+    const timeSpan = document.createElement('span');
+    timeSpan.className = 'mqtt-time';
+    timeSpan.textContent = '[' + formatTime() + ']';
+    
+    const topicSpan = document.createElement('span');
+    topicSpan.className = 'mqtt-topic';
+    topicSpan.textContent = topic;
+    
+    const payloadSpan = document.createElement('span');
+    const prettyJson = tryParseJSON(payloadStr);
+    
+    if (prettyJson) {
+        payloadSpan.className = 'mqtt-payload json';
+        payloadSpan.innerHTML = '<br>' + prettyJson.replace(/\n/g, '<br>').replace(/  /g, '&nbsp;&nbsp;');
+    } else {
+        payloadSpan.className = 'mqtt-payload';
+        payloadSpan.textContent = payloadStr;
+    }
+    
+    div.appendChild(timeSpan);
+    div.appendChild(topicSpan);
+    div.appendChild(payloadSpan);
+    
+    // Insérer en haut (newest first)
+    container.insertBefore(div, container.firstChild);
+    messageCount++;
+    
+    // Nettoyage si trop de messages (on supprime le dernier)
+    if (messageCount > MAX_MESSAGES) {
+        const lastMsg = container.lastElementChild;
+        if (lastMsg) {
+            container.removeChild(lastMsg);
+            messageCount--;
+        }
+    }
+}
+
+function clearMqttLog() {
+    const container = document.getElementById('mqtt-log-container');
+    if (container) {
+        const topicFilter = document.getElementById('mqtt-topic-filter').value || '#';
+        container.innerHTML = `<div id="mqtt-placeholder" style="color: #6a9955;">// Historique effacé. En attente de nouveaux messages sur (${topicFilter})...</div>`;
+        messageCount = 0;
+    }
+}
+
+function toggleMqttStream() {
+    const btn = document.getElementById('btn-toggle-stream');
+    isPaused = !isPaused;
+    
+    if (isPaused) {
+        btn.innerHTML = '<span>▶️</span> Reprendre';
+        btn.classList.remove('btn-primary');
+        btn.classList.add('btn-warn'); // ou une autre couleur
+        appendMqttMessage('SYSTEM', '--- FLUX MIS EN PAUSE ---');
+    } else {
+        btn.innerHTML = '<span>⏸️</span> Suspendre';
+        btn.classList.add('btn-primary');
+        btn.classList.remove('btn-warn');
+        appendMqttMessage('SYSTEM', '--- REPRISE DU FLUX ---');
+    }
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+    startMqttStream();
+});
+
+// Nettoyage à la fermeture de la page pour éviter les fuites SSE
+window.addEventListener('beforeunload', () => {
+    if (mqttEventSource) {
+        mqttEventSource.close();
+    }
+});
+</script>

@@ -1,0 +1,3 @@
+C'est vrai, l'interface du "Suivi Modbus (Live)" n'utilise pas SSE/MQTT, contrairement au dashboard principal.
+Elle utilise une boucle qui fait un `fetch` JSON classique toutes les 5 secondes (vers `/api/modbus/suivi/values`). 
+Le code SSE MQTT est pourtant bien prêt côté serveur (les événements `modbus_point` sont envoyés sur le flux `/api/stream`), mais la page de suivi n'y souscrit pas encore, ce qui explique pourquoi elle continue de rafraîchir en boucle avec des requêtes HTTP.
