@@ -434,23 +434,29 @@ async def enrich_bacnet_device(d):
         if info and "instance" in info:
             d["bacnet_instance"] = info["instance"]
 
-            # Résolution du fabricant BACnet via la base de connaissance
-            vendor_name = info.get("name", "Automate BACnet")
-            if info.get("vendor_id"):
-                try:
-                    with get_db_connection() as conn:
-                        row = conn.execute(
-                            "SELECT name FROM bacnet_vendors WHERE vendor_id = ?",
-                            (info["vendor_id"],)
-                        ).fetchone()
-                        if row:
-                            vendor_name = row["name"]
-                        else:
-                            vendor_name = f"Fabricant #{info['vendor_id']}"
-                except Exception:
-                    pass
+            # Priorité au nom réel de l'appareil (object-name, ex: "DXR00A07"), lu
+            # sur l'équipement lui-même. Le nom du fabricant ne sert que de repli
+            # quand l'appareil n'a pas répondu à la lecture de son object-name.
+            device_name = info.get("name")
+            if device_name:
+                display_name = device_name
+            else:
+                display_name = "Automate BACnet"
+                if info.get("vendor_id"):
+                    try:
+                        with get_db_connection() as conn:
+                            row = conn.execute(
+                                "SELECT name FROM bacnet_vendors WHERE vendor_id = ?",
+                                (info["vendor_id"],)
+                            ).fetchone()
+                            if row:
+                                display_name = row["name"]
+                            else:
+                                display_name = f"Fabricant #{info['vendor_id']}"
+                    except Exception:
+                        pass
 
-            d["bacnet_name"] = vendor_name
+            d["bacnet_name"] = display_name
             update_db_results([d])
             from services.mqtt_service import mqtt_client
             mqtt_client.publish("rpinode/ipscan/host_ready", json.dumps(d))
