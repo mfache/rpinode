@@ -446,6 +446,38 @@ class FleetClient:
             logger.error(f"Erreur lors de la synchro des templates Modbus : {e}")
             return False
 
+    def get_remote_bacnet_templates(self):
+        """Récupère la bibliothèque de templates BACnet disponible sur le serveur central."""
+        if not self.is_registered():
+            return {}
+        try:
+            resp = requests.post(f"{self.base_url}/sync", json={}, headers=self._headers(), timeout=10)
+            if resp.status_code == 200:
+                data = resp.json()
+                if data.get("ok"):
+                    return data.get("bacnet_templates", {})
+        except Exception as e:
+            logger.error(f"Erreur lors de la récupération des templates BACnet distants : {e}")
+        return {}
+
+    def sync_bacnet_templates(self, templates):
+        """Envoie des templates BACnet locaux au serveur maître."""
+        if not self.is_registered():
+            return False
+
+        url = f"{self.base_url}/sync"
+        payload = {
+            "bacnet_templates": templates,
+            "hostname": socket.gethostname()
+        }
+
+        try:
+            response = requests.post(url, json=payload, headers=self._headers(), timeout=10)
+            return response.json().get("ok", False)
+        except Exception as e:
+            logger.error(f"Erreur lors de la synchro des templates BACnet : {e}")
+            return False
+
     def send_logs(self, logs):
         """Envoie des logs applicatifs vers le serveur central (avec compression gzip)."""
         if not self.is_registered():

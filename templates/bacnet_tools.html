@@ -1,0 +1,288 @@
+<section class="bacnet-tools">
+    <div class="header-with-actions" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+        <h2>Outils d'investigation BACnet</h2>
+    </div>
+
+    <div class="card params-card">
+        <h3>Cible BACnet (IP)</h3>
+        <form id="form-connection" style="display: flex; gap: 15px; align-items: flex-end; flex-wrap: wrap;">
+            <div style="flex: 1; min-width: 220px;">
+                <label>Adresse IP :</label>
+                <input type="text" id="address" name="address" value="${target_ip}" list="discovered-bacnet-ips" placeholder="Ex: 192.168.1.100" autocomplete="off" required>
+                <datalist id="discovered-bacnet-ips">
+                    ${discovered_ips_options}
+                </datalist>
+            </div>
+            <div>
+                <label>Instance de l'appareil (Device ID) :</label>
+                <input type="number" id="device_instance" name="device_instance" value="${target_instance}" style="width: 150px;" required>
+            </div>
+            <div>
+                <button type="button" class="btn-primary" onclick="runDiscovery()" id="btn-discover" style="height: 38px;">🔍 Découvrir les objets</button>
+            </div>
+        </form>
+    </div>
+
+    <div id="loading-indicator" style="display: none; padding: 20px; text-align: center; color: #3498db; font-weight: bold;">
+        <span style="font-size: 1.5em; display: inline-block; animation: spin 1s linear infinite;">⚙️</span> Interrogation du réseau BACnet en cours... (peut prendre jusqu'à 10 secondes)
+    </div>
+
+    <div id="results-area" style="display: none; margin-top: 20px;">
+        <div class="card" style="padding: 0;">
+            <div style="padding: 15px; background: #f8fafc; border-bottom: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center;">
+                <h3 style="margin: 0;">Objets Découverts <span id="objects-count" class="badge-count-main">0</span></h3>
+                <button class="btn-secondary" onclick="generateTemplate()" id="btn-generate" disabled>📄 Créer un template depuis la sélection</button>
+            </div>
+            <div style="max-height: 60vh; overflow-y: auto;">
+                <table class="data-table" id="objects-table">
+                    <thead>
+                        <tr>
+                            <th style="width: 40px; text-align: center;"><input type="checkbox" id="selectAll" onchange="toggleAll(this)"></th>
+                            <th>Object ID</th>
+                            <th>Libellé (Object Name)</th>
+                            <th>Valeur actuelle (Present Value)</th>
+                        </tr>
+                    </thead>
+                    <tbody id="objects-tbody">
+                        <!-- Rempli en JS -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    <div class="card params-card" style="margin-top: 30px;">
+        <h3>Recherche globale de point (Who-Has)</h3>
+        <p class="form-hint" style="margin-bottom: 10px;">Interroge dynamiquement tout le réseau BACnet pour trouver les équipements possédant un objet spécifique (par son nom).</p>
+        <form id="form-whohas" style="display: flex; gap: 15px; align-items: flex-end; flex-wrap: wrap;" onsubmit="event.preventDefault(); runWhoHas();">
+            <div style="flex: 1; min-width: 220px;">
+                <label>Nom exact du point (Object Name) :</label>
+                <input type="text" id="whohas_name" placeholder="Ex: BExt25'R'Flr**'R*****'RHvacCoo'RTemp" style="width: 100%;" required>
+            </div>
+            <div>
+                <button type="submit" class="btn-primary" id="btn-whohas" style="height: 38px;">🌐 Chercher sur le réseau</button>
+            </div>
+        </form>
+    </div>
+
+    <div id="whohas-loading" style="display: none; padding: 20px; text-align: center; color: #e67e22; font-weight: bold;">
+        <span style="font-size: 1.5em; display: inline-block; animation: spin 1s linear infinite;">📡</span> Émission d'un Who-Has et attente des réponses... (5 secondes)
+    </div>
+
+    <div id="whohas-results-area" style="display: none; margin-top: 20px;">
+        <div class="card" style="padding: 0;">
+            <div style="padding: 15px; background: #fff7ed; border-bottom: 1px solid #fed7aa; display: flex; justify-content: space-between; align-items: center;">
+                <h3 style="margin: 0; color: #9a3412;">Résultats I-Have <span id="whohas-count" class="badge-count-main" style="background: #ea580c;">0</span></h3>
+            </div>
+            <div style="max-height: 40vh; overflow-y: auto;">
+                <table class="data-table" id="whohas-table">
+                    <thead>
+                        <tr>
+                            <th>IP / Adresse source</th>
+                            <th>Device ID</th>
+                            <th>Object ID</th>
+                            <th>Valeur lue</th>
+                        </tr>
+                    </thead>
+                    <tbody id="whohas-tbody">
+                        <!-- Rempli en JS -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</section>
+
+<style>
+.card { background: white; padding: 15px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); margin-bottom: 20px; }
+.params-card { background: #f8fafc; border: 1px solid #e2e8f0; }
+.params-card label { display: block; font-size: 0.85em; font-weight: bold; color: #475569; margin-bottom: 5px; }
+.params-card input, .params-card select { padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 0.95em; outline: none; }
+.params-card input:focus, .params-card select:focus { border-color: #3498db; }
+.btn-primary { background: #3498db; color: white; padding: 8px 15px; border-radius: 4px; border: none; cursor: pointer; font-weight: bold; transition: background 0.2s; }
+.btn-primary:hover { background: #2980b9; }
+.btn-primary:disabled { background: #95a5a6; cursor: not-allowed; }
+.btn-secondary { background: #f1f5f9; color: #334155; border: 1px solid #cbd5e1; padding: 8px 15px; border-radius: 4px; cursor: pointer; font-weight: bold; }
+.btn-secondary:hover { background: #e2e8f0; }
+.btn-secondary:disabled { background: #f1f5f9; color: #94a3b8; cursor: not-allowed; }
+.data-table { width: 100%; border-collapse: collapse; }
+.data-table th, .data-table td { padding: 10px 12px; border-bottom: 1px solid #f1f5f9; text-align: left; }
+.data-table th { background: #f8fafc; position: sticky; top: 0; z-index: 10; font-size: 0.85em; text-transform: uppercase; color: #64748b; }
+.data-table tbody tr:hover { background: #f8fafc; }
+.badge-count-main { background: #3498db; color: white; padding: 2px 8px; border-radius: 12px; font-size: 0.85em; font-weight: normal; margin-left: 10px; }
+@keyframes spin { 100% { transform: rotate(360deg); } }
+</style>
+
+<script>
+const baseUrl = window.CONFIG?.baseUrl || '';
+let discoveredObjects = [];
+
+async function runDiscovery() {
+    const ip = document.getElementById('address').value;
+    const instance = document.getElementById('device_instance').value;
+    
+    if (!ip || !instance) {
+        alert("Veuillez renseigner l'IP et l'instance de l'appareil.");
+        return;
+    }
+    
+    document.getElementById('btn-discover').disabled = true;
+    document.getElementById('loading-indicator').style.display = 'block';
+    document.getElementById('results-area').style.display = 'none';
+    
+    try {
+        const url = (baseUrl + '/api/bacnet/tools/discover').replace(/\/+/g, '/');
+        const res = await fetch(url, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ ip: ip, device_instance: parseInt(instance) })
+        });
+        
+        const data = await res.json();
+        if (data.status === 'ok') {
+            discoveredObjects = data.objects || [];
+            renderObjects();
+        } else {
+            alert("Erreur: " + (data.message || "Impossible de découvrir l'appareil."));
+        }
+    } catch (e) {
+        alert("Erreur réseau: " + e);
+    } finally {
+        document.getElementById('btn-discover').disabled = false;
+        document.getElementById('loading-indicator').style.display = 'none';
+    }
+}
+
+function renderObjects() {
+    const tbody = document.getElementById('objects-tbody');
+    tbody.innerHTML = '';
+    
+    document.getElementById('objects-count').textContent = discoveredObjects.length;
+    document.getElementById('results-area').style.display = 'block';
+    document.getElementById('selectAll').checked = false;
+    updateGenerateBtn();
+    
+    if (discoveredObjects.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: #94a3b8; padding: 20px;">Aucun objet BACnet trouvé ou connexion échouée.</td></tr>';
+        return;
+    }
+    
+    discoveredObjects.forEach((obj, idx) => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+            <td style="text-align: center;"><input type="checkbox" class="obj-checkbox" data-idx="${idx}" onchange="updateGenerateBtn()"></td>
+            <td><code style="background: #f1f5f9; padding: 2px 6px; border-radius: 4px;">${obj.object_id}</code></td>
+            <td><strong>${obj.name}</strong></td>
+            <td>${obj.value || '—'}</td>
+        `;
+        tbody.appendChild(tr);
+    });
+}
+
+function toggleAll(cb) {
+    const checkboxes = document.querySelectorAll('.obj-checkbox');
+    checkboxes.forEach(c => c.checked = cb.checked);
+    updateGenerateBtn();
+}
+
+function updateGenerateBtn() {
+    const checkboxes = document.querySelectorAll('.obj-checkbox:checked');
+    document.getElementById('btn-generate').disabled = checkboxes.length === 0;
+}
+
+async function generateTemplate() {
+    const checkboxes = document.querySelectorAll('.obj-checkbox:checked');
+    if (checkboxes.length === 0) return;
+    
+    const selected = Array.from(checkboxes).map(cb => discoveredObjects[parseInt(cb.dataset.idx)]);
+    
+    const tplName = prompt("Nom du nouveau Template :", "BACnet Découvert " + document.getElementById('address').value);
+    if (!tplName) return;
+    
+    const mfr = prompt("Nom du fabricant (Optionnel) :", "");
+    
+    // Convert to objects_json format
+    const objectsDef = selected.map(o => ({ obj: o.object_id, name: o.name }));
+    
+    try {
+        const url = (baseUrl + '/api/bacnet/template/save').replace(/\/+/g, '/');
+        // Structure handled by handle_bacnet_template_save is usually form data mapped to json, 
+        // we can mimic the expected json payload
+        const payload = {
+            name: tplName,
+            manufacturer: mfr,
+            "obj_id[]": objectsDef.map(o => o.obj),
+            "obj_name[]": objectsDef.map(o => o.name),
+            is_shared: 0
+        };
+        
+        const res = await fetch(url, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        
+        if (data.status === 'ok') {
+            alert("✅ Template créé avec succès !");
+            window.location.href = (baseUrl + '/bacnet/templates').replace(/\/+/g, '/');
+        } else {
+            alert("Erreur: " + data.message);
+        }
+    } catch (e) {
+        alert("Erreur lors de la sauvegarde.");
+    }
+}
+async function runWhoHas() {
+    const objName = document.getElementById('whohas_name').value.trim();
+    if (!objName) return;
+
+    document.getElementById('btn-whohas').disabled = true;
+    document.getElementById('whohas-loading').style.display = 'block';
+    document.getElementById('whohas-results-area').style.display = 'none';
+
+    try {
+        const url = (baseUrl + '/api/bacnet/tools/whohas').replace(/\/+/g, '/');
+        const res = await fetch(url, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ object_name: objName })
+        });
+
+        const data = await res.json();
+        const tbody = document.getElementById('whohas-tbody');
+        tbody.innerHTML = '';
+        
+        if (data.status === 'ok') {
+            const results = data.objects || [];
+            document.getElementById('whohas-count').textContent = results.length;
+            
+            if (results.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: #94a3b8; padding: 20px;">Aucun appareil n\'a répondu "I-Have" pour ce nom.</td></tr>';
+            } else {
+                results.forEach((obj) => {
+                    if (obj.error) {
+                        tbody.innerHTML += `<tr><td colspan="4" style="color:red;">Erreur: ${obj.error}</td></tr>`;
+                    } else {
+                        const tr = document.createElement('tr');
+                        tr.innerHTML = `
+                            <td><code style="background: #f1f5f9; padding: 2px 6px; border-radius: 4px;">${obj.address}</code></td>
+                            <td><strong>${obj.device_id}</strong></td>
+                            <td>${obj.object_id}</td>
+                            <td><strong>${obj.value !== null ? obj.value : '<em>Erreur de lecture</em>'}</strong></td>
+                        `;
+                        tbody.appendChild(tr);
+                    }
+                });
+            }
+            document.getElementById('whohas-results-area').style.display = 'block';
+        } else {
+            alert("Erreur Who-Has: " + (data.message || "Requête échouée."));
+        }
+    } catch (e) {
+        alert("Erreur réseau: " + e);
+    } finally {
+        document.getElementById('btn-whohas').disabled = false;
+        document.getElementById('whohas-loading').style.display = 'none';
+    }
+}
+</script>

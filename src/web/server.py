@@ -1,14 +1,18 @@
 import json
 import logging
 import os
+import queue
 import socket
 import subprocess
 import sys
 import time
+import uuid
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from socketserver import ThreadingMixIn
 from urllib.parse import parse_qs, urlparse
 from pathlib import Path
+
+import paho.mqtt.client as mqtt
 
 from core.config import load_config
 from core.database import get_db_connection
@@ -17,6 +21,7 @@ from services.fleet import fleet
 from services.gsm import get_gsm_info
 from services.ipscan import (is_ipscan_running, load_ipscan_results,
                              start_ip_scan_in_background)
+from services.mqtt_service import mqtt_client
 from web.stream import handle_sse_stream
 from web.templating import escape, render
 
@@ -96,8 +101,12 @@ class WebAdminHandler(BaseHTTPRequestHandler):
             return self.serve_modbus_tools(query)
         elif path in ("/api/modbus/suivi/values", "/api/monitor/suivi/values"):
             return self.serve_modbus_suivi_values()
-        elif path == "/scan/bacnet":
-            return self.serve_bacnet_mgr()
+        elif path == "/scan/bacnet" or path == "/bacnet/devices":
+            return self.serve_bacnet_devices(query)
+        elif path == "/bacnet/templates":
+            return self.serve_bacnet_templates()
+        elif path == "/bacnet/tools":
+            return self.serve_bacnet_tools(query)
         elif path == "/monitor/suivi":
             return self.serve_trends_view()
         elif path == "/monitor/system":
@@ -155,8 +164,20 @@ class WebAdminHandler(BaseHTTPRequestHandler):
             self.handle_modbus_template_share_to_fleet()
         elif path == "/api/bacnet/device/add":
             self.handle_bacnet_device_add()
+        elif path == "/api/bacnet/device/delete":
+            self.handle_bacnet_device_delete()
         elif path == "/api/bacnet/template/save":
             self.handle_bacnet_template_save()
+        elif path == "/api/bacnet/template/delete":
+            self.handle_bacnet_template_delete()
+        elif path == "/api/bacnet/template/import_from_fleet":
+            self.handle_bacnet_template_import_from_fleet()
+        elif path == "/api/bacnet/template/share_to_fleet":
+            self.handle_bacnet_template_share_to_fleet()
+        elif path == "/api/bacnet/tools/discover":
+            self.handle_bacnet_tools_discover()
+        elif path == "/api/bacnet/tools/whohas":
+            self.handle_bacnet_tools_whohas()
         elif path == "/api/table/columns/add":
             self.handle_column_add()
         elif path == "/api/table/columns/delete":
@@ -1027,7 +1048,7 @@ class WebAdminHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(final_html.encode("utf-8"))
 
-    def serve_bacnet_mgr(self):
+    def serve_bacnet_devices(self, query=None):
         config = load_config()
         base_url = config.get("base_url", "")
         hostname = socket.gethostname()
@@ -1035,28 +1056,324 @@ class WebAdminHandler(BaseHTTPRequestHandler):
         from services.bacnet_mgr import get_all_templates, get_site_devices
         from services.presence import get_current_site_name
         site_name = get_current_site_name()
+        prefill_ip = query.get("ip", [""])[0] if query else ""
         with get_db_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT id FROM sites WHERE name = ?", (site_name,))
             site_row = cursor.fetchone()
             site_id = site_row["id"] if site_row else None
+
         templates = get_all_templates()
         devices = get_site_devices(site_id) if site_id else []
-        templates_html = ""
-        for t in templates:
-            t_json = json.dumps(dict(t)).replace("'", "\\'")
-            templates_html += f"<tr><td>{t['name']}</td><td>{t['manufacturer']}</td><td><button class='btn-blue' onclick='showEditTemplateModal({t_json})'>Modifier</button></td></tr>"
-        if not templates: templates_html = "<tr><td colspan='3'>Aucun template disponible</td></tr>"
-        devices_html = "".join([f"<div class='status-card'><strong>{d['name']}</strong><br>{d['template_name']} (Inst: {d['device_instance']} @ {d['network_address']})</div>" for d in devices])
-        if not devices: devices_html = "<p>Aucun appareil configuré sur ce site.</p>"
-        options_html = "".join([f"<option value='{t['id']}'>{t['name']}</option>" for t in templates])
-        content = render("bacnet.html", site_name=site_name, templates_list_html=templates_html, devices_list_html=devices_html, templates_options_html=options_html)
+
+        total_monitored_site = 0
+        total_recorded_site = 0
+        cards_html = []
+
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            for d in devices:
+                dev_id = d["id"]
+                cursor.execute(
+                    "SELECT COUNT(*) as count_mon, SUM(is_recorded) as count_rec FROM bacnet_points WHERE device_id = ? AND is_monitored = 1",
+                    (dev_id,)
+                )
+                stats = cursor.fetchone()
+                mon_count = stats["count_mon"] or 0
+                rec_count = stats["count_rec"] or 0
+                total_monitored_site += mon_count
+                total_recorded_site += rec_count
+
+                total_tpl_objs = 0
+                cursor.execute("SELECT objects_json FROM bacnet_templates WHERE id = ?", (d["template_id"],))
+                tpl_row = cursor.fetchone()
+                if tpl_row and tpl_row["objects_json"]:
+                    try:
+                        objs = json.loads(tpl_row["objects_json"])
+                        total_tpl_objs = len(objs)
+                    except Exception:
+                        total_tpl_objs = 0
+
+                manu = d.get('template_manufacturer') or 'Générique'
+                instance_info = f"Inst: {d['device_instance']}" if d.get("device_instance") else "Non défini"
+
+                cards_html.append(f"""
+                <div class="device-card" id="device-card-{dev_id}">
+                    <div class="device-card-header">
+                        <div style="min-width: 0;">
+                            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                                <h3 class="device-title">{escape(d['name'])}</h3>
+                                <span class="badge-protocol proto-bacnet-ip">BACnet/IP</span>
+                            </div>
+                            <div class="device-meta">
+                                <span title="Modèle">📦 {escape(d['template_name'])}</span>
+                                <span>•</span>
+                                <span title="Fabricant">🏭 {escape(manu)}</span>
+                            </div>
+                        </div>
+                        <button class="btn-icon-del" onclick="deleteDevice({dev_id}, '{escape(d['name'])}')" title="Supprimer cet appareil">
+                            🗑️
+                        </button>
+                    </div>
+
+                    <div class="device-card-body">
+                        <div class="device-addr-box">
+                            <span class="addr-label">Cible :</span>
+                            <span class="addr-value">{escape(d['network_address'])} ({instance_info})</span>
+                        </div>
+                        <div class="device-stats-grid">
+                            <div class="stat-pill">
+                                <span class="stat-icon">📊</span>
+                                <div>
+                                    <div class="stat-num">{mon_count} / {total_tpl_objs}</div>
+                                    <div class="stat-desc">Points suivis</div>
+                                </div>
+                            </div>
+                            <div class="stat-pill">
+                                <span class="stat-icon">💾</span>
+                                <div>
+                                    <div class="stat-num">{rec_count}</div>
+                                    <div class="stat-desc">Enregistrés</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                """)
+
+        devices_html = "".join(cards_html)
+        if not devices:
+            devices_html = """
+            <div class="empty-state">
+                <div class="empty-icon">🔌</div>
+                <h3>Aucun appareil BACnet</h3>
+                <p>Ce chantier n'a pas encore d'appareil BACnet configuré.</p>
+                <button class="btn-primary" onclick="showAddDeviceModal()" style="margin-top: 15px;">➕ Ajouter le premier appareil</button>
+            </div>
+            """
+
+        options_html = "".join([f'<option value="{t["id"]}">{escape(t["name"])} ({escape(t["manufacturer"] or "Générique")}) - v{t.get("version", 1)}</option>' for t in templates])
+
+        content = render(
+            "bacnet_devices.html",
+            site_name=site_name,
+            devices_list_html=devices_html,
+            templates_options_html=options_html,
+            total_devices=len(devices),
+            total_monitored=total_monitored_site,
+            total_recorded=total_recorded_site,
+            prefill_ip=escape(prefill_ip),
+            base_url=base_url
+        )
         nav_html = render("nav.html", base_url=base_url)
-        final_html = render("layout.html", title="Gestion BACnet", hostname=escape(hostname), base_url=escape(base_url), version=version, nav=nav_html, content=content)
+        final_html = render("layout.html", title="Appareils BACnet", hostname=escape(hostname), base_url=escape(base_url), version=version, nav=nav_html, content=content)
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.end_headers()
         self.wfile.write(final_html.encode("utf-8"))
+
+    def serve_bacnet_templates(self):
+        config = load_config()
+        base_url = config.get("base_url", "")
+        hostname = socket.gethostname()
+        version = str(int(time.time()))
+        from services.bacnet_mgr import get_templates_overview
+
+        local_templates, fleet_templates = get_templates_overview()
+
+        local_html = ""
+        for t in local_templates:
+            t_json = json.dumps(dict(t)).replace("'", "\\'")
+            escaped_name = t['name'].replace("'", "\\'")
+            try:
+                objs = json.loads(t.get("objects_json", "[]"))
+                obj_count = len(objs)
+            except Exception:
+                obj_count = 0
+
+            version_badge = f"<span style='background:#e8f4fd; color:#2980b9; padding:2px 6px; border-radius:10px; font-size:0.75em; font-weight:bold; margin-left:5px;'>v{t.get('version', 1)}</span>"
+            if t.get('is_shared') == 1:
+                status_badge = "<span style='background:#e8f8f5; color:#16a085; padding:2px 6px; border-radius:10px; font-size:0.75em; margin-left:4px;'>🌐 Partagé</span>"
+            else:
+                status_badge = "<span style='background:#fdf2e9; color:#d35400; padding:2px 6px; border-radius:10px; font-size:0.75em; margin-left:4px;'>🔒 Local</span>"
+
+            local_html += (
+                f"<tr data-name='{escape(t['name']).lower()}'>"
+                f"<td><strong>{escape(t['name'])}</strong> {version_badge} {status_badge}</td>"
+                f"<td>{escape(t['manufacturer']) if t['manufacturer'] else '—'}</td>"
+                f"<td><span class='badge-count'>{obj_count} obj.</span></td>"
+                f"<td style='display:flex; gap:6px; flex-wrap:wrap;'>"
+                f"<button class='btn-blue btn-sm' onclick='showEditTemplateModal({t_json})' title='Modifier les objets'>✏️ Modifier</button>"
+                f"<button class='btn-secondary btn-sm' onclick='shareTemplate({t['id']}, \"{escaped_name}\")' title='Publier vers la flotte docs'>📤 Partager</button>"
+                f"<button class='btn-red btn-sm' onclick='deleteTemplate({t['id']}, \"{escaped_name}\")' title='Supprimer du boîtier'>🗑️</button>"
+                f"</td>"
+                f"</tr>"
+            )
+        if not local_templates:
+            local_html = "<tr><td colspan='4' style='text-align:center; color:#888; padding:25px;'>Aucun template installé localement.<br><small>Installez-en depuis la bibliothèque de la flotte à droite ou créez-en un nouveau !</small></td></tr>"
+
+        fleet_html = ""
+        for f in fleet_templates:
+            escaped_name = f['name'].replace("'", "\\'")
+            if f.get('needs_update'):
+                status_action = (
+                    f"<span class='badge-installed' style='background:#fef9e7; color:#d4ac0d;'>⚠️ v{f['local_version']} ➤ v{f['version']}</span> "
+                    f"<button class='btn-blue btn-sm' onclick='importFromFleet(\"{escaped_name}\", true)' title='Mettre à jour vers la version {f['version']}'>⬆️ Mettre à jour</button>"
+                )
+            elif f['is_installed']:
+                status_action = (
+                    f"<span class='badge-installed'>✅ v{f['version']}</span> "
+                    f"<button class='btn-gray btn-sm' onclick='importFromFleet(\"{escaped_name}\", true)' title='Réimporter la version de la flotte'>🔄</button>"
+                )
+            else:
+                status_action = (
+                    f"<button class='btn-primary btn-sm' onclick='importFromFleet(\"{escaped_name}\", false)'>⬇️ Installer (v{f['version']})</button>"
+                )
+
+            fleet_html += (
+                f"<tr data-name='{escape(f['name']).lower()}'>"
+                f"<td><strong>{escape(f['name'])}</strong></td>"
+                f"<td><span title='{escape(f['notes'])}'>{escape(f['notes'])[:22] + ('...' if len(f['notes']) > 22 else '')}</span></td>"
+                f"<td><span class='badge-count'>{f['objects_count']} obj.</span></td>"
+                f"<td>{status_action}</td>"
+                f"</tr>"
+            )
+        if not fleet_templates:
+            fleet_html = "<tr><td colspan='4' style='text-align:center; color:#888; padding:25px;'>Bibliothèque de la flotte inaccessible (ou 0 template disponible).</td></tr>"
+
+        content = render(
+            "bacnet_templates.html",
+            local_templates_html=local_html,
+            local_count=len(local_templates),
+            fleet_templates_html=fleet_html,
+            fleet_count=len(fleet_templates),
+            base_url=base_url
+        )
+        nav_html = render("nav.html", base_url=base_url)
+        final_html = render("layout.html", title="Templates BACnet", hostname=escape(hostname), base_url=escape(base_url), version=version, nav=nav_html, content=content)
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.end_headers()
+        self.wfile.write(final_html.encode("utf-8"))
+
+    def serve_bacnet_tools(self, query=None):
+        config = load_config()
+        base_url = config.get("base_url", "")
+        hostname = socket.gethostname()
+        version = str(int(time.time()))
+
+        target_ip = query.get("ip", [""])[0] if query else ""
+        target_instance = query.get("instance", [""])[0] if query else ""
+
+        options_html = ""
+        try:
+            with get_db_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT last_ip, bacnet_instance, bacnet_name FROM discovered_devices WHERE bacnet_instance IS NOT NULL")
+                for row in cursor.fetchall():
+                    if row["last_ip"]:
+                        options_html += f"<option value='{row['last_ip']}'>{row['bacnet_name'] or 'Automate BACnet'} (Inst: {row['bacnet_instance']})</option>"
+        except Exception:
+            pass
+
+        content = render(
+            "bacnet_tools.html",
+            target_ip=escape(target_ip),
+            target_instance=escape(target_instance),
+            discovered_ips_options=options_html
+        )
+        nav_html = render("nav.html", base_url=base_url)
+        final_html = render("layout.html", title="Outils BACnet", hostname=escape(hostname), base_url=escape(base_url), version=version, nav=nav_html, content=content)
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.end_headers()
+        self.wfile.write(final_html.encode("utf-8"))
+
+    def handle_bacnet_tools_discover(self):
+        content_length = int(self.headers.get('Content-Length', 0))
+        post_data = self.rfile.read(content_length)
+        try:
+            data = json.loads(post_data)
+            ip = data.get("ip")
+            device_instance = data.get("device_instance")
+
+            if not ip or not device_instance:
+                raise ValueError("IP ou Device Instance manquants")
+
+            job_id = str(uuid.uuid4())
+            res_queue = queue.Queue()
+
+            def on_msg(client, userdata, msg):
+                try:
+                    res_queue.put(json.loads(msg.payload.decode('utf-8')))
+                except Exception:
+                    pass
+
+            try:
+                temp_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
+            except AttributeError:
+                temp_client = mqtt.Client()
+            temp_client.on_message = on_msg
+            temp_client.connect("127.0.0.1", 1883, 60)
+            temp_client.loop_start()
+            temp_client.subscribe(f"rpinode/bacnet/res/discover/{job_id}")
+
+            mqtt_client.publish("rpinode/bacnet/cmd/discover", {
+                "job_id": job_id, "ip": ip, "device_instance": device_instance
+            })
+
+            try:
+                result = res_queue.get(timeout=10.0)
+                self.send_json(result)
+            except queue.Empty:
+                self.send_json({"status": "error", "message": "Délai d'attente dépassé (aucune réponse de l'équipement BACnet)"})
+            finally:
+                temp_client.loop_stop()
+                temp_client.disconnect()
+        except Exception as e:
+            self.send_json({"status": "error", "message": str(e)})
+
+    def handle_bacnet_tools_whohas(self):
+        content_length = int(self.headers.get('Content-Length', 0))
+        post_data = self.rfile.read(content_length)
+        try:
+            data = json.loads(post_data)
+            object_name = data.get("object_name")
+            if not object_name:
+                raise ValueError("Nom de l'objet manquant")
+
+            job_id = str(uuid.uuid4())
+            res_queue = queue.Queue()
+
+            def on_msg(client, userdata, msg):
+                try:
+                    res_queue.put(json.loads(msg.payload.decode('utf-8')))
+                except Exception:
+                    pass
+
+            try:
+                temp_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
+            except AttributeError:
+                temp_client = mqtt.Client()
+            temp_client.on_message = on_msg
+            temp_client.connect("127.0.0.1", 1883, 60)
+            temp_client.loop_start()
+            temp_client.subscribe(f"rpinode/bacnet/res/whohas/{job_id}")
+
+            mqtt_client.publish("rpinode/bacnet/cmd/whohas", {
+                "job_id": job_id, "object_name": object_name
+            })
+
+            try:
+                result = res_queue.get(timeout=10.0)
+                self.send_json({"status": "ok", "objects": result})
+            except queue.Empty:
+                self.send_json({"status": "error", "message": "Délai d'attente dépassé (aucune réponse I-Have)"})
+            finally:
+                temp_client.loop_stop()
+                temp_client.disconnect()
+        except Exception as e:
+            self.send_json({"status": "error", "message": str(e)})
 
     def serve_trends_view(self):
         config = load_config()
@@ -1259,8 +1576,63 @@ class WebAdminHandler(BaseHTTPRequestHandler):
             if isinstance(ids, str): ids, names = [ids], [names]
             for i in range(len(ids)):
                 if ids[i] and names[i]: objects.append({"obj": ids[i], "name": names[i]})
-            save_template(name=data.get("name"), manufacturer=data.get("manufacturer"), objects=objects, template_id=data.get("template_id") or None)
+            save_template(name=data.get("name"), manufacturer=data.get("manufacturer"), objects=objects, template_id=data.get("template_id") or None, is_shared=data.get("is_shared"))
             self.send_json({"status": "ok", "message": "Template BACnet enregistré"})
+        except Exception as e: self.send_error(400, str(e))
+
+    def handle_bacnet_device_delete(self):
+        content_length = int(self.headers.get('Content-Length', 0))
+        post_data = self.rfile.read(content_length)
+        try:
+            data = json.loads(post_data)
+            device_id = int(data.get("device_id"))
+            from services.bacnet_mgr import delete_device_from_site
+            delete_device_from_site(device_id)
+            self.send_json({"status": "ok", "message": "Appareil BACnet supprimé"})
+        except Exception as e:
+            logger.error(f"Erreur delete device BACnet: {e}")
+            self.send_json({"status": "error", "message": str(e)})
+
+    def handle_bacnet_template_delete(self):
+        content_length = int(self.headers.get('Content-Length', 0))
+        post_data = self.rfile.read(content_length)
+        try:
+            data = json.loads(post_data)
+            template_id = int(data.get("template_id"))
+            from services.bacnet_mgr import delete_template
+            ok, err = delete_template(template_id)
+            if ok:
+                self.send_json({"status": "ok", "message": "Template supprimé avec succès"})
+            else:
+                self.send_json({"status": "error", "message": err or "Impossible de supprimer le template"})
+        except Exception as e: self.send_error(400, str(e))
+
+    def handle_bacnet_template_import_from_fleet(self):
+        content_length = int(self.headers.get('Content-Length', 0))
+        post_data = self.rfile.read(content_length)
+        try:
+            data = json.loads(post_data)
+            template_name = data.get("name")
+            from services.bacnet_mgr import import_template_from_fleet
+            ok, err = import_template_from_fleet(template_name)
+            if ok:
+                self.send_json({"status": "ok", "message": f"Template '{template_name}' installé avec succès en local"})
+            else:
+                self.send_json({"status": "error", "message": err or "Impossible d'importer le template"})
+        except Exception as e: self.send_error(400, str(e))
+
+    def handle_bacnet_template_share_to_fleet(self):
+        content_length = int(self.headers.get('Content-Length', 0))
+        post_data = self.rfile.read(content_length)
+        try:
+            data = json.loads(post_data)
+            template_id = int(data.get("template_id"))
+            from services.bacnet_mgr import share_template_to_fleet
+            ok, err = share_template_to_fleet(template_id)
+            if ok:
+                self.send_json({"status": "ok", "message": "Template partagé avec succès sur la flotte docs !"})
+            else:
+                self.send_json({"status": "error", "message": err or "Impossible de partager le template"})
         except Exception as e: self.send_error(400, str(e))
 
     def handle_modbus_template_save(self):

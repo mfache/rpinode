@@ -1,6 +1,10 @@
+import atexit
 import logging
-from logging.handlers import RotatingFileHandler
+import os
+import subprocess
+import sys
 import threading
+from logging.handlers import RotatingFileHandler
 
 from core.database import init_db
 from core.paths import DATA_DIR, LOG_FILE
@@ -31,44 +35,74 @@ def main():
 
     logging.info(f"Démarrage de rpinode. Dossier de données : {DATA_DIR}")
     logging.info(f"Logs enregistrés dans : {LOG_FILE}")
-    
+
     # Initialisation de la DB
     init_db()
-    
+
     # Publication initiale des routes sur Tailscale
     try:
         from services.network_config import (apply_site_network_profiles,
                                              publish_tailscale_routes)
         from services.presence import get_current_site_id
-        
+
         logging.info("--- DEMARRAGE RPINODE ---")
-        
+
         # 1. On applique le profil réseau du chantier actuel
         current_site_id = get_current_site_id()
         if current_site_id:
             logging.info(f"Application du profil réseau pour le chantier actuel (ID: {current_site_id})")
             apply_site_network_profiles(current_site_id)
-            
+
         # 2. On publie les routes
         publish_tailscale_routes()
     except Exception as e:
         logging.error(f"Erreur initialisation réseau : {e}")
-    
+
     # Démarrage du tracker de localisation en arrière-plan
     tracker_thread = threading.Thread(target=start_tracker, kwargs={'interval': 60}, daemon=True)
     tracker_thread.start()
-    
+
     # Démarrage du thread de gestion WiFi robuste
     wifi_thread = threading.Thread(target=run_wifi_manager, daemon=True)
     wifi_thread.start()
-    
+
     # Démarrage du service d'enregistrement des données (Trends)
     logger_thread = threading.Thread(target=start_data_logger, kwargs={'interval': 60}, daemon=True)
     logger_thread.start()
-    
+
     # Démarrage du reporter MQTT (Bridge données internes -> MQTT)
     reporter.start()
-    
+
+    # Démarrage du démon BACnet unifié (MQTT), utilisé par les outils BACnet (discover, who-has, ...)
+    def run_bacnet_daemon():
+        bacnet_logger = logging.getLogger("BACnetDaemonRunner")
+        daemon_path = os.path.join(os.path.dirname(__file__), "services", "bacnet_daemon.py")
+        bacnet_python = "/opt/boitier-bacnet/venv/bin/python"
+
+        if not os.path.exists(bacnet_python):
+            bacnet_python = sys.executable
+
+        bacnet_logger.info(f"Démarrage de bacnet_daemon via {bacnet_python}")
+        try:
+            # Lancer le démon comme un sous-processus continu
+            proc = subprocess.Popen([bacnet_python, daemon_path])
+
+            def cleanup():
+                bacnet_logger.info("Arrêt du bacnet_daemon enfant...")
+                proc.terminate()
+                try:
+                    proc.wait(timeout=3)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+
+            atexit.register(cleanup)
+            proc.wait()
+        except Exception as e:
+            bacnet_logger.error(f"Impossible de démarrer le démon BACnet: {e}")
+
+    bacnet_thread = threading.Thread(target=run_bacnet_daemon, daemon=True)
+    bacnet_thread.start()
+
     start_server()
 
 if __name__ == "__main__":
