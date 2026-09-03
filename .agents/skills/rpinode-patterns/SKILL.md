@@ -1,6 +1,6 @@
 ---
 name: rpinode-patterns
-description: Guidelines for developing the rpinode project, focusing on its unique architecture (poupée russe templating, path management, and SSE).
+description: Guidelines and architectural principles for developing the rpinode project (path management, templating, SSE, persistence, validation).
 ---
 
 # rpinode Patterns
