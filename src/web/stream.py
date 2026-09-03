@@ -2,6 +2,7 @@ import json
 import logging
 import queue
 import time
+import uuid
 
 import paho.mqtt.client as mqtt
 
@@ -173,3 +174,65 @@ def handle_sse_stream(handler):
     finally:
         client.loop_stop()
         client.disconnect()
+
+def handle_mqtt_stream(handler, query=None):
+    """
+    Gère une connexion SSE pour le moniteur MQTT temps réel.
+    Diffuse les messages reçus sur le broker local selon le filtre de topic demandé.
+    """
+    handler.send_response(200)
+    handler.send_header('Content-type', 'text/event-stream')
+    handler.send_header('Cache-Control', 'no-cache')
+    handler.send_header('Connection', 'keep-alive')
+    handler.end_headers()
+
+    topic_filter = "#"
+    if query and "topic" in query and query["topic"]:
+        topic_filter = query["topic"][0] or "#"
+
+    logger.info(f"Nouveau client SSE Moniteur MQTT connecté (topic: {topic_filter}).")
+
+    q = queue.Queue(maxsize=100)
+
+    def on_message(client, userdata, msg):
+        try:
+            payload_str = msg.payload.decode('utf-8', errors='replace')
+            topic = msg.topic
+            q.put((topic, payload_str), block=False)
+        except Exception:
+            pass
+
+    client_id = f"rpinode_mqtt_mon_{int(time.time() * 1000)}_{uuid.uuid4().hex[:6]}"
+    try:
+        client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id=client_id)
+    except AttributeError:
+        client = mqtt.Client(client_id=client_id)
+
+    client.on_message = on_message
+
+    try:
+        client.connect("127.0.0.1", 1883, 60)
+        client.subscribe(topic_filter)
+        client.loop_start()
+
+        while True:
+            try:
+                topic, payload_str = q.get(timeout=3)
+                data = json.dumps({"topic": topic, "payload": payload_str})
+                message = f"data: {data}\n\n"
+                handler.wfile.write(message.encode("utf-8"))
+                handler.wfile.flush()
+            except queue.Empty:
+                handler.wfile.write(b": heartbeat\n\n")
+                handler.wfile.flush()
+
+    except (ConnectionAbortedError, BrokenPipeError, ConnectionResetError):
+        logger.info("Client SSE Moniteur MQTT déconnecté.")
+    except Exception as e:
+        logger.error(f"Erreur flux SSE Moniteur MQTT: {e}")
+    finally:
+        try:
+            client.loop_stop()
+            client.disconnect()
+        except Exception:
+            pass

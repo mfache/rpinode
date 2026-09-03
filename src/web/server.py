@@ -22,7 +22,7 @@ from services.gsm import get_gsm_info
 from services.ipscan import (is_ipscan_running, load_ipscan_results,
                              start_ip_scan_in_background)
 from services.mqtt_service import mqtt_client
-from web.stream import handle_sse_stream
+from web.stream import handle_sse_stream, handle_mqtt_stream
 from web.templating import escape, render
 
 logger = logging.getLogger(__name__)
@@ -64,6 +64,8 @@ class WebAdminHandler(BaseHTTPRequestHandler):
             return self.serve_static(path)
         if path == "/api/stream":
             return handle_sse_stream(self)
+        if path == "/api/mqtt/stream":
+            return handle_mqtt_stream(self, query)
         if path == "/api/scan/ip/results":
             return self.serve_ip_scan_results()
 
@@ -125,6 +127,8 @@ class WebAdminHandler(BaseHTTPRequestHandler):
             return self.serve_logs_view()
         elif path == "/configuration/logger":
             return self.serve_configuration_logger()
+        elif path == "/configuration/mqtt":
+            return self.serve_configuration_mqtt()
         elif path == "/scan/ip":
             return self.serve_ip_scan()
             
@@ -2464,6 +2468,21 @@ class WebAdminHandler(BaseHTTPRequestHandler):
                          modbus_timeout=modbus_timeout,
                          bacnet_timeout=bacnet_timeout)
         final_html = render("layout.html", title="Configuration Enregistreurs", hostname=escape(hostname), base_url=escape(base_url), version=version, nav=nav_html, content=content)
+        
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.end_headers()
+        self.wfile.write(final_html.encode("utf-8"))
+
+    def serve_configuration_mqtt(self):
+        config = load_config()
+        base_url = config.get("base_url", "")
+        hostname = socket.gethostname()
+        version = config.get("version", str(int(time.time())))
+        
+        nav_html = render("nav.html", base_url=base_url)
+        content = render("configuration_mqtt.html")
+        final_html = render("layout.html", title="Moniteur MQTT", hostname=escape(hostname), base_url=escape(base_url), version=version, nav=nav_html, content=content)
         
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")

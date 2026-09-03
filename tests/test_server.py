@@ -149,5 +149,27 @@ class TestServer(unittest.TestCase):
         except Exception as e:
             self.fail(f"L'API /api/monitor/suivi/values n'a pas répondu : {e}")
 
+    def test_configuration_logger_page(self):
+        """Vérifie que la page /configuration/logger est servie."""
+        url = f"http://localhost:{self.test_port}/configuration/logger"
+        try:
+            response = urllib.request.urlopen(url, timeout=5)
+            self.assertEqual(response.getcode(), 200)
+            content = response.read().decode('utf-8')
+            self.assertIn("Configuration des enregistreurs", content)
+        except Exception as e:
+            self.fail(f"La page /configuration/logger n'a pas répondu : {e}")
+
+    def test_configuration_mqtt_page(self):
+        """Vérifie que la page /configuration/mqtt est servie."""
+        url = f"http://localhost:{self.test_port}/configuration/mqtt"
+        try:
+            response = urllib.request.urlopen(url, timeout=5)
+            self.assertEqual(response.getcode(), 200)
+            content = response.read().decode('utf-8')
+            self.assertIn("Moniteur MQTT", content)
+        except Exception as e:
+            self.fail(f"La page /configuration/mqtt n'a pas répondu : {e}")
+
 if __name__ == '__main__':
     unittest.main()
