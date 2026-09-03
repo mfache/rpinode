@@ -40,3 +40,5 @@ Use Server-Sent Events for real-time updates instead of polling.
 Always check for additional documentation files to understand specific workflows or business logic.
 - Use `find . -type f -iname "*.md"` to locate all documentation files.
 - Files like `README.md` and `HOWTO.md` contain critical operational information.
+
+Voir aussi /home/marc/.agents/skills/SKILL.md

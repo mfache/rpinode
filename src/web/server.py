@@ -101,10 +101,18 @@ class WebAdminHandler(BaseHTTPRequestHandler):
             return self.serve_modbus_templates()
         elif path == "/modbus/tools":
             return self.serve_modbus_tools(query)
-        elif path in ("/api/modbus/suivi/values", "/api/monitor/suivi/values"):
+        elif path == "/api/modbus/suivi/values":
             return self.serve_modbus_suivi_values()
+        elif path == "/api/bacnet/suivi/values":
+            return self.serve_bacnet_suivi_values()
+        elif path == "/api/monitor/suivi/values":
+            return self.serve_monitor_suivi_values()
         elif path == "/scan/bacnet" or path == "/bacnet/devices":
             return self.serve_bacnet_devices(query)
+        elif path == "/bacnet/suivi":
+            return self.serve_bacnet_suivi()
+        elif path == "/bacnet/device/view":
+            return self.serve_bacnet_device_view(query)
         elif path == "/bacnet/templates":
             return self.serve_bacnet_templates()
         elif path == "/bacnet/tools":
@@ -168,6 +176,14 @@ class WebAdminHandler(BaseHTTPRequestHandler):
             self.handle_bacnet_device_add()
         elif path == "/api/bacnet/device/delete":
             self.handle_bacnet_device_delete()
+        elif path == "/api/bacnet/device/points/save":
+            self.handle_bacnet_device_points_save()
+        elif path == "/api/bacnet/point/update":
+            self.handle_bacnet_point_update()
+        elif path == "/api/bacnet/point/delete":
+            self.handle_bacnet_point_delete()
+        elif path == "/api/bacnet/tools/read":
+            self.handle_bacnet_tools_read()
         elif path == "/api/bacnet/template/save":
             self.handle_bacnet_template_save()
         elif path == "/api/bacnet/template/delete":
@@ -1146,6 +1162,15 @@ class WebAdminHandler(BaseHTTPRequestHandler):
                             </div>
                         </div>
                     </div>
+
+                    <div class="device-card-footer">
+                        <a href="{base_url}/bacnet/device/view?id={dev_id}" class="btn-primary btn-sm" style="flex: 1; text-align: center; text-decoration: none;">
+                            ⚙️ Configurer les points
+                        </a>
+                        <a href="{base_url}/bacnet/tools?ip={escape(d['network_address'])}&instance={d['device_instance']}" class="btn-secondary btn-sm" title="Tester la liaison" style="text-decoration: none;">
+                            🔍 Test
+                        </a>
+                    </div>
                 </div>
                 """)
 
@@ -1179,6 +1204,283 @@ class WebAdminHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.end_headers()
         self.wfile.write(final_html.encode("utf-8"))
+
+    def serve_bacnet_suivi(self):
+        config = load_config()
+        base_url = config.get("base_url", "")
+        hostname = socket.gethostname()
+        version = str(int(time.time()))
+        from services.bacnet_mgr import get_site_bacnet_points
+        from services.presence import get_current_site_name
+        site_name = get_current_site_name()
+        
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT id FROM sites WHERE name = ?", (site_name,))
+            site_row = cursor.fetchone()
+            site_id = site_row["id"] if site_row else None
+            
+        points = get_site_bacnet_points(site_id, only_monitored=True) if site_id else []
+        
+        rows_html = ""
+        cadences = ["5s", "10s", "30s", "1m", "5m"]
+        
+        for p in points:
+            pid = p["id"]
+            rec_checked = "checked" if p["is_recorded"] else ""
+            cad_options = "".join([
+                f"<option value='{c}' {'selected' if p.get('cadence') == c else ''}>{c}</option>"
+                for c in cadences
+            ])
+            val_display = p["last_value"] if p["last_value"] is not None else "—"
+            unit_display = f"<code>bacnet://{p['network_address']} (Inst: {p['device_instance']})</code>"
+            
+            rows_html += f"""
+                <tr id="suivi-row-{pid}">
+                    <td><strong>{escape(p['device_name'])}</strong><br><small style="color:#777;">{unit_display}</small></td>
+                    <td><span class="badge-gray">{escape(p['object_id'])}</span></td>
+                    <td><strong>{escape(p['name'] or p['object_id'])}</strong></td>
+                    <td><b class="live-val badge-gray" id="val-{pid}" data-suivi-key="{pid}">{escape(val_display)}</b></td>
+                    <td>
+                        <label style="cursor:pointer; display:inline-flex; align-items:center; gap:5px;">
+                            <input type="checkbox" class="cb-record" data-point-id="{pid}" {rec_checked} onchange="toggleRecord({pid}, this.checked)">
+                            <span>Enregistrer</span>
+                        </label>
+                    </td>
+                    <td>
+                        <select id="cadence-{pid}" class="cadence-select" {'disabled' if not p['is_recorded'] else ''} onchange="changeCadence({pid}, this.value)">
+                            {cad_options}
+                        </select>
+                    </td>
+                    <td>
+                        <button class="btn-icon-del" onclick="removePoint({pid})" title="Retirer du suivi">🗑️</button>
+                    </td>
+                </tr>
+            """
+            
+        if not points:
+            rows_html = "<tr><td colspan='7' style='text-align:center; padding:30px; color:#888;'>Aucun point BACnet sélectionné pour le suivi sur ce chantier.<br><a href='" + base_url + "/bacnet/devices' class='btn-secondary btn-sm' style='margin-top:10px; display:inline-block;'>Sélectionner des points sur un appareil</a></td></tr>"
+            
+        content = render("bacnet_suivi.html", site_name=site_name, suivi_rows_html=rows_html, base_url=base_url)
+        nav_html = render("nav.html", base_url=base_url)
+        final_html = render("layout.html", title="Suivi BACnet (Live)", hostname=escape(hostname), base_url=escape(base_url), version=version, nav=nav_html, content=content)
+        
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.end_headers()
+        self.wfile.write(final_html.encode("utf-8"))
+
+    def serve_bacnet_suivi_values(self):
+        from services.bacnet_mgr import read_site_monitored_points_live
+        from services.presence import get_current_site_name
+        site_name = get_current_site_name()
+        
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT id FROM sites WHERE name = ?", (site_name,))
+            row = cursor.fetchone()
+            site_id = row["id"] if row else None
+            
+        if not site_id:
+            return self.send_json({"status": "error", "message": "Aucun chantier actif", "values": {}})
+            
+        values = read_site_monitored_points_live(site_id)
+        self.send_json({"status": "ok", "values": values})
+
+    def serve_bacnet_device_view(self, query):
+        device_id = query.get("id", [""])[0]
+        if not device_id.isdigit():
+            self.send_error(400, "ID d'appareil invalide")
+            return
+            
+        config = load_config()
+        base_url = config.get("base_url", "")
+        hostname = socket.gethostname()
+        version = str(int(time.time()))
+        
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT d.*, t.name as template_name, t.objects_json
+                FROM bacnet_devices d
+                JOIN bacnet_templates t ON d.template_id = t.id
+                WHERE d.id = ?
+            """, (int(device_id),))
+            device = cursor.fetchone()
+            
+        if not device:
+            self.send_error(404, "Appareil non trouvé")
+            return
+            
+        device = dict(device)
+        objects = json.loads(device.get("objects_json") or "[]")
+        
+        from services.bacnet_mgr import get_device_points
+        existing_points = get_device_points(int(device_id))
+        monitored_keys = {p['object_id']: p for p in existing_points if p.get("is_monitored")}
+        
+        rows_html = ""
+        for i, obj in enumerate(objects):
+            obj_id = obj.get("obj", "")
+            obj_name = obj.get("name", "") or obj_id
+            
+            is_mon = obj_id in monitored_keys
+            chk_attr = "checked" if is_mon else ""
+            
+            data_attrs = f"data-obj='{escape(obj_id)}' data-name='{escape(obj_name)}'"
+            
+            rows_html += f"""
+                <tr class="point-row" {data_attrs} id="row-{i}">
+                    <td style="text-align:center;">
+                        <input type="checkbox" class="cb-monitor" {chk_attr}>
+                    </td>
+                    <td><code>{escape(obj_id)}</code></td>
+                    <td><strong>{escape(obj_name)}</strong></td>
+                    <td><span class="live-val badge-gray" id="val-{i}">-</span></td>
+                    <td>
+                        <button class="btn-secondary btn-sm" onclick="readPoint({i})">Lire</button>
+                    </td>
+                </tr>
+            """
+            
+        if not objects:
+            rows_html = "<tr><td colspan='5' style='text-align:center; padding:20px; color:#888;'>Aucun objet défini dans le modèle de cet appareil.</td></tr>"
+            
+        device_json = json.dumps({
+            "id": device["id"],
+            "name": device["name"],
+            "network_address": device["network_address"],
+            "device_instance": device["device_instance"]
+        })
+        
+        conn_display = f"{device['network_address']} (Instance {device['device_instance']})"
+        
+        content = render(
+            "bacnet_device_view.html",
+            device_name=escape(device["name"]),
+            bacnet_template_name=escape(device["template_name"]),
+            conn_display=escape(conn_display),
+            rows_html=rows_html,
+            device_json=device_json,
+            base_url=base_url
+        )
+        nav_html = render("nav.html", base_url=base_url)
+        final_html = render("layout.html", title=f"Points BACnet - {escape(device['name'])}", hostname=escape(hostname), base_url=escape(base_url), version=version, nav=nav_html, content=content)
+        
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.end_headers()
+        self.wfile.write(final_html.encode("utf-8"))
+
+    def handle_bacnet_device_points_save(self):
+        content_length = int(self.headers.get('Content-Length', 0))
+        post_data = self.rfile.read(content_length)
+        try:
+            data = json.loads(post_data)
+            device_id = int(data.get("device_id"))
+            points = data.get("points", [])
+            
+            from services.bacnet_mgr import save_device_points_selection
+            from services.presence import get_current_site_name
+            site_name = get_current_site_name()
+            
+            with get_db_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT id FROM sites WHERE name = ?", (site_name,))
+                row = cursor.fetchone()
+                site_id = row["id"] if row else None
+                
+            if not site_id:
+                return self.send_json({"status": "error", "message": "Aucun chantier actif"})
+                
+            save_device_points_selection(device_id, site_id, points)
+            self.send_json({"status": "ok", "message": "Sélection enregistrée"})
+        except Exception as e:
+            logger.error(f"Erreur save bacnet device points: {e}")
+            self.send_json({"status": "error", "message": str(e)})
+
+    def handle_bacnet_point_update(self):
+        content_length = int(self.headers.get('Content-Length', 0))
+        post_data = self.rfile.read(content_length)
+        try:
+            data = json.loads(post_data)
+            point_id = int(data.get("point_id"))
+            is_monitored = data.get("is_monitored")
+            is_recorded = data.get("is_recorded")
+            cadence = data.get("cadence")
+            
+            from services.bacnet_mgr import update_point_settings
+            success = update_point_settings(point_id, is_monitored=is_monitored, is_recorded=is_recorded, cadence=cadence)
+            if success:
+                self.send_json({"status": "ok"})
+            else:
+                self.send_json({"status": "error", "message": "Point introuvable"})
+        except Exception as e:
+            logger.error(f"Erreur update bacnet point: {e}")
+            self.send_json({"status": "error", "message": str(e)})
+
+    def handle_bacnet_point_delete(self):
+        content_length = int(self.headers.get('Content-Length', 0))
+        post_data = self.rfile.read(content_length)
+        try:
+            data = json.loads(post_data)
+            point_id = int(data.get("point_id"))
+            from services.bacnet_mgr import delete_bacnet_point
+            delete_bacnet_point(point_id)
+            self.send_json({"status": "ok"})
+        except Exception as e:
+            logger.error(f"Erreur delete bacnet point: {e}")
+            self.send_json({"status": "error", "message": str(e)})
+
+    def handle_bacnet_tools_read(self):
+        content_length = int(self.headers.get('Content-Length', 0))
+        post_data = self.rfile.read(content_length)
+        try:
+            data = json.loads(post_data)
+            ip = data.get("address") or data.get("ip")
+            obj_id = data.get("object_id") or data.get("obj")
+            device_id = data.get("device_id") or data.get("device_instance")
+            
+            if not ip or not obj_id:
+                return self.send_json({"status": "error", "message": "Adresse IP et Object ID requis"})
+                
+            job_id = str(uuid.uuid4())
+            res_queue = queue.Queue()
+
+            def on_msg(client, userdata, msg):
+                try:
+                    res_queue.put(json.loads(msg.payload.decode('utf-8')))
+                except Exception:
+                    pass
+
+            try:
+                temp_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
+            except AttributeError:
+                temp_client = mqtt.Client()
+            temp_client.on_message = on_msg
+            temp_client.connect("127.0.0.1", 1883, 60)
+            temp_client.loop_start()
+            temp_client.subscribe(f"rpinode/bacnet/res/read/{job_id}")
+
+            mqtt_client.publish("rpinode/bacnet/cmd/read", {
+                "job_id": job_id,
+                "points": [{"address": ip, "object_id": obj_id, "device_id": device_id}]
+            })
+
+            try:
+                results = res_queue.get(timeout=4.0)
+                res_item = results[0] if results and isinstance(results, list) else {}
+                if res_item.get("error"):
+                    self.send_json({"status": "error", "message": res_item["error"]})
+                else:
+                    self.send_json({"status": "ok", "value": res_item.get("value")})
+            except queue.Empty:
+                self.send_json({"status": "error", "message": "Délai d'attente dépassé"})
+            finally:
+                temp_client.loop_stop()
+                temp_client.disconnect()
+        except Exception as e:
+            self.send_json({"status": "error", "message": str(e)})
 
     def serve_bacnet_templates(self):
         config = load_config()
@@ -1497,6 +1799,7 @@ class WebAdminHandler(BaseHTTPRequestHandler):
         hostname = socket.gethostname()
         version = str(int(time.time()))
         from services.modbus_mgr import get_site_modbus_points
+        from services.bacnet_mgr import get_site_bacnet_points
         from services.presence import get_current_site_name
         site_name = get_current_site_name()
         
@@ -1507,6 +1810,7 @@ class WebAdminHandler(BaseHTTPRequestHandler):
             site_id = site_row["id"] if site_row else None
             
         modbus_points = get_site_modbus_points(site_id, only_monitored=True) if site_id else []
+        bacnet_points = get_site_bacnet_points(site_id, only_monitored=True) if site_id else []
         
         rows_html = ""
         cadences = ["5s", "10s", "30s", "1m", "5m"]
@@ -1552,8 +1856,42 @@ class WebAdminHandler(BaseHTTPRequestHandler):
                 </tr>
             """
             
-        if not modbus_points:
-            rows_html = "<tr><td colspan='8' style='text-align:center; padding:30px; color:#888;'>Aucun point sélectionné pour le suivi sur ce chantier.<br><a href='" + base_url + "/modbus/devices' class='btn-secondary btn-sm' style='margin-top:10px; display:inline-block;'>Sélectionner des points sur un appareil</a></td></tr>"
+        for p in bacnet_points:
+            pid = p["id"]
+            rec_checked = "checked" if p["is_recorded"] else ""
+            cad_options = "".join([
+                f"<option value='{c}' {'selected' if p.get('cadence') == c else ''}>{c}</option>"
+                for c in cadences
+            ])
+            val_display = p["last_value"] if p["last_value"] is not None else "—"
+            unit_display = f"<code>bacnet://{p['network_address']} (Inst: {p['device_instance']})</code>"
+            
+            rows_html += f"""
+                <tr id="suivi-row-bac-{pid}" data-proto="bacnet-ip">
+                    <td><span class="badge-protocol proto-bacnet-ip">BACNET/IP</span></td>
+                    <td><strong>{escape(p['device_name'])}</strong><br><small style="color:#777;">{unit_display}</small></td>
+                    <td><span class="badge-gray">{escape(p['object_id'])}</span></td>
+                    <td><strong>{escape(p['name'] or p['object_id'])}</strong></td>
+                    <td><b class="live-val badge-gray" id="val-bac-{pid}" data-suivi-key="bac-{pid}">{escape(val_display)}</b></td>
+                    <td>
+                        <label style="cursor:pointer; display:inline-flex; align-items:center; gap:5px;">
+                            <input type="checkbox" class="cb-record" data-point-id="{pid}" {rec_checked} onchange="toggleRecord({pid}, this.checked, 'bacnet')">
+                            <span>Enregistrer</span>
+                        </label>
+                    </td>
+                    <td>
+                        <select id="cadence-bac-{pid}" class="cadence-select" {'disabled' if not p['is_recorded'] else ''} onchange="changeCadence({pid}, this.value, 'bacnet')">
+                            {cad_options}
+                        </select>
+                    </td>
+                    <td>
+                        <button class="btn-icon-del" onclick="removePoint({pid}, 'bacnet')" title="Retirer du suivi">🗑️</button>
+                    </td>
+                </tr>
+            """
+            
+        if not modbus_points and not bacnet_points:
+            rows_html = "<tr><td colspan='8' style='text-align:center; padding:30px; color:#888;'>Aucun point sélectionné pour le suivi sur ce chantier.<br><a href='" + base_url + "/modbus/devices' class='btn-secondary btn-sm' style='margin-top:10px; display:inline-block; margin-right: 8px;'>Appareils Modbus</a><a href='" + base_url + "/bacnet/devices' class='btn-secondary btn-sm' style='margin-top:10px; display:inline-block;'>Appareils BACnet</a></td></tr>"
             
         content = render("trends.html", site_name=site_name, trends_rows_html=rows_html, base_url=base_url)
         nav_html = render("nav.html", base_url=base_url)
@@ -1563,6 +1901,31 @@ class WebAdminHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.end_headers()
         self.wfile.write(final_html.encode("utf-8"))
+
+    def serve_monitor_suivi_values(self):
+        from services.modbus_mgr import read_site_monitored_points_live as read_modbus_live
+        from services.bacnet_mgr import read_site_monitored_points_live as read_bacnet_live
+        from services.presence import get_current_site_name
+        site_name = get_current_site_name()
+        
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT id FROM sites WHERE name = ?", (site_name,))
+            row = cursor.fetchone()
+            site_id = row["id"] if row else None
+            
+        if not site_id:
+            return self.send_json({"status": "error", "message": "Aucun chantier actif", "values": {}})
+            
+        mb_values = read_modbus_live(site_id)
+        bac_values = read_bacnet_live(site_id)
+        combined = {}
+        for k, v in mb_values.items():
+            combined[k] = v
+        for k, v in bac_values.items():
+            combined[f"bac-{k}"] = v
+            combined[k] = v
+        self.send_json({"status": "ok", "values": combined})
 
     def _render_ip_scan_rows(self, base_url):
         from services.ipscan import load_ipscan_results

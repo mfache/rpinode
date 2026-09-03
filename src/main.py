@@ -80,6 +80,7 @@ def main():
 
     # Démarrage du démon BACnet unifié (MQTT), utilisé par les outils BACnet (discover, who-has, ...)
     def run_bacnet_daemon():
+        import time
         bacnet_logger = logging.getLogger("BACnetDaemonRunner")
         daemon_path = os.path.join(os.path.dirname(__file__), "services", "bacnet_daemon.py")
         bacnet_python = "/opt/boitier-bacnet/venv/bin/python"
@@ -92,7 +93,8 @@ def main():
         # tourner en parallèle et se battre avec le nouveau sur le port UDP 47808. On s'assure
         # donc de tuer toute instance résiduelle avant d'en lancer une nouvelle.
         try:
-            subprocess.run(["pkill", "-f", daemon_path], check=False)
+            subprocess.run(["pkill", "-9", "-f", "bacnet_daemon.py"], check=False)
+            time.sleep(0.2)
         except Exception as e:
             bacnet_logger.warning(f"Impossible de nettoyer les anciens démons BACnet: {e}")
 

@@ -27,8 +27,12 @@ total_start=$(date +%s%3N)
 printf "%s\n" "--- 🚀 ${BLUE}Libération des ressources${NC} ---"
 step "Arrêt du serveur"
 export PYTHONPATH=src
-# On lance le pkill et on attend un peu pour éviter que le message de fin ne pollue l'affichage
-sudo pkill -9 -f "src/main.py" > /dev/null 2>&1
+# On stoppe le service systemd s'il existe et on nettoie les processus résiduels
+if systemctl is-enabled rpinode.service >/dev/null 2>&1; then
+    sudo systemctl stop rpinode.service >/dev/null 2>&1 || true
+fi
+sudo pkill -9 -f "main.py" > /dev/null 2>&1 || true
+sudo pkill -9 -f "bacnet_daemon" > /dev/null 2>&1 || true
 sleep 0.5
 step_done
 
@@ -49,7 +53,11 @@ sudo chmod 777 /tmp/rpinode/log
 step_done
 
 step "Lancement serveur"
-nohup sudo python3 -u src/main.py > /tmp/rpinode/log/stdout.log 2>&1 &
+if systemctl is-enabled rpinode.service >/dev/null 2>&1; then
+    sudo systemctl restart rpinode.service
+else
+    nohup sudo python3 -u src/main.py > /tmp/rpinode/log/stdout.log 2>&1 &
+fi
 step_done
 
 total_end=$(date +%s%3N)

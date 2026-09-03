@@ -121,6 +121,46 @@ def init_db():
         except Exception as e:
             logger.warning(f"Erreur lors de la migration des colonnes modbus_templates : {e}")
 
+        # Migration des colonnes de bacnet_templates si nécessaire
+        try:
+            cursor.execute("PRAGMA table_info(bacnet_templates)")
+            bcols = [r["name"] for r in cursor.fetchall()]
+            if bcols:
+                import uuid
+                import socket
+                if "template_uuid" not in bcols:
+                    cursor.execute("ALTER TABLE bacnet_templates ADD COLUMN template_uuid TEXT")
+                if "revision_uuid" not in bcols:
+                    cursor.execute("ALTER TABLE bacnet_templates ADD COLUMN revision_uuid TEXT")
+                if "parent_revision_uuid" not in bcols:
+                    cursor.execute("ALTER TABLE bacnet_templates ADD COLUMN parent_revision_uuid TEXT")
+                if "version" not in bcols:
+                    cursor.execute("ALTER TABLE bacnet_templates ADD COLUMN version INTEGER DEFAULT 1")
+                if "is_shared" not in bcols:
+                    cursor.execute("ALTER TABLE bacnet_templates ADD COLUMN is_shared BOOLEAN DEFAULT 0")
+                if "is_local_hidden" not in bcols:
+                    cursor.execute("ALTER TABLE bacnet_templates ADD COLUMN is_local_hidden BOOLEAN DEFAULT 0")
+                if "created_by_node" not in bcols:
+                    cursor.execute("ALTER TABLE bacnet_templates ADD COLUMN created_by_node TEXT")
+
+                cursor.execute("SELECT id, name, template_uuid, revision_uuid FROM bacnet_templates")
+                for row in cursor.fetchall():
+                    t_uuid = row["template_uuid"] or str(uuid.uuid5(uuid.NAMESPACE_DNS, f"bacnet-template-{row['name']}"))
+                    r_uuid = row["revision_uuid"] or str(uuid.uuid4())
+                    cursor.execute("""
+                        UPDATE bacnet_templates
+                        SET template_uuid = COALESCE(template_uuid, ?),
+                            revision_uuid = COALESCE(revision_uuid, ?),
+                            version = COALESCE(version, 1),
+                            is_shared = COALESCE(is_shared, 0),
+                            is_local_hidden = COALESCE(is_local_hidden, 0),
+                            created_by_node = COALESCE(created_by_node, ?)
+                        WHERE id = ?
+                    """, (t_uuid, r_uuid, socket.gethostname(), row["id"]))
+                conn.commit()
+        except Exception as e:
+            logger.warning(f"Erreur lors de la migration des colonnes bacnet_templates : {e}")
+
         try:
             cursor.execute("PRAGMA table_info(site_network_profiles)")
             cols = [r["name"] for r in cursor.fetchall()]

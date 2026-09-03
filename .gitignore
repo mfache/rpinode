@@ -5,6 +5,8 @@ __pycache__/
 
 # Environnement / Config
 data/*.db
+data/*.db-*
+data/*.sqlite
 data/*.db-journal
 data/*.tmp
 data/config.json
@@ -18,4 +20,4 @@ log/
 .zed/
 .vscode/
 .idea/
-test_*.py
+/test_*.py

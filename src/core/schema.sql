@@ -134,10 +134,17 @@ CREATE TABLE IF NOT EXISTS modbus_devices (
 -- Templates BACnet génériques
 CREATE TABLE IF NOT EXISTS bacnet_templates (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    external_id TEXT UNIQUE,
-    name TEXT NOT NULL,
-    manufacturer TEXT,
+    template_uuid TEXT,                  -- UUID racine du template (conservé à travers les versions)
+    revision_uuid TEXT UNIQUE,           -- UUID spécifique de cette version/révision
+    parent_revision_uuid TEXT,           -- Révision parente (historique)
+    name TEXT NOT NULL,                  -- Nom du modèle
+    manufacturer TEXT,                  -- Fabricant
+    version INTEGER DEFAULT 1,           -- Numéro de version séquentiel
+    is_shared BOOLEAN DEFAULT 0,         -- 1 si publié/partagé avec la flotte
+    is_local_hidden BOOLEAN DEFAULT 0,   -- 1 si masqué/supprimé localement par l'utilisateur
+    created_by_node TEXT,                -- Hostname du boîtier d'origine
     objects_json TEXT,                  -- Définition des objets (JSON)
+    external_id TEXT UNIQUE,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 

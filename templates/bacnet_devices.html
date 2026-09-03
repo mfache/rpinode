@@ -6,11 +6,11 @@
             <p class="hint">Chantier : <strong>${site_name}</strong> | Gestion et configuration des équipements BACnet connectés</p>
         </div>
         <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+            <a href="${base_url}/bacnet/suivi" class="btn-secondary" style="background:#e8f4f8; border-color:#bee5eb; color:#0c5460;">
+                <span>📊</span> Voir le Suivi BACnet
+            </a>
             <a href="${base_url}/bacnet/templates" class="btn-secondary">
                 <span>📚</span> Gérer les Templates
-            </a>
-            <a href="${base_url}/monitor/suivi" class="btn-secondary" style="background:#e8f4f8; border-color:#bee5eb; color:#0c5460;">
-                <span>📊</span> Suivi Live
             </a>
             <button class="btn-primary" onclick="showAddDeviceModal()">
                 <span>➕</span> Ajouter un appareil
