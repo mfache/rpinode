@@ -88,6 +88,9 @@ class WebAdminHandler(BaseHTTPRequestHandler):
             return self.handle_devices_ports_api()
         elif path == "/api/devices/qualifications":
             return self.handle_devices_qualifications_api()
+        elif path == "/api/devices/stream":
+            from web.stream import handle_devices_stream
+            return handle_devices_stream(self)
         elif path == "/api/bacnet/mstp/status":
             return self.handle_bacnet_mstp_status()
         elif path == "/api/bacnet/mstp/stream":
@@ -1746,17 +1749,6 @@ class WebAdminHandler(BaseHTTPRequestHandler):
                 is_shared_model=is_shared_model
             )
 
-            # Notification MQTT / SSE en direct
-            try:
-                from services.mqtt_service import mqtt_client
-                config = load_config()
-                base_url = config.get("base_url", "")
-                sys_devs = list_system_devices()
-                components = render_devices_components(sys_devs, base_url=base_url)
-                mqtt_client.publish("rpinode/status/devices", components)
-            except Exception as e:
-                logger.warning(f"Erreur notification SSE devices: {e}")
-
             self.send_json({"status": "ok", "message": "Qualification enregistrée", "qualification": qualif})
         except Exception as e:
             logger.error(f"Erreur qualification device: {e}")
@@ -1771,19 +1763,8 @@ class WebAdminHandler(BaseHTTPRequestHandler):
             if not hw_key:
                 return self.send_json({"status": "error", "message": "Clé matérielle manquante"}, status_code=400)
 
-            from services.device_mgr import delete_device_qualification, list_system_devices, render_devices_components
+            from services.device_mgr import delete_device_qualification
             delete_device_qualification(hw_key)
-
-            # Notification MQTT / SSE en direct
-            try:
-                from services.mqtt_service import mqtt_client
-                config = load_config()
-                base_url = config.get("base_url", "")
-                sys_devs = list_system_devices()
-                components = render_devices_components(sys_devs, base_url=base_url)
-                mqtt_client.publish("rpinode/status/devices", components)
-            except Exception as e:
-                logger.warning(f"Erreur notification SSE devices: {e}")
 
             self.send_json({"status": "ok", "message": "Qualification réinitialisée"})
         except Exception as e:

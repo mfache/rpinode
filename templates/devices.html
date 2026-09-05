@@ -460,4 +460,33 @@ window.onclick = function(event) {
         closeQualifyModal();
     }
 };
+
+// Flux SSE en direct (actif uniquement lorsque la page /devices est ouverte)
+(function() {
+    try {
+        const baseUrl = "${base_url}";
+        const devEvtSource = new EventSource(baseUrl + "/api/devices/stream");
+        devEvtSource.onmessage = function(event) {
+            if (!event.data) return;
+            try {
+                const updates = JSON.parse(event.data);
+                for (const [key, value] of Object.entries(updates)) {
+                    if (value === undefined || value === null) continue;
+                    const el = document.getElementById("subt_" + key);
+                    if (el) {
+                        if (key.endsWith("_html")) {
+                            el.innerHTML = value;
+                        } else {
+                            el.textContent = value;
+                        }
+                    }
+                }
+            } catch (err) {
+                console.debug("Erreur parsing SSE devices:", err);
+            }
+        };
+    } catch (e) {
+        console.debug("Erreur EventSource devices/stream:", e);
+    }
+})();
 </script>

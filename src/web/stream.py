@@ -154,8 +154,6 @@ def handle_sse_stream(handler):
                     current_data.update(data)
                     # Ajout dynamique du mode wifi (pas forcément dans le payload MQTT)
                     current_data["wifi_mode"] = _get_current_wifi_mode()
-                elif topic == "rpinode/status/devices":
-                    current_data.update(data)
 
                 # Calcul du delta
                 payload = get_changed_items(last_data, current_data)
@@ -276,3 +274,49 @@ def handle_bacnet_mstp_stream(handler):
         logger.info("Client SSE BACnet MS/TP déconnecté.")
     except Exception as e:
         logger.error(f"Erreur flux SSE BACnet MS/TP: {e}")
+
+
+def handle_devices_stream(handler):
+    """
+    Gère une connexion SSE dédiée pour la page /devices.
+    Inspecte l'état matériel uniquement lorsqu'un client est connecté,
+    et diffuse les mises à jour lorsque l'inventaire change.
+    """
+    import hashlib
+    from core.config import load_config
+    from services.device_mgr import list_system_devices, render_devices_components
+
+    handler.send_response(200)
+    handler.send_header('Content-type', 'text/event-stream')
+    handler.send_header('Cache-Control', 'no-cache')
+    handler.send_header('Connection', 'keep-alive')
+    handler.end_headers()
+
+    logger.info("Nouveau client SSE /devices connecté.")
+
+    config = load_config()
+    base_url = config.get("base_url", "")
+    last_sig = None
+
+    try:
+        while True:
+            sys_devs = list_system_devices()
+            # Signature rapide pour détecter les modifications matérielles ou de qualification
+            sig_raw = json.dumps(sys_devs, sort_keys=True, default=str)
+            sig = hashlib.md5(sig_raw.encode("utf-8")).hexdigest()
+
+            if sig != last_sig:
+                components = render_devices_components(sys_devs, base_url=base_url)
+                message = f"data: {json.dumps(components)}\n\n"
+                handler.wfile.write(message.encode("utf-8"))
+                handler.wfile.flush()
+                last_sig = sig
+            else:
+                handler.wfile.write(b": heartbeat\n\n")
+                handler.wfile.flush()
+
+            time.sleep(3.0)
+    except (ConnectionAbortedError, BrokenPipeError, ConnectionResetError):
+        logger.info("Client SSE /devices déconnecté.")
+    except Exception as e:
+        logger.error(f"Erreur flux SSE /devices: {e}")

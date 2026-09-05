@@ -50,8 +50,14 @@ Lancé comme un thread démon dans `main.py`, il centralise la collecte des donn
     * `rpinode/status/gsm` : Infos cellule 4G.
     * `rpinode/status/services` : État du scanner IP, configuration AP WiFi.
 
-### 3. Le Bridge SSE (`src/web/stream.py`)
-Lorsqu'un utilisateur ouvre l'interface web, une connexion SSE est établie. 
+### 3. Les Streams Dédiés à la Demande (`src/web/stream.py`)
+Certains flux plus lourds en ressources matérielles ne polluent pas MQTT en permanence et sont exécutés uniquement lorsqu'une page cliente dédiée est active :
+* `/api/devices/stream` : Inventaire temps réel des périphériques USB/série pour la page `/devices` (stoppe dès que la page est fermée).
+* `/api/bacnet/mstp/stream` : Découverte temps réel des équipements BACnet MS/TP.
+* `/api/monitor/stream` : Écoute du trafic MQTT brut pour le moniteur de logs.
+
+### 4. Le Bridge SSE Global (`src/web/stream.py`)
+Lorsqu'un utilisateur ouvre l'interface web, une connexion SSE globale (`/api/stream`) est établie. 
 * Le bridge crée un client MQTT temporaire dédié à cette session.
 * Il s'abonne à `rpinode/status/#`.
 * Chaque message MQTT reçu est formaté et envoyé instantanément au navigateur.

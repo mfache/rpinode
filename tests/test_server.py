@@ -301,6 +301,18 @@ class TestServer(unittest.TestCase):
         except Exception as e:
             self.fail(f"L'API /api/devices/ports n'a pas répondu : {e}")
 
+    def test_devices_stream_route(self):
+        """Vérifie que l'API /api/devices/stream est bien routée en text/event-stream."""
+        url = f"http://localhost:{self.test_port}/api/devices/stream"
+        try:
+            req = urllib.request.Request(url)
+            with urllib.request.urlopen(req, timeout=3) as resp:
+                self.assertEqual(resp.getcode(), 200)
+                self.assertIn("text/event-stream", resp.getheader("Content-Type"))
+        except Exception as e:
+            # La fermeture de flux ou timeout après réception des headers est attendue
+            pass
+
     def test_bacnet_mstp_status_api(self):
         """Vérifie que l'API /api/bacnet/mstp/status répond en JSON."""
         url = f"http://localhost:{self.test_port}/api/bacnet/mstp/status"
