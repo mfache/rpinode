@@ -7,7 +7,7 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_CONFIG = {
     "hostname": "rpinode-01",
-    "port": 8081,
+    "port": 8082,
     "debug": True,
     "base_url": "",
     "fleet_url": "https://docs.deltathermic.be/reports/api",

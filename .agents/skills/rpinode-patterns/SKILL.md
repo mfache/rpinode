@@ -42,4 +42,4 @@ Always check for additional documentation files to understand specific workflows
 - Files like `README.md` and `HOWTO.md` contain critical operational information.
 
 ## 7. Shortcuts
-When the user says "git" to you, you must perform a git and push.
+When the user says "git" or "pousse" to you, you must perform a git and push.

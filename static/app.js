@@ -8,6 +8,117 @@ let lastTsExit = null;
 let lastTsIp = null;
 
 /**
+ * Affiche l'écran de terminal de boot temps réel relié au superviseur Rust.
+ */
+function showBootScreen(title = "Redémarrage de rpinode...") {
+    document.body.innerHTML = `
+        <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background-color: #0f172a; color: #f8fafc; display: flex; flex-direction: column; align-items: center; min-height: 100vh; padding: 24px; box-sizing: border-box;">
+            <div style="text-align: center; margin-top: 10px; margin-bottom: 20px;">
+                <h1 style="font-size: 1.5rem; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 10px; margin-bottom: 6px;">
+                    <span>🔄</span>
+                    <span>${title}</span>
+                    <span style="background: #334155; color: #94a3b8; font-size: 0.85rem; padding: 4px 10px; border-radius: 9999px; font-weight: normal;" id="boot-timer">0s</span>
+                </h1>
+                <p style="color: #94a3b8; font-size: 0.9rem;">Le superviseur affiche les logs d'initialisation en direct.</p>
+            </div>
+
+            <div style="display: flex; align-items: center; gap: 12px; background: rgba(30, 41, 59, 0.8); border: 1px solid #334155; border-radius: 8px; padding: 12px 20px; margin-bottom: 16px; width: 100%; max-width: 900px; box-sizing: border-box;">
+                <div style="width: 18px; height: 18px; border: 3px solid rgba(255, 255, 255, 0.2); border-radius: 50%; border-top-color: #38bdf8; animation: spin 1s linear infinite;" id="boot-spinner"></div>
+                <div style="font-size: 0.95rem; color: #cbd5e1; flex: 1;" id="boot-status-desc">Connexion au superviseur...</div>
+            </div>
+
+            <div style="width: 100%; max-width: 900px; background: #020617; border: 1px solid #1e293b; border-radius: 10px; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5); overflow: hidden; display: flex; flex-direction: column; height: 62vh; box-sizing: border-box;">
+                <div style="background: #1e293b; padding: 10px 16px; display: flex; align-items: center; justify-content: space-between; font-size: 0.8rem; color: #94a3b8; font-family: monospace;">
+                    <div style="display: flex; gap: 6px;">
+                        <span style="width: 10px; height: 10px; border-radius: 50%; background: #ef4444; display: inline-block;"></span>
+                        <span style="width: 10px; height: 10px; border-radius: 50%; background: #eab308; display: inline-block;"></span>
+                        <span style="width: 10px; height: 10px; border-radius: 50%; background: #22c55e; display: inline-block;"></span>
+                    </div>
+                    <span>LIVE BOOT LOGS</span>
+                    <span id="boot-log-count">0 lignes</span>
+                </div>
+                <div style="padding: 14px 16px; overflow-y: auto; flex: 1; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 0.82rem; line-height: 1.5; color: #e2e8f0; white-space: pre-wrap; word-break: break-word;" id="boot-terminal"></div>
+            </div>
+        </div>
+        <style>
+            @keyframes spin { to { transform: rotate(360deg); } }
+            .log-line { margin-bottom: 4px; }
+            .log-INFO { color: #38bdf8; }
+            .log-WARNING { color: #facc15; }
+            .log-ERROR { color: #f87171; font-weight: bold; }
+            .log-DEBUG { color: #64748b; }
+            .log-HIGHLIGHT { color: #4ade80; font-weight: bold; }
+        </style>
+    `;
+
+    const terminal = document.getElementById('boot-terminal');
+    const statusDesc = document.getElementById('boot-status-desc');
+    const timerBadge = document.getElementById('boot-timer');
+    const logCountBadge = document.getElementById('boot-log-count');
+    const startTime = Date.now();
+    let count = 0;
+
+    setInterval(() => {
+        const elapsed = Math.floor((Date.now() - startTime) / 1000);
+        if (timerBadge) timerBadge.innerText = `${elapsed}s`;
+    }, 1000);
+
+    function appendLog(line) {
+        count++;
+        if (logCountBadge) logCountBadge.innerText = `${count} lignes`;
+        const div = document.createElement('div');
+        div.className = 'log-line';
+
+        if (line.includes('--- DEMARRAGE') || line.includes('Serveur HTTP')) {
+            div.className += ' log-HIGHLIGHT';
+        } else if (line.includes(' - INFO - ') || line.startsWith('INFO:')) {
+            div.className += ' log-INFO';
+        } else if (line.includes(' - WARNING - ')) {
+            div.className += ' log-WARNING';
+        } else if (line.includes(' - ERROR - ')) {
+            div.className += ' log-ERROR';
+        } else if (line.includes(' - DEBUG - ')) {
+            div.className += ' log-DEBUG';
+        }
+
+        div.textContent = line;
+        terminal.appendChild(div);
+        terminal.scrollTop = terminal.scrollHeight;
+    }
+
+    // Connexion SSE au superviseur Rust
+    try {
+        const evtSource = new EventSource('/supervisor/stream');
+
+        evtSource.onmessage = (event) => {
+            if (!event.data) return;
+            try {
+                const payload = JSON.parse(event.data);
+                if (payload.type === 'log') {
+                    appendLog(payload.message);
+                } else if (payload.type === 'status') {
+                    if (statusDesc) statusDesc.textContent = payload.message;
+                    if (payload.ready) {
+                        if (statusDesc) statusDesc.textContent = "✅ Serveur rpinode prêt ! Rechargement...";
+                        setTimeout(() => {
+                            window.location.reload();
+                        }, 500);
+                    }
+                }
+            } catch (e) {
+                appendLog(event.data);
+            }
+        };
+
+        evtSource.onerror = () => {
+            if (statusDesc) statusDesc.textContent = "En attente du service...";
+        };
+    } catch (e) {
+        console.error("Erreur connexion SSE superviseur :", e);
+    }
+}
+
+/**
  * Redémarre le serveur et attend qu'il revienne pour recharger la page.
  */
 async function restartServer() {
@@ -15,48 +126,22 @@ async function restartServer() {
     
     const baseUrl = window.CONFIG?.baseUrl || "";
     
-    // Affichage d'un écran d'attente
-    document.body.innerHTML = `
-        <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:100vh; font-family:sans-serif; background:#2c3e50; color:white; text-align:center; padding:20px;">
-            <div style="font-size: 3rem; margin-bottom: 20px;">🔄</div>
-            <h2 style="margin-bottom:10px;">Redémarrage de rpinode...</h2>
-            <p style="opacity: 0.8;">Le serveur se relance. Reconnexion automatique dès qu'il est prêt.</p>
-            <div style="margin-top:30px; font-family:monospace; padding: 10px 20px; background: rgba(255,255,255,0.1); border-radius: 5px;" id="reconnect-status">Tentative de connexion...</div>
-        </div>
-    `;
+    // Affichage immédiat du terminal live de boot
+    showBootScreen("Redémarrage de rpinode...");
 
     // Envoi de l'ordre de redémarrage
     try {
-        fetch(`${baseUrl}/api/restart`, { method: 'POST' });
+        await fetch(`${baseUrl}/api/restart`, { method: 'POST' });
     } catch (e) {
-        // L'erreur est attendue car le serveur se coupe
+        // Le serveur coupe
     }
-
-    // Boucle de vérification
-    const checkServer = async () => {
-        try {
-            const response = await fetch(`${baseUrl}/api/status`);
-            if (response.ok) {
-                // Succès ! On recharge la page à la racine de l'app
-                window.location.href = baseUrl || "/";
-                return;
-            }
-        } catch (e) {
-            // Serveur toujours hors ligne
-        }
-        setTimeout(checkServer, 1000);
-    };
-    
-    // On commence à chercher après un petit délai
-    setTimeout(checkServer, 2000);
 }
 
 /**
  * Gère les actions système (reboot/shutdown)
  */
 async function systemAction(action) {
-    const label = action === 'reboot' ? 'Redémarrage' : 'Arrêt';
-    const icon = action === 'reboot' ? '🔌' : '⛔';
+    const label = action === 'reboot' ? 'Redémarrage complet' : 'Arrêt';
     const confirmMsg = action === 'reboot' 
         ? 'Redémarrer COMPLÈTEMENT le boîtier ? La connexion sera coupée pendant environ une minute.' 
         : 'ÉTEINDRE le boîtier ? Il ne sera plus accessible à distance.';
@@ -65,37 +150,23 @@ async function systemAction(action) {
 
     const baseUrl = window.CONFIG?.baseUrl || "";
 
-    // Affichage d'un écran d'attente
-    document.body.innerHTML = `
-        <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:100vh; font-family:sans-serif; background:#c0392b; color:white; text-align:center; padding:20px;">
-            <div style="font-size: 3rem; margin-bottom: 20px;">${icon}</div>
-            <h2 style="margin-bottom:10px;">${label} du système en cours...</h2>
-            <p style="opacity: 0.8;">L'ordre a été envoyé au Raspberry Pi.</p>
-            <div style="margin-top:30px; font-family:monospace; padding: 10px 20px; background: rgba(255,255,255,0.1); border-radius: 5px;" id="reconnect-status">
-                ${action === 'reboot' ? 'En attente du redémarrage (ceci peut prendre 60s)...' : 'Vous pouvez fermer cet onglet.'}
+    if (action === 'reboot') {
+        showBootScreen("Reboot Système en cours...");
+    } else {
+        document.body.innerHTML = `
+            <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:100vh; font-family:sans-serif; background:#c0392b; color:white; text-align:center; padding:20px;">
+                <div style="font-size: 3rem; margin-bottom: 20px;">⛔</div>
+                <h2 style="margin-bottom:10px;">Arrêt du système en cours...</h2>
+                <p style="opacity: 0.8;">L'ordre d'extinction a été envoyé au Raspberry Pi.</p>
+                <div style="margin-top:30px; font-family:monospace; padding: 10px 20px; background: rgba(255,255,255,0.1); border-radius: 5px;">Vous pouvez fermer cet onglet.</div>
             </div>
-        </div>
-    `;
+        `;
+    }
 
     try {
         await fetch(`${baseUrl}/api/${action}`, { method: 'POST' });
     } catch (e) {
         // Normal
-    }
-
-    if (action === 'reboot') {
-        const checkServer = async () => {
-            try {
-                const response = await fetch(`${baseUrl}/api/status`);
-                if (response.ok) {
-                    window.location.href = baseUrl || "/";
-                    return;
-                }
-            } catch (e) {}
-            setTimeout(checkServer, 2000);
-        };
-        // Pour un reboot complet, on attend plus longtemps avant de chercher (15s)
-        setTimeout(checkServer, 15000);
     }
 }
 

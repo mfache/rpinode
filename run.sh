@@ -53,6 +53,9 @@ sudo chmod 777 /tmp/rpinode/log
 step_done
 
 step "Lancement serveur"
+if systemctl is-enabled rpinode-supervisor.service >/dev/null 2>&1; then
+    sudo systemctl restart rpinode-supervisor.service
+fi
 if systemctl is-enabled rpinode.service >/dev/null 2>&1; then
     sudo systemctl restart rpinode.service
 else

@@ -22,3 +22,7 @@ log/
 .vscode/
 .idea/
 /test_*.py
+
+# Rust
+target/
+**/target/
