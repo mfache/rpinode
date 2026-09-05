@@ -4,6 +4,8 @@ import time
 
 from core.config import load_config
 from core.sys import get_sys
+from services.device_mgr import (list_system_devices,
+                                 render_devices_components)
 from services.gsm import get_gsm_info
 from services.ipscan import is_ipscan_running, load_ipscan_results
 from services.mqtt_service import mqtt_client
@@ -80,6 +82,16 @@ class StatusReporter(threading.Thread):
             "wifi_ap_pass": ap_config["password"]
         }
         mqtt_client.publish("rpinode/status/services", services_data)
+
+        # Données Périphériques & Passerelles
+        try:
+            sys_devs = list_system_devices()
+            config = load_config()
+            base_url = config.get("base_url", "")
+            devices_data = render_devices_components(sys_devs, base_url=base_url)
+            mqtt_client.publish("rpinode/status/devices", devices_data)
+        except Exception as e:
+            logger.debug(f"Erreur reporting devices: {e}")
 
     def stop(self):
         self.running = False

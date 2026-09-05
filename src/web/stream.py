@@ -154,6 +154,8 @@ def handle_sse_stream(handler):
                     current_data.update(data)
                     # Ajout dynamique du mode wifi (pas forcément dans le payload MQTT)
                     current_data["wifi_mode"] = _get_current_wifi_mode()
+                elif topic == "rpinode/status/devices":
+                    current_data.update(data)
 
                 # Calcul du delta
                 payload = get_changed_items(last_data, current_data)

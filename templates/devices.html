@@ -2,8 +2,8 @@
     <!-- En-tête -->
     <div class="header-with-actions" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 12px;">
         <div>
-            <h2>Périphériques & Passerelles</h2>
-            <p class="hint">Inventaire du matériel connecté en USB et ports série (passerelles RS-485, modems, adaptateurs).</p>
+            <h2>Périphériques &amp; Passerelles</h2>
+            <p class="hint">Inventaire du matériel connecté en USB et ports série (passerelles RS-485 / M-Bus, modems, adaptateurs).</p>
         </div>
         <div style="display: flex; gap: 10px; flex-wrap: wrap;">
             <button class="btn-secondary" onclick="window.location.reload()">
@@ -15,18 +15,18 @@
         </div>
     </div>
 
-    <!-- Périphérique Principal : Moxa UPort 1150 -->
-    ${moxa_card_html}
+    <!-- Périphériques / Passerelles détectées (Moxa, CP210x, etc.) -->
+    <div id="subt_moxa_card_html">${moxa_card_html}</div>
 
-    <!-- Liste des Ports Série / RS-485 -->
+    <!-- Liste des Ports Série / RS-485 / M-Bus -->
     <div class="card params-card" style="margin-top: 24px;">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; border-bottom: 1px solid #f1f5f9; padding-bottom: 10px;">
             <h3 style="margin: 0; display: flex; align-items: center; gap: 8px;">
-                <span>🔌</span> Ports Série & Passerelles RS-485
-                <span class="badge-count-main" style="background: #3b82f6;">${total_serial}</span>
+                <span>🔌</span> Ports Série &amp; Passerelles Bus (RS-485 / M-Bus)
+                <span class="badge-count-main" style="background: #3b82f6;" id="subt_total_serial">${total_serial}</span>
             </h3>
         </div>
-        ${serial_ports_table_html}
+        <div id="subt_serial_ports_table_html">${serial_ports_table_html}</div>
     </div>
 
     <!-- Liste de tous les périphériques USB -->
@@ -34,7 +34,7 @@
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; border-bottom: 1px solid #f1f5f9; padding-bottom: 10px;">
             <h3 style="margin: 0; display: flex; align-items: center; gap: 8px;">
                 <span>💻</span> Périphériques USB connectés
-                <span class="badge-count-main" style="background: #64748b;">${total_usb}</span>
+                <span class="badge-count-main" style="background: #64748b;" id="subt_total_usb">${total_usb}</span>
             </h3>
         </div>
         <div style="overflow-x: auto;">
@@ -48,24 +48,24 @@
                         <th style="width: 180px;">Pilote Noyau</th>
                     </tr>
                 </thead>
-                <tbody>
+                <tbody id="subt_usb_devices_rows_html">
                     ${usb_devices_rows_html}
                 </tbody>
             </table>
         </div>
     </div>
 
-    <!-- Info Pilote Moxa Customisé -->
+    <!-- Info Passerelles & Pilotes Série -->
     <div class="card" style="margin-top: 24px; background: #f8fafc; border-left: 4px solid #3b82f6; padding: 18px 20px;">
         <div style="display: flex; align-items: flex-start; gap: 14px;">
             <span style="font-size: 1.8rem;">⚙️</span>
             <div>
-                <h4 style="margin: 0 0 6px 0; color: #1e293b;">Pilote Noyau Moxa RS-485 (ti_usb_3410_5052)</h4>
+                <h4 style="margin: 0 0 6px 0; color: #1e293b;">Passerelles &amp; Pilotes Série (RS-485, M-Bus, USB-UART)</h4>
                 <p style="margin: 0 0 8px 0; font-size: 0.9rem; color: #475569;">
-                    Le pilote officiel mainline a été patché et recompilé sur ce noyau pour forcer le Moxa UPort 1150 en mode <strong>RS-485 2 fils</strong> (au lieu du RS-232 par défaut).
+                    Prise en charge automatique des adaptateurs série standards (Silicon Labs CP210x, FTDI, CH340/341, Prolific, CDC-ACM) pour la scrutation des bus BACnet MS/TP, Modbus RTU et M-Bus. Le pilote officiel Moxa a également été patché sur ce noyau pour forcer le Moxa UPort 1150 en mode <strong>RS-485 2 fils</strong>.
                 </p>
                 <div style="font-size: 0.85rem; color: #64748b; font-family: monospace;">
-                    Statut : <span style="color: #16a34a; font-weight: bold;">Actif</span> | Module : <code>/lib/modules/.../ti_usb_3410_5052.ko</code> | Code source : <code>drivers/moxa/</code>
+                    Pilotes supportés : <code>cp210x, ftdi_sio, ch341, pl2303, ti_usb_3410_5052, cdc_acm</code>
                 </div>
             </div>
         </div>

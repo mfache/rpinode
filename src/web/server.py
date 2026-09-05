@@ -1673,127 +1673,19 @@ class WebAdminHandler(BaseHTTPRequestHandler):
         hostname = socket.gethostname()
         version = str(int(time.time()))
 
-        from services.device_mgr import list_system_devices
+        from services.device_mgr import (list_system_devices,
+                                         render_devices_components)
         sys_devices = list_system_devices()
-        moxa_dev = sys_devices.get("moxa_device")
-
-        # 1. Carte Moxa UPort 1150
-        if sys_devices.get("moxa_connected") and moxa_dev:
-            moxa_card_html = f"""
-            <div class="moxa-hero-card">
-                <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 10px;">
-                    <div>
-                        <h3>⚡ {escape(moxa_dev.get('description', 'Passerelle Moxa UPort 1150'))}</h3>
-                        <div class="moxa-badges">
-                            <span class="moxa-badge moxa-badge-green">● Connecté & Opérationnel</span>
-                            <span class="moxa-badge moxa-badge-blue">Pilote ti_usb_3410_5052 (RS-485 2 fils)</span>
-                            <span class="moxa-badge moxa-badge-purple">BACnet MS/TP & Modbus RTU</span>
-                        </div>
-                    </div>
-                </div>
-                <div class="moxa-details-grid">
-                    <div class="moxa-detail-item">
-                        <div class="label">Port TTY / Périphérique</div>
-                        <div class="value">{escape(moxa_dev.get('path', ''))}</div>
-                    </div>
-                    <div class="moxa-detail-item">
-                        <div class="label">Identifiant persistant (by-id)</div>
-                        <div class="value" style="font-size: 0.8rem;">{escape(moxa_dev.get('by_id_name', moxa_dev.get('path', '')))}</div>
-                    </div>
-                    <div class="moxa-detail-item">
-                        <div class="label">Pilote Noyau</div>
-                        <div class="value">{escape(moxa_dev.get('driver', 'ti_usb_3410_5052'))}</div>
-                    </div>
-                </div>
-                <div class="moxa-actions">
-                    <a href="{base_url}/bacnet/tools?tab=mstp&device={escape(moxa_dev.get('path', ''))}" class="btn-primary" style="text-decoration: none; background: #22c55e; border-color: #16a34a; display: inline-flex; align-items: center; gap: 6px;">
-                        <span>🔌</span> Lancer la recherche BACnet MS/TP
-                    </a>
-                    <a href="{base_url}/modbus/tools?port={escape(moxa_dev.get('path', ''))}" class="btn-secondary" style="text-decoration: none; background: rgba(255,255,255,0.15); color: white; border-color: rgba(255,255,255,0.3); display: inline-flex; align-items: center; gap: 6px;">
-                        <span>🔍</span> Outils Modbus RTU
-                    </a>
-                </div>
-            </div>
-            """
-        else:
-            moxa_card_html = f"""
-            <div class="card" style="padding: 24px; text-align: center; background: #f8fafc; border: 2px dashed #cbd5e1;">
-                <div style="font-size: 2.5rem; margin-bottom: 10px;">🔌</div>
-                <h3 style="margin: 0 0 8px 0; color: #475569;">Aucune passerelle Moxa UPort détectée</h3>
-                <p style="color: #64748b; max-width: 550px; margin: 0 auto 15px auto; font-size: 0.95rem;">
-                    Branchez l'adaptateur Moxa UPort 1150 sur un port USB du Raspberry Pi pour activer la communication BACnet MS/TP et Modbus RTU sur bus RS-485.
-                </p>
-                <a href="{base_url}/devices" class="btn-secondary" style="text-decoration: none;"><span>🔄</span> Vérifier à nouveau</a>
-            </div>
-            """
-
-        # 2. Table des ports série
-        serial_ports = sys_devices.get("rs485_ports", []) + sys_devices.get("modem_ports", [])
-        if serial_ports:
-            serial_rows = ""
-            for p in serial_ports:
-                badge_color = "#22c55e" if p.get("is_moxa") else ("#3b82f6" if p.get("is_rs485") else "#64748b")
-                caps = ", ".join(p.get("capabilities", [])) or "Série générique"
-                serial_rows += f"""
-                <tr>
-                    <td><code>{escape(p.get('path', ''))}</code></td>
-                    <td><small style="color: #64748b; font-family: monospace;">{escape(p.get('by_id_name', '—'))}</small></td>
-                    <td><strong>{escape(p.get('description', ''))}</strong></td>
-                    <td><code>{escape(p.get('driver', '—'))}</code></td>
-                    <td><span style="font-size: 0.85rem; color: {badge_color}; font-weight: bold;">{escape(caps)}</span></td>
-                    <td>
-                        <div style="display: flex; gap: 6px;">
-                            {f'<a href="{base_url}/bacnet/tools?tab=mstp&device={escape(p.get("path", ""))}" class="btn-secondary btn-sm" style="text-decoration: none;">BACnet MS/TP</a>' if p.get("is_rs485") else ''}
-                            {f'<a href="{base_url}/modbus/tools?port={escape(p.get("path", ""))}" class="btn-secondary btn-sm" style="text-decoration: none;">Modbus</a>' if p.get("is_rs485") else ''}
-                        </div>
-                    </td>
-                </tr>
-                """
-            serial_ports_table_html = f"""
-            <div style="overflow-x: auto;">
-                <table class="data-table">
-                    <thead>
-                        <tr>
-                            <th style="width: 140px;">Port TTY</th>
-                            <th>Identifiant (by-id)</th>
-                            <th>Description</th>
-                            <th style="width: 150px;">Pilote</th>
-                            <th style="width: 180px;">Capacités</th>
-                            <th style="width: 180px;">Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {serial_rows}
-                    </tbody>
-                </table>
-            </div>
-            """
-        else:
-            serial_ports_table_html = "<p style='color: #64748b; padding: 15px;'>Aucun port série détecté.</p>"
-
-        # 3. Lignes périphériques USB
-        usb_rows = ""
-        for u in sys_devices.get("usb_devices", []):
-            usb_rows += f"""
-            <tr>
-                <td><code>Bus {u.get('bus')} / Dev {u.get('device')}</code></td>
-                <td><code>{escape(u.get('vendor_id', ''))}:{escape(u.get('product_id', ''))}</code></td>
-                <td><strong>{escape(u.get('description', ''))}</strong></td>
-                <td><span class="badge-gray">{escape(u.get('category', ''))}</span></td>
-                <td><code>{escape(u.get('driver_str', 'Aucun'))}</code></td>
-            </tr>
-            """
-        if not usb_rows:
-            usb_rows = "<tr><td colspan='5' style='text-align: center; color: #64748b; padding: 15px;'>Aucun périphérique USB listé.</td></tr>"
+        dev_components = render_devices_components(sys_devices, base_url=base_url)
 
         content = render(
             "devices.html",
             base_url=base_url,
-            moxa_card_html=moxa_card_html,
-            serial_ports_table_html=serial_ports_table_html,
-            usb_devices_rows_html=usb_rows,
-            total_serial=sys_devices.get("total_serial", 0),
-            total_usb=sys_devices.get("total_usb", 0),
+            moxa_card_html=dev_components["moxa_card_html"],
+            serial_ports_table_html=dev_components["serial_ports_table_html"],
+            usb_devices_rows_html=dev_components["usb_devices_rows_html"],
+            total_serial=dev_components["total_serial"],
+            total_usb=dev_components["total_usb"],
         )
         nav_html = render("nav.html", base_url=base_url)
         final_html = render("layout.html", title="Périphériques & Passerelles", hostname=escape(hostname), base_url=escape(base_url), version=version, nav=nav_html, content=content)
