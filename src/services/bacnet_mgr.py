@@ -404,7 +404,13 @@ def get_site_bacnet_points(site_id, only_monitored=False):
             
         cursor.execute(
             f"""
-            SELECT p.*, COALESCE(d.name, 'Appareil BACnet') as device_name,
+            SELECT p.*, COALESCE(
+                       d.name,
+                       (SELECT d2.name FROM bacnet_devices d2 WHERE d2.site_id = p.site_id AND d2.device_instance = p.device_instance AND d2.name IS NOT NULL AND d2.name != '' LIMIT 1),
+                       (SELECT dd.bacnet_name FROM discovered_devices dd WHERE dd.site_id = p.site_id AND dd.bacnet_instance = p.device_instance AND dd.bacnet_name IS NOT NULL AND dd.bacnet_name != '' LIMIT 1),
+                       (SELECT dd.bacnet_name FROM discovered_devices dd WHERE dd.site_id = p.site_id AND dd.last_ip = p.network_address AND dd.bacnet_name IS NOT NULL AND dd.bacnet_name != '' LIMIT 1),
+                       'Appareil BACnet'
+                   ) as device_name,
                    COALESCE(p.network_address, d.network_address) as network_address,
                    COALESCE(p.device_instance, d.device_instance) as device_instance,
                    COALESCE(t.name, 'Générique') as template_name,
@@ -418,6 +424,91 @@ def get_site_bacnet_points(site_id, only_monitored=False):
             (site_id,)
         )
         return [dict(row) for row in cursor.fetchall()]
+
+def add_points_to_suivi(site_id, points):
+    """
+    Ajoute ou met à jour une liste de points BACnet pour les marquer comme suivis (is_monitored=1).
+    Associe automatiquement l'appareil bacnet_devices s'il existe pour ce site et cette instance/adresse.
+    Retourne le nombre de points traités.
+    """
+    if not site_id or not points:
+        return 0
+
+    count = 0
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+
+        # Récupérer les appareils existants pour ce site (pour lier device_id si possible)
+        cursor.execute("SELECT id, device_instance, network_address FROM bacnet_devices WHERE site_id = ?", (site_id,))
+        devices = cursor.fetchall()
+        dev_by_instance = {d["device_instance"]: d["id"] for d in devices if d["device_instance"] is not None}
+        dev_by_addr = {d["network_address"]: d["id"] for d in devices if d["network_address"]}
+
+        for p in points:
+            net_addr = p.get("network_address") or p.get("address")
+            dev_inst = p.get("device_instance") or p.get("device_id")
+            obj_id = p.get("object_id")
+            name = p.get("name") or p.get("object_name") or obj_id
+
+            if not net_addr or not obj_id:
+                continue
+
+            try:
+                dev_inst = int(dev_inst) if dev_inst is not None else None
+            except (ValueError, TypeError):
+                dev_inst = None
+
+            device_id = None
+            if dev_inst is not None and dev_inst in dev_by_instance:
+                device_id = dev_by_instance[dev_inst]
+            elif net_addr in dev_by_addr:
+                device_id = dev_by_addr[net_addr]
+
+            # Vérifier si le point existe déjà pour ce site
+            if dev_inst is not None:
+                cursor.execute(
+                    """
+                    SELECT id FROM bacnet_points 
+                    WHERE site_id = ? AND (device_instance = ? OR (device_instance IS NULL AND network_address = ?)) AND object_id = ?
+                    """,
+                    (site_id, dev_inst, net_addr, obj_id)
+                )
+            else:
+                cursor.execute(
+                    """
+                    SELECT id FROM bacnet_points 
+                    WHERE site_id = ? AND network_address = ? AND object_id = ?
+                    """,
+                    (site_id, net_addr, obj_id)
+                )
+
+            existing = cursor.fetchone()
+            if existing:
+                cursor.execute(
+                    """
+                    UPDATE bacnet_points
+                    SET is_monitored = 1,
+                        name = COALESCE(?, name),
+                        device_id = COALESCE(device_id, ?),
+                        network_address = ?,
+                        device_instance = COALESCE(?, device_instance),
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                    """,
+                    (name, device_id, net_addr, dev_inst, existing["id"])
+                )
+            else:
+                cursor.execute(
+                    """
+                    INSERT INTO bacnet_points (site_id, device_id, network_address, device_instance, object_id, name, is_monitored, is_recorded, cadence)
+                    VALUES (?, ?, ?, ?, ?, ?, 1, 0, '1m')
+                    """,
+                    (site_id, device_id, net_addr, dev_inst if dev_inst is not None else 0, obj_id, name)
+                )
+            count += 1
+
+        conn.commit()
+    return count
 
 def update_point_settings(point_id, is_monitored=None, is_recorded=None, cadence=None):
     """Met à jour le statut de suivi/enregistrement et la cadence d'un point BACnet."""
@@ -454,30 +545,37 @@ def delete_bacnet_point(point_id):
         conn.commit()
         return True
 
-def read_site_monitored_points_live(site_id):
+def read_bacnet_points_live_raw(points, timeout=4.0):
     """
-    Lit tous les points BACnet suivis (is_monitored=1) pour un chantier et renvoie un dict:
-    {point_id: {"value": val, "display": display_val, "error": err, "ts": ts}}
+    Lit une liste de points BACnet [{'key': ..., 'address': ..., 'object_id': ..., 'device_id': ...}, ...]
+    via MQTT et retourne un dict:
+    {key: {"value": val, "display": display_val, "error": err, "ts": now}}
     """
-    import time
-    import queue
-    import paho.mqtt.client as mqtt
-    from services.mqtt_service import mqtt_client
-    
-    points = get_site_bacnet_points(site_id, only_monitored=True)
     if not points:
         return {}
-        
-    results = {}
+
+    import time
+    import queue
+    import threading
+    import paho.mqtt.client as mqtt
+    from services.mqtt_service import mqtt_client
+
     now = int(time.time())
-    
-    req_points = [
-        {"device_id": p["device_instance"], "address": p["network_address"], "object_id": p["object_id"]}
-        for p in points
-    ]
-    
+    results = {}
+
+    req_points = []
+    key_by_pair = {}
+    for p in points:
+        addr = p.get("address")
+        obj_id = p.get("object_id")
+        dev_id = p.get("device_id")
+        key = p.get("key") or f"{addr}_{obj_id}"
+        key_by_pair[(addr, obj_id)] = key
+        req_points.append({"address": addr, "object_id": obj_id, "device_id": dev_id})
+
     job_id = str(uuid.uuid4())
     res_queue = queue.Queue()
+    sub_event = threading.Event()
 
     def on_msg(client, userdata, msg):
         try:
@@ -485,21 +583,27 @@ def read_site_monitored_points_live(site_id):
         except Exception:
             pass
 
+    def on_sub(client, userdata, mid, reason_code_list=None, properties=None):
+        sub_event.set()
+
     read_results = []
     try:
         try:
             temp_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
         except AttributeError:
             temp_client = mqtt.Client()
+
         temp_client.on_message = on_msg
+        temp_client.on_subscribe = on_sub
         temp_client.connect("127.0.0.1", 1883, 60)
         temp_client.loop_start()
         temp_client.subscribe(f"rpinode/bacnet/res/read/{job_id}")
+        sub_event.wait(timeout=1.0)
 
         mqtt_client.publish("rpinode/bacnet/cmd/read", {"job_id": job_id, "points": req_points})
 
         try:
-            read_results = res_queue.get(timeout=4.0)
+            read_results = res_queue.get(timeout=timeout)
         except queue.Empty:
             read_results = []
         finally:
@@ -509,65 +613,99 @@ def read_site_monitored_points_live(site_id):
         logger.debug(f"Erreur communication MQTT pour live BACnet: {e}")
         read_results = []
 
-    values_map = {}
     for r in (read_results or []):
         if isinstance(r, dict):
-            key = (r.get("address"), r.get("object_id"))
-            values_map[key] = r
+            addr = r.get("address")
+            obj_id = r.get("object_id")
+            key = key_by_pair.get((addr, obj_id)) or f"{addr}_{obj_id}"
+            val = r.get("value")
+            err = r.get("error")
+
+            display_val = None
+            if val is not None:
+                try:
+                    fval = float(val)
+                    if fval.is_integer():
+                        display_val = str(int(fval))
+                    else:
+                        display_val = f"{fval:.2f}".rstrip('0').rstrip('.')
+                except (ValueError, TypeError):
+                    display_val = str(val)
+
+            results[key] = {
+                "value": val,
+                "display": display_val if display_val is not None else "—",
+                "error": err,
+                "ts": now
+            }
+
+    for p in points:
+        addr = p.get("address")
+        obj_id = p.get("object_id")
+        key = p.get("key") or f"{addr}_{obj_id}"
+        if key not in results:
+            results[key] = {
+                "value": None,
+                "display": "—",
+                "error": "Timeout",
+                "ts": now
+            }
+
+    return results
+
+def read_site_monitored_points_live(site_id):
+    """
+    Lit tous les points BACnet suivis (is_monitored=1) pour un chantier et renvoie un dict:
+    {point_id: {"value": val, "display": display_val, "error": err, "ts": ts}}
+    """
+    import time
+
+    points = get_site_bacnet_points(site_id, only_monitored=True)
+    if not points:
+        return {}
+
+    now = int(time.time())
+    points_to_read = [
+        {
+            "key": str(p["id"]),
+            "address": p["network_address"],
+            "object_id": p["object_id"],
+            "device_id": p["device_instance"]
+        }
+        for p in points
+    ]
+
+    raw_results = read_bacnet_points_live_raw(points_to_read, timeout=4.0)
+    results = {}
 
     with get_db_connection() as conn:
         cursor = conn.cursor()
         for p in points:
-            pid = p["id"]
-            key = (p["network_address"], p["object_id"])
-            item = values_map.get(key)
-            
+            pid = str(p["id"])
+            item = raw_results.get(pid)
             if item and item.get("value") is not None:
-                val = item["value"]
-                results[str(pid)] = {
-                    "value": val,
-                    "display": str(val),
-                    "error": None,
-                    "ts": now
-                }
+                results[pid] = item
                 cursor.execute(
                     "UPDATE bacnet_points SET last_value = ?, last_read_ts = ? WHERE id = ?",
-                    (str(val), now, pid)
+                    (str(item["value"]), now, p["id"])
                 )
-            elif item and item.get("error"):
-                if p.get("last_value") is not None:
-                    results[str(pid)] = {
-                        "value": p["last_value"],
-                        "display": str(p["last_value"]),
-                        "error": None,
-                        "retained": True,
-                        "ts": p.get("last_read_ts") or now
-                    }
-                else:
-                    results[str(pid)] = {
-                        "value": None,
-                        "display": "—",
-                        "error": item["error"],
-                        "ts": now
-                    }
+            elif p.get("last_value") is not None:
+                results[pid] = {
+                    "value": p["last_value"],
+                    "display": str(p["last_value"]),
+                    "error": None,
+                    "retained": True,
+                    "ts": p.get("last_read_ts") or now
+                }
             else:
-                if p.get("last_value") is not None:
-                    results[str(pid)] = {
-                        "value": p["last_value"],
-                        "display": str(p["last_value"]),
-                        "error": None,
-                        "retained": True,
-                        "ts": p.get("last_read_ts") or now
-                    }
-                else:
-                    results[str(pid)] = {
-                        "value": None,
-                        "display": "—",
-                        "error": "Aucune réponse",
-                        "ts": now
-                    }
+                results[pid] = item or {
+                    "value": None,
+                    "display": "—",
+                    "error": "Non lu",
+                    "ts": now
+                }
         conn.commit()
-        
+
     return results
 
 def get_site_monitored_cached_values(site_id):

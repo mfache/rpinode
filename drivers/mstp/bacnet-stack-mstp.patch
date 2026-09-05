@@ -1,0 +1,233 @@
+diff --git a/apps/whois/main.c b/apps/whois/main.c
+index 39920a1..2c04b01 100644
+--- a/apps/whois/main.c
++++ b/apps/whois/main.c
+@@ -136,6 +136,21 @@ static void my_i_am_handler(
+             }
+         }
+         address_table_add(device_id, max_apdu, src);
++        /* Sortie temps reel (flush immediat), en plus du tableau final
++           imprime par print_address_cache() a la sortie : chaque I-Am
++           recu est visible aussitot par un appelant qui lit stdout ligne
++           par ligne (utile pour un affichage incremental cote appelant,
++           et pour un futur mode --repeat qui ne se termine jamais).
++           Format simple, une ligne par I-Am : IAM;<device-id>;<mac hex
++           sans separateur>;<max-apdu>. Imprime aussi pour un I-Am deja
++           connu (pas seulement les nouveautes) : ca vaut "toujours vu a
++           cet instant", utile pour suivre la fraicheur d'un equipement. */
++        printf("IAM;%lu;", (unsigned long)device_id);
++        for (i = 0; i < src->mac_len; i++) {
++            printf("%02X", (unsigned)src->mac[i]);
++        }
++        printf(";%u\n", max_apdu);
++        fflush(stdout);
+     } else {
+         if (BACnet_Debug_Enabled) {
+             fprintf(stderr, ", but unable to decode it.\n");
+diff --git a/ports/linux/dlmstp.c b/ports/linux/dlmstp.c
+index f564551..eb6dad9 100644
+--- a/ports/linux/dlmstp.c
++++ b/ports/linux/dlmstp.c
+@@ -595,6 +595,33 @@ uint8_t dlmstp_max_master(void)
+     return MSTP_Port.Nmax_master;
+ }
+ 
++/**
++ * @brief Set the Npoll parameter for this MSTP datalink
++ *
++ * @note Nombre de jetons recus/utilises avant qu'un cycle Poll For Master
++ *  ne soit execute (defaut spec : 50, Errata SSPC-135-2004). Une valeur
++ *  plus faible sonde plus souvent les adresses non-attribuees, ce qui
++ *  accelere la decouverte de nouveaux maitres sur un bus charge, au prix
++ *  d'un peu plus de trafic de scrutation.
++ *
++ * @param npoll - value to be set (0 traite comme 1)
++ */
++void dlmstp_set_npoll(uint8_t npoll)
++{
++    MSTP_Port.Npoll = (npoll == 0) ? 1 : npoll;
++
++    return;
++}
++
++/**
++ * @brief Get the Npoll parameter for this MSTP datalink
++ * @return Npoll value
++ */
++uint8_t dlmstp_npoll(void)
++{
++    return MSTP_Port.Npoll;
++}
++
+ /**
+  * @brief Initialize the data link broadcast address
+  * @param my_address - address to be filled with unicast designator
+diff --git a/src/bacnet/datalink/dlenv.c b/src/bacnet/datalink/dlenv.c
+index dd8a206..2e254b7 100644
+--- a/src/bacnet/datalink/dlenv.c
++++ b/src/bacnet/datalink/dlenv.c
+@@ -479,6 +479,7 @@ void dlenv_network_port_mstp_init(uint32_t instance)
+     long max_info_frames = 1;
+     long baud_rate = 38400;
+     long mac_address = 127;
++    long npoll = 50;
+ 
+     pEnv = getenv("BACNET_MSTP_DEBUG");
+     if (pEnv) {
+@@ -500,17 +501,25 @@ void dlenv_network_port_mstp_init(uint32_t instance)
+     if (pEnv) {
+         mac_address = strtol(pEnv, NULL, 0);
+     }
++    /* BACNET_MSTP_NPOLL : cf. dlmstp_set_npoll() - defaut spec 50, plus
++       agressif (valeur plus faible) pour accelerer la decouverte sur un
++       bus charge lors d'une mise en service. */
++    pEnv = getenv("BACNET_MSTP_NPOLL");
++    if (pEnv) {
++        npoll = strtol(pEnv, NULL, 0);
++    }
+     debug_log_fprintf(
+         DEBUG_LOG_DEBUG, stderr,
+         "Network Port[%lu] mode=MSTP bitrate=%ld mac[0]=%ld "
+-        "max_info_frames=%ld, max_master=%ld\n",
++        "max_info_frames=%ld, max_master=%ld, npoll=%ld\n",
+         (unsigned long)instance, baud_rate, mac_address, max_info_frames,
+-        max_master);
++        max_master, npoll);
+ #ifdef BACDL_MSTP
+     dlmstp_set_max_info_frames(max_info_frames);
+     dlmstp_set_max_master(max_master);
+     dlmstp_set_baud_rate(baud_rate);
+     dlmstp_set_mac_address(mac_address);
++    dlmstp_set_npoll((uint8_t)npoll);
+ #endif
+ 
+     Network_Port_Object_Instance_Number_Set(0, instance);
+diff --git a/src/bacnet/datalink/dlmstp.c b/src/bacnet/datalink/dlmstp.c
+index a4a253d..3f27d8f 100644
+--- a/src/bacnet/datalink/dlmstp.c
++++ b/src/bacnet/datalink/dlmstp.c
+@@ -506,6 +506,41 @@ uint8_t dlmstp_max_master(void)
+     return value;
+ }
+ 
++/**
++ * @brief Set the Npoll parameter for this MSTP datalink
++ *
++ * @note Nombre de jetons recus/utilises avant qu'un cycle Poll For Master
++ *  ne soit execute (defaut spec : 50, Errata SSPC-135-2004). Une valeur
++ *  plus faible sonde plus souvent les adresses non-attribuees, ce qui
++ *  accelere la decouverte de nouveaux maitres sur un bus charge, au prix
++ *  d'un peu plus de trafic de scrutation.
++ *
++ * @param npoll - value to be set (0 traite comme 1)
++ */
++void dlmstp_set_npoll(uint8_t npoll)
++{
++    if (MSTP_Port) {
++        MSTP_Port->Npoll = (npoll == 0) ? 1 : npoll;
++    }
++
++    return;
++}
++
++/**
++ * @brief Get the Npoll parameter for this MSTP datalink
++ * @return Npoll value
++ */
++uint8_t dlmstp_npoll(void)
++{
++    uint8_t value = 0;
++
++    if (MSTP_Port) {
++        value = MSTP_Port->Npoll;
++    }
++
++    return value;
++}
++
+ /**
+  * @brief Initialize the data link broadcast address
+  * @param my_address - address to be filled with unicast designator
+diff --git a/src/bacnet/datalink/dlmstp.h b/src/bacnet/datalink/dlmstp.h
+index 3338a23..f37f011 100644
+--- a/src/bacnet/datalink/dlmstp.h
++++ b/src/bacnet/datalink/dlmstp.h
+@@ -168,6 +168,15 @@ void dlmstp_set_max_master(uint8_t max_master);
+ BACNET_STACK_EXPORT
+ uint8_t dlmstp_max_master(void);
+ 
++/* Nombre de jetons recus/utilises avant un cycle Poll For Master.
++ * Defaut spec : 50 (Errata SSPC-135-2004). Configurable a l'execution
++ * (cf. BACNET_MSTP_NPOLL) pour accelerer la decouverte de nouvelles
++ * adresses MAC sur un bus charge lors d'une mise en service. */
++BACNET_STACK_EXPORT
++void dlmstp_set_npoll(uint8_t npoll);
++BACNET_STACK_EXPORT
++uint8_t dlmstp_npoll(void);
++
+ /* MAC address 0-127 */
+ BACNET_STACK_EXPORT
+ void dlmstp_set_mac_address(uint8_t my_address);
+diff --git a/src/bacnet/datalink/mstp.c b/src/bacnet/datalink/mstp.c
+index 24acce1..0b71cf3 100644
+--- a/src/bacnet/datalink/mstp.c
++++ b/src/bacnet/datalink/mstp.c
+@@ -679,7 +679,7 @@ bool MSTP_Master_Node_FSM(struct mstp_port_struct_t *mstp_port)
+                        the token */
+                     mstp_port->Poll_Station = (mstp_port->Next_Station + 1) %
+                         (mstp_port->Zero_Config_Max_Master + 1);
+-                    mstp_port->TokenCount = Npoll;
++                    mstp_port->TokenCount = mstp_port->Npoll;
+                     mstp_port->RetryCount = 0;
+                     mstp_port->EventCount = 0;
+                     mstp_port->SoleMaster = true;
+@@ -697,7 +697,7 @@ bool MSTP_Master_Node_FSM(struct mstp_port_struct_t *mstp_port)
+                 mstp_port->Poll_Station = mstp_port->This_Station;
+                 /* cause a Poll For Master to be sent when this node first */
+                 /* receives the token */
+-                mstp_port->TokenCount = Npoll;
++                mstp_port->TokenCount = mstp_port->Npoll;
+                 mstp_port->SoleMaster = false;
+                 mstp_port->master_state = MSTP_MASTER_STATE_IDLE;
+                 transition_now = true;
+@@ -946,7 +946,7 @@ bool MSTP_Master_Node_FSM(struct mstp_port_struct_t *mstp_port)
+                     mstp_port->Poll_Station, mstp_port->This_Station, NULL, 0);
+                 mstp_port->RetryCount = 0;
+                 mstp_port->master_state = MSTP_MASTER_STATE_POLL_FOR_MASTER;
+-            } else if (mstp_port->TokenCount < (Npoll - 1)) {
++            } else if (mstp_port->TokenCount < (mstp_port->Npoll - 1)) {
+                 /* Npoll changed in Errata SSPC-135-2004 */
+                 if ((mstp_port->SoleMaster == true) &&
+                     (mstp_port->Next_Station != next_this_station)) {
+diff --git a/src/bacnet/datalink/mstp.h b/src/bacnet/datalink/mstp.h
+index 6f7016c..91e6575 100644
+--- a/src/bacnet/datalink/mstp.h
++++ b/src/bacnet/datalink/mstp.h
+@@ -158,6 +158,14 @@ struct mstp_port_struct_t {
+        allowable address for master nodes. The value of Max_Master shall be
+        less than or equal to 127. If Max_Master is not writable in a node,
+        its value shall be 127. */
++
++    /* The number of tokens received or used before a Poll For Master cycle
++       is executed. Spec default: 50 (Npoll, Errata SSPC-135-2004).
++       Runtime-configurable (cf. dlmstp_set_npoll / BACNET_MSTP_NPOLL) : sur
++       un bus MS/TP charge, la valeur spec ralentit fortement la decouverte
++       d une nouvelle adresse MAC (dizaines de secondes a plus d une minute) ;
++       un outil de mise en service peut vouloir sonder plus frequemment. */
++    uint8_t Npoll;
+     uint8_t Nmax_master;
+ 
+     /* An array of octets, used to store octets for transmitting
+diff --git a/src/bacnet/datalink/mstpdef.h b/src/bacnet/datalink/mstpdef.h
+index e773328..373ef24 100644
+--- a/src/bacnet/datalink/mstpdef.h
++++ b/src/bacnet/datalink/mstpdef.h
+@@ -115,7 +115,7 @@ typedef enum MSTP_Auto_Baud_State {
+ 
+ /* The number of tokens received or used before a Poll For Master cycle */
+ /* is executed: 50. */
+-#define Npoll 50
++#define DEFAULT_NPOLL 50
+ 
+ /* The minimum number of polls received before a zero-config address */
+ /* is claimed: 8. */

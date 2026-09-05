@@ -26,7 +26,7 @@ MQTT_BROKER = "127.0.0.1"
 MQTT_PORT = 1883
 
 class BacnetMqttDaemon:
-    def __init__(self, iface="eth0", port=47808, bbmd_ttl=0):
+    def __init__(self, iface="auto", port=47808, bbmd_ttl=0):
         self.iface = iface
         self.port = port
         self.app = None
@@ -41,10 +41,31 @@ class BacnetMqttDaemon:
     def get_iface_cidr(self):
         try:
             import subprocess, re
-            out = subprocess.check_output(["ip", "-o", "-4", "addr", "show", "dev", self.iface]).decode()
-            m = re.search(r"inet (\d+\.\d+\.\d+\.\d+)/(\d+)", out)
-            if m:
-                return f"{m.group(1)}/{m.group(2)}"
+            candidates = [self.iface] if self.iface and self.iface != "auto" else ["eth0", "wlan0"]
+            
+            # 1. On cherche d'abord une interface avec un câble / lien physique actif et une IP
+            for cand in candidates:
+                try:
+                    with open(f"/sys/class/net/{cand}/carrier") as f:
+                        if f.read().strip() == "1":
+                            out = subprocess.check_output(["ip", "-o", "-4", "addr", "show", "dev", cand], stderr=subprocess.DEVNULL).decode()
+                            m = re.search(r"inet (\d+\.\d+\.\d+\.\d+)/(\d+)", out)
+                            if m:
+                                self.iface = cand
+                                return f"{m.group(1)}/{m.group(2)}"
+                except Exception:
+                    pass
+
+            # 2. Sinon, on prend la première interface candidate qui a une adresse IPv4 active
+            for cand in candidates:
+                try:
+                    out = subprocess.check_output(["ip", "-o", "-4", "addr", "show", "dev", cand], stderr=subprocess.DEVNULL).decode()
+                    m = re.search(r"inet (\d+\.\d+\.\d+\.\d+)/(\d+)", out)
+                    if m:
+                        self.iface = cand
+                        return f"{m.group(1)}/{m.group(2)}"
+                except Exception:
+                    pass
         except Exception:
             pass
         return "0.0.0.0/0"

@@ -3,6 +3,7 @@ import threading
 import time
 import urllib.request
 import socket
+import json
 from src.web.server import start_server
 from src.core.config import load_config, save_config
 
@@ -105,6 +106,67 @@ class TestServer(unittest.TestCase):
         except Exception as e:
             self.fail(f"L'API /api/bacnet/suivi/values n'a pas répondu : {e}")
 
+    def test_bacnet_catalog_search_api(self):
+        """Vérifie que l'API /api/bacnet/catalog/search répond en JSON."""
+        url = f"http://localhost:{self.test_port}/api/bacnet/catalog/search"
+        payload = json.dumps({"pattern": "*Temp*", "page": 1, "limit": 100}).encode('utf-8')
+        req = urllib.request.Request(url, data=payload, headers={'Content-Type': 'application/json'})
+        try:
+            with unittest.mock.patch('services.presence.get_current_site_id', return_value=1), \
+                 unittest.mock.patch('services.bacnet_catalog.count_search_points', return_value=1), \
+                 unittest.mock.patch('services.bacnet_catalog.search_points', return_value=[{'network_address': '192.168.1.10', 'device_instance': 100, 'device_name': 'Automate 100', 'object_id': 'analogInput:1', 'object_name': 'Temp Ambient'}]):
+                response = urllib.request.urlopen(req, timeout=5)
+                self.assertEqual(response.getcode(), 200)
+                data = json.loads(response.read().decode('utf-8'))
+                self.assertEqual(data["status"], "ok")
+                self.assertEqual(len(data["objects"]), 1)
+                self.assertEqual(data["total_count"], 1)
+                self.assertEqual(data["page"], 1)
+                self.assertEqual(data["objects"][0]["device_name"], "Automate 100")
+        except Exception as e:
+            self.fail(f"L'API /api/bacnet/catalog/search n'a pas répondu : {e}")
+
+    def test_bacnet_catalog_values_api(self):
+        """Vérifie que l'API /api/bacnet/catalog/values répond en JSON."""
+        url = f"http://localhost:{self.test_port}/api/bacnet/catalog/values"
+        payload = json.dumps({"points": [{"key": "k1", "address": "192.168.1.10", "object_id": "analogInput:1", "device_id": 100}]}).encode('utf-8')
+        req = urllib.request.Request(url, data=payload, headers={'Content-Type': 'application/json'})
+        try:
+            with unittest.mock.patch('services.bacnet_mgr.read_bacnet_points_live_raw', return_value={'k1': {'value': '21.5', 'display': '21.5', 'error': None, 'ts': 12345}}):
+                response = urllib.request.urlopen(req, timeout=5)
+                self.assertEqual(response.getcode(), 200)
+                data = json.loads(response.read().decode('utf-8'))
+                self.assertEqual(data["status"], "ok")
+                self.assertIn("k1", data["values"])
+                self.assertEqual(data["values"]["k1"]["display"], "21.5")
+        except Exception as e:
+            self.fail(f"L'API /api/bacnet/catalog/values n'a pas répondu : {e}")
+
+    def test_bacnet_points_track_api(self):
+        """Vérifie que l'API /api/bacnet/points/track enregistre les points dans le suivi."""
+        url = f"http://localhost:{self.test_port}/api/bacnet/points/track"
+        payload = json.dumps({
+            "points": [
+                {
+                    "network_address": "172.31.12.145",
+                    "device_instance": 1200,
+                    "object_id": "analog-input:104",
+                    "name": "Point Test Track"
+                }
+            ]
+        }).encode('utf-8')
+        req = urllib.request.Request(url, data=payload, headers={'Content-Type': 'application/json'})
+        try:
+            with unittest.mock.patch('services.presence.get_current_site_id', return_value=1), \
+                 unittest.mock.patch('services.bacnet_mgr.add_points_to_suivi', return_value=1):
+                response = urllib.request.urlopen(req, timeout=5)
+                self.assertEqual(response.getcode(), 200)
+                data = json.loads(response.read().decode('utf-8'))
+                self.assertEqual(data["status"], "ok")
+                self.assertEqual(data["count"], 1)
+        except Exception as e:
+            self.fail(f"L'API /api/bacnet/points/track n'a pas répondu : {e}")
+
     def test_bacnet_device_view_page(self):
         """Vérifie que la page /bacnet/device/view est servie pour un appareil existant."""
         from src.core.database import get_db_connection
@@ -170,6 +232,74 @@ class TestServer(unittest.TestCase):
             self.assertIn("Moniteur MQTT", content)
         except Exception as e:
             self.fail(f"La page /configuration/mqtt n'a pas répondu : {e}")
+
+    def test_devices_page(self):
+        """Vérifie que la page /devices est servie."""
+        url = f"http://localhost:{self.test_port}/devices"
+        try:
+            response = urllib.request.urlopen(url, timeout=5)
+            self.assertEqual(response.getcode(), 200)
+            content = response.read().decode('utf-8')
+            self.assertIn("Périphériques", content)
+        except Exception as e:
+            self.fail(f"La page /devices n'a pas répondu : {e}")
+
+    def test_storage_devices_redirect_or_serve(self):
+        """Vérifie que /storage/devices répond en 200."""
+        url = f"http://localhost:{self.test_port}/storage/devices"
+        try:
+            response = urllib.request.urlopen(url, timeout=5)
+            self.assertEqual(response.getcode(), 200)
+            content = response.read().decode('utf-8')
+            self.assertIn("Périphériques", content)
+        except Exception as e:
+            self.fail(f"La page /storage/devices n'a pas répondu : {e}")
+
+    def test_devices_api(self):
+        """Vérifie que l'API /api/devices répond en JSON."""
+        url = f"http://localhost:{self.test_port}/api/devices"
+        try:
+            response = urllib.request.urlopen(url, timeout=5)
+            self.assertEqual(response.getcode(), 200)
+            data = json.loads(response.read().decode('utf-8'))
+            self.assertIn("moxa_connected", data)
+            self.assertIn("usb_devices", data)
+        except Exception as e:
+            self.fail(f"L'API /api/devices n'a pas répondu : {e}")
+
+    def test_devices_ports_api(self):
+        """Vérifie que l'API /api/devices/ports répond en JSON."""
+        url = f"http://localhost:{self.test_port}/api/devices/ports"
+        try:
+            response = urllib.request.urlopen(url, timeout=5)
+            self.assertEqual(response.getcode(), 200)
+            data = json.loads(response.read().decode('utf-8'))
+            self.assertIsInstance(data, list)
+        except Exception as e:
+            self.fail(f"L'API /api/devices/ports n'a pas répondu : {e}")
+
+    def test_bacnet_mstp_status_api(self):
+        """Vérifie que l'API /api/bacnet/mstp/status répond en JSON."""
+        url = f"http://localhost:{self.test_port}/api/bacnet/mstp/status"
+        try:
+            response = urllib.request.urlopen(url, timeout=5)
+            self.assertEqual(response.getcode(), 200)
+            data = json.loads(response.read().decode('utf-8'))
+            self.assertIn("running", data)
+            self.assertIn("devices", data)
+        except Exception as e:
+            self.fail(f"L'API /api/bacnet/mstp/status n'a pas répondu : {e}")
+
+    def test_bacnet_tools_mstp_tab(self):
+        """Vérifie que /bacnet/tools?tab=mstp est servi avec l'onglet MS/TP actif."""
+        url = f"http://localhost:{self.test_port}/bacnet/tools?tab=mstp"
+        try:
+            response = urllib.request.urlopen(url, timeout=5)
+            self.assertEqual(response.getcode(), 200)
+            content = response.read().decode('utf-8')
+            self.assertIn("BACnet MS/TP", content)
+        except Exception as e:
+            self.fail(f"La page /bacnet/tools?tab=mstp n'a pas répondu : {e}")
 
 if __name__ == '__main__':
     unittest.main()

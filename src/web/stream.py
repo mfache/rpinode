@@ -236,3 +236,38 @@ def handle_mqtt_stream(handler, query=None):
             client.disconnect()
         except Exception:
             pass
+
+
+def handle_bacnet_mstp_stream(handler):
+    """
+    Gère une connexion SSE pour la découverte BACnet MS/TP en direct.
+    Diffuse les snapshots au client dès que l'état change ou à intervalle régulier.
+    """
+    from services.bacnet_mstp import get_mstp_stream_payload, get_mstp_signature
+
+    handler.send_response(200)
+    handler.send_header('Content-type', 'text/event-stream')
+    handler.send_header('Cache-Control', 'no-cache')
+    handler.send_header('Connection', 'keep-alive')
+    handler.end_headers()
+
+    logger.info("Nouveau client SSE BACnet MS/TP connecté.")
+
+    last_sig = None
+    try:
+        while True:
+            sig = get_mstp_signature()
+            if sig != last_sig:
+                payload = get_mstp_stream_payload()
+                message = f"data: {json.dumps(payload)}\n\n"
+                handler.wfile.write(message.encode("utf-8"))
+                handler.wfile.flush()
+                last_sig = sig
+            else:
+                handler.wfile.write(b": heartbeat\n\n")
+                handler.wfile.flush()
+            time.sleep(1.0)
+    except (ConnectionAbortedError, BrokenPipeError, ConnectionResetError):
+        logger.info("Client SSE BACnet MS/TP déconnecté.")
+    except Exception as e:
+        logger.error(f"Erreur flux SSE BACnet MS/TP: {e}")

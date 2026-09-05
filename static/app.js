@@ -511,6 +511,13 @@ document.addEventListener("DOMContentLoaded", () => {
     let searchTimeout;
 
     if (siteInput) {
+        siteInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                confirmNewSite();
+            }
+        });
+
         siteInput.addEventListener('input', () => {
             clearTimeout(searchTimeout);
             const query = siteInput.value.trim();
@@ -570,8 +577,13 @@ async function selectSite(name, externalId) {
             body: JSON.stringify({ name: name, external_id: externalId })
         });
         if (response.ok) {
-            document.getElementById('site-search').value = "";
-            document.getElementById('site-results').style.display = 'none';
+            const input = document.getElementById('site-search');
+            if (input) input.value = "";
+            const res = document.getElementById('site-results');
+            if (res) res.style.display = 'none';
+            window.location.reload();
+        } else {
+            alert("Erreur lors de l'association du chantier");
         }
     } catch (e) {
         alert("Erreur lors de l'association");
@@ -583,6 +595,7 @@ async function selectSite(name, externalId) {
  */
 async function confirmNewSite() {
     const input = document.getElementById('site-search');
+    if (!input) return;
     const name = input.value.trim();
     if (!name) return;
     
@@ -596,7 +609,11 @@ async function confirmNewSite() {
         });
         if (response.ok) {
             input.value = "";
-            document.getElementById('site-results').style.display = 'none';
+            const res = document.getElementById('site-results');
+            if (res) res.style.display = 'none';
+            window.location.reload();
+        } else {
+            alert("Erreur lors de la création du chantier");
         }
     } catch (e) {
         alert("Erreur lors de la création");

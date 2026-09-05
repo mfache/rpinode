@@ -2,13 +2,9 @@
     <div class="header-with-actions" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 10px;">
         <div>
             <h2>Points Modbus Suivis (Live)</h2>
-            <p class="hint">Chantier : <strong>${site_name}</strong> | Mise à jour automatique des valeurs en temps réel</p>
+            <p class="hint">Chantier : <strong>${site_name}</strong></p>
         </div>
         <div style="display: flex; gap: 10px; align-items: center;">
-            <label style="display: flex; align-items: center; gap: 6px; font-size: 0.9em; cursor: pointer; background: white; padding: 6px 12px; border-radius: 6px; border: 1px solid #ddd;">
-                <input type="checkbox" id="auto-refresh-toggle" checked onchange="toggleAutoRefresh(this.checked)">
-                <span>Auto-refresh (5s)</span>
-            </label>
             <button class="btn-primary" onclick="refreshLiveValues(true)" id="btn-refresh-manual">
                 <span>🔄</span> Rafraîchir
             </button>
@@ -79,7 +75,6 @@
 
 <script>
 const baseUrl = window.CONFIG?.baseUrl || '';
-let autoRefreshTimer = null;
 let lastValues = {};
 
 function seedInitialValues() {
@@ -127,32 +122,6 @@ async function refreshLiveValues(isManual = false) {
         console.error("Erreur refresh modbus suivi:", err);
     } finally {
         if (isManual && btn) btn.disabled = false;
-    }
-}
-
-function startAutoRefreshLoop() {
-    stopAutoRefreshLoop();
-    const toggle = document.getElementById('auto-refresh-toggle');
-    if (!toggle || !toggle.checked) return;
-
-    autoRefreshTimer = setInterval(() => {
-        refreshLiveValues(false);
-    }, 5000);
-}
-
-function stopAutoRefreshLoop() {
-    if (autoRefreshTimer) {
-        clearInterval(autoRefreshTimer);
-        autoRefreshTimer = null;
-    }
-}
-
-function toggleAutoRefresh(enabled) {
-    if (enabled) {
-        startAutoRefreshLoop();
-        refreshLiveValues(false);
-    } else {
-        stopAutoRefreshLoop();
     }
 }
 
@@ -253,8 +222,5 @@ async function removePoint(pointId) {
 
 document.addEventListener("DOMContentLoaded", () => {
     seedInitialValues();
-    startAutoRefreshLoop();
-    // Rafraîchir tout de suite les valeurs live
-    setTimeout(() => refreshLiveValues(false), 500);
 });
 </script>

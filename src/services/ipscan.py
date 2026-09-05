@@ -87,45 +87,57 @@ def iface_ipv4(iface):
         return None
     return m.group(1), m.group(2)
 
-async def check_port(ip, port):
+async def check_port(ip, port, iface=None):
     """Tente de se connecter au port TCP ou vérifie le port UDP pour BACnet."""
     if port == 47808:
-        return await check_bacnet_udp(ip)
+        return await check_bacnet_udp(ip, iface=iface)
     
     if port == 502:
         # On vérifie d'abord si le port est ouvert
-        res = await check_tcp_port(ip, port)
+        res = await check_tcp_port(ip, port, iface=iface)
         if res:
             # On pourrait tenter un probe Modbus immédiat, mais on garde ça pour l'enrichissement
             return 502
         return None
         
-    return await check_tcp_port(ip, port)
+    return await check_tcp_port(ip, port, iface=iface)
 
-async def check_tcp_port(ip, port):
-    """Vérifie si un port TCP est ouvert."""
+async def check_tcp_port(ip, port, iface=None, timeout=0.4):
+    """Vérifie si un port TCP est ouvert en liant le socket à l'interface cible."""
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.setblocking(False)
+    if iface and iface != "Inconnu":
+        try:
+            sock.setsockopt(socket.SOL_SOCKET, getattr(socket, "SO_BINDTODEVICE", 25), iface.encode() + b"\0")
+        except OSError:
+            pass
+    loop = asyncio.get_running_loop()
     try:
-        fut = asyncio.open_connection(ip, port)
-        _, writer = await asyncio.wait_for(fut, timeout=0.4)
-        writer.close()
-        await writer.wait_closed()
+        await asyncio.wait_for(loop.sock_connect(sock, (ip, port)), timeout=timeout)
         return port
     except Exception:
         return None
+    finally:
+        sock.close()
 
-async def check_bacnet_udp(ip):
+async def check_bacnet_udp(ip, iface=None):
     """Envoie un WhoIs minimal en UDP pour vérifier si c'est un automate BACnet."""
     # Packet WhoIs (BVLC + NPDU + APDU)
     whois_pkt = bytes.fromhex("810a000c0120ffff00ff1008")
     
     def _probe():
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        sock.settimeout(0.3)
+        if iface and iface != "Inconnu":
+            try:
+                sock.setsockopt(socket.SOL_SOCKET, getattr(socket, "SO_BINDTODEVICE", 25), iface.encode() + b"\0")
+            except OSError:
+                pass
+        sock.settimeout(0.4)
         try:
             sock.sendto(whois_pkt, (ip, 47808))
             data, addr = sock.recvfrom(1024)
             return 47808 if data else None
-        except:
+        except Exception:
             return None
         finally:
             sock.close()
@@ -139,7 +151,7 @@ async def scan_host(ip, mac, iface, scan_timestamp, delay_ms=0):
         await asyncio.sleep(delay_ms / 1000.0)
         
     ports_to_check = [80, 443, 502, 4196, 47808, 22, 23, 445]
-    tasks = [check_port(ip, p) for p in ports_to_check]
+    tasks = [check_port(ip, p, iface=iface) for p in ports_to_check]
     results = await asyncio.gather(*tasks)
     open_ports = [p for p in results if p is not None]
 
@@ -466,6 +478,7 @@ async def enrich_bacnet_device(d):
 async def enrich_modbus_device(d):
     """Tente de trouver les Unit IDs Modbus."""
     logger.info(f"Enrichissement Modbus pour {d['ip']}...")
+    iface = d.get("iface")
     
     def _probe_modbus():
         import socket
@@ -476,6 +489,11 @@ async def enrich_modbus_device(d):
         # On teste les Unit IDs les plus courants: 1, 2, 3, 255, 0
         for unit in [1, 2, 3, 255, 0]:
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            if iface and iface != "Inconnu":
+                try:
+                    sock.setsockopt(socket.SOL_SOCKET, getattr(socket, "SO_BINDTODEVICE", 25), iface.encode() + b"\0")
+                except OSError:
+                    pass
             sock.settimeout(1.0)
             try:
                 sock.connect((d["ip"], target_port))

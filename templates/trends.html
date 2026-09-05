@@ -69,7 +69,7 @@
 }
 .proto-modbus-tcp { background: #e3f2fd; color: #1565c0; border: 1px solid #bbdefb; }
 .proto-modbus-mstp { background: #e8eaf6; color: #3949ab; border: 1px solid #c5cae9; }
-.proto-bacnet { background: #f3e5f5; color: #7b1fa2; border: 1px solid #e1bee7; }
+.proto-bacnet, .proto-bacnet-ip { background: #f3e5f5; color: #7b1fa2; border: 1px solid #e1bee7; }
 .proto-mbus { background: #e0f2f1; color: #00695c; border: 1px solid #b2dfdb; }
 
 .badge-gray { background: #eee; color: #555; padding: 4px 8px; border-radius: 4px; font-family: monospace; font-size: 0.95em; }
@@ -135,7 +135,8 @@ function filterProtocol(proto, btn) {
 
     const rows = document.querySelectorAll('#suivi-tbody tr[data-proto]');
     rows.forEach(r => {
-        if (proto === 'all' || r.getAttribute('data-proto') === proto) {
+        const rowProto = r.getAttribute('data-proto') || '';
+        if (proto === 'all' || rowProto === proto || rowProto.startsWith(proto)) {
             r.style.display = '';
         } else {
             r.style.display = 'none';

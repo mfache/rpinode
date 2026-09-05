@@ -1,0 +1,144 @@
+<section class="devices-mgr">
+    <!-- En-tête -->
+    <div class="header-with-actions" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 12px;">
+        <div>
+            <h2>Périphériques & Passerelles</h2>
+            <p class="hint">Inventaire du matériel connecté en USB et ports série (passerelles RS-485, modems, adaptateurs).</p>
+        </div>
+        <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+            <button class="btn-secondary" onclick="window.location.reload()">
+                <span>🔄</span> Rafraîchir
+            </button>
+            <a href="${base_url}/bacnet/tools?tab=mstp" class="btn-primary" style="text-decoration: none;">
+                <span>🔌</span> Recherche BACnet MS/TP
+            </a>
+        </div>
+    </div>
+
+    <!-- Périphérique Principal : Moxa UPort 1150 -->
+    ${moxa_card_html}
+
+    <!-- Liste des Ports Série / RS-485 -->
+    <div class="card params-card" style="margin-top: 24px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; border-bottom: 1px solid #f1f5f9; padding-bottom: 10px;">
+            <h3 style="margin: 0; display: flex; align-items: center; gap: 8px;">
+                <span>🔌</span> Ports Série & Passerelles RS-485
+                <span class="badge-count-main" style="background: #3b82f6;">${total_serial}</span>
+            </h3>
+        </div>
+        ${serial_ports_table_html}
+    </div>
+
+    <!-- Liste de tous les périphériques USB -->
+    <div class="card params-card" style="margin-top: 24px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; border-bottom: 1px solid #f1f5f9; padding-bottom: 10px;">
+            <h3 style="margin: 0; display: flex; align-items: center; gap: 8px;">
+                <span>💻</span> Périphériques USB connectés
+                <span class="badge-count-main" style="background: #64748b;">${total_usb}</span>
+            </h3>
+        </div>
+        <div style="overflow-x: auto;">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th style="width: 120px;">Bus / Dev</th>
+                        <th style="width: 140px;">ID Matériel</th>
+                        <th>Description / Fabricant</th>
+                        <th style="width: 180px;">Catégorie</th>
+                        <th style="width: 180px;">Pilote Noyau</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${usb_devices_rows_html}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Info Pilote Moxa Customisé -->
+    <div class="card" style="margin-top: 24px; background: #f8fafc; border-left: 4px solid #3b82f6; padding: 18px 20px;">
+        <div style="display: flex; align-items: flex-start; gap: 14px;">
+            <span style="font-size: 1.8rem;">⚙️</span>
+            <div>
+                <h4 style="margin: 0 0 6px 0; color: #1e293b;">Pilote Noyau Moxa RS-485 (ti_usb_3410_5052)</h4>
+                <p style="margin: 0 0 8px 0; font-size: 0.9rem; color: #475569;">
+                    Le pilote officiel mainline a été patché et recompilé sur ce noyau pour forcer le Moxa UPort 1150 en mode <strong>RS-485 2 fils</strong> (au lieu du RS-232 par défaut).
+                </p>
+                <div style="font-size: 0.85rem; color: #64748b; font-family: monospace;">
+                    Statut : <span style="color: #16a34a; font-weight: bold;">Actif</span> | Module : <code>/lib/modules/.../ti_usb_3410_5052.ko</code> | Code source : <code>drivers/moxa/</code>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<style>
+.badge-count-main {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 0.8rem;
+    color: white;
+    font-weight: 600;
+}
+.moxa-hero-card {
+    background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+    color: white;
+    border-radius: 12px;
+    padding: 24px;
+    box-shadow: 0 10px 25px -5px rgba(15, 23, 42, 0.2);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+.moxa-hero-card h3 {
+    margin: 0 0 6px 0;
+    font-size: 1.35rem;
+    color: white;
+}
+.moxa-badges {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin: 12px 0 18px 0;
+}
+.moxa-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 10px;
+    border-radius: 6px;
+    font-size: 0.8rem;
+    font-weight: 600;
+}
+.moxa-badge-green { background: rgba(34, 197, 94, 0.2); color: #4ade80; border: 1px solid rgba(34, 197, 94, 0.3); }
+.moxa-badge-blue { background: rgba(59, 130, 246, 0.2); color: #93c5fd; border: 1px solid rgba(59, 130, 246, 0.3); }
+.moxa-badge-purple { background: rgba(168, 85, 247, 0.2); color: #d8b4fe; border: 1px solid rgba(168, 85, 247, 0.3); }
+.moxa-details-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 15px;
+    background: rgba(255, 255, 255, 0.05);
+    padding: 16px;
+    border-radius: 8px;
+    margin-bottom: 20px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+}
+.moxa-detail-item .label {
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    color: #94a3b8;
+    letter-spacing: 0.5px;
+    margin-bottom: 3px;
+}
+.moxa-detail-item .value {
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: #f1f5f9;
+    font-family: monospace;
+    word-break: break-all;
+}
+.moxa-actions {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+</style>

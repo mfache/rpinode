@@ -1,156 +1,339 @@
 <section class="bacnet-tools">
-    <div class="header-with-actions" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-        <h2>Outils d'investigation BACnet</h2>
-    </div>
-
-    <div class="card params-card">
-        <h3>Cible BACnet (IP)</h3>
-        <form id="form-connection" style="display: flex; gap: 15px; align-items: flex-end; flex-wrap: wrap;">
-            <div style="flex: 1; min-width: 220px;">
-                <label>Adresse IP :</label>
-                <input type="text" id="address" name="address" value="${target_ip}" list="discovered-bacnet-ips" placeholder="Ex: 192.168.1.100" autocomplete="off" required>
-                <datalist id="discovered-bacnet-ips">
-                    ${discovered_ips_options}
-                </datalist>
-            </div>
-            <div>
-                <label>Instance de l'appareil (Device ID) :</label>
-                <input type="number" id="device_instance" name="device_instance" value="${target_instance}" style="width: 150px;" required>
-            </div>
-            <div>
-                <button type="button" class="btn-primary" onclick="runDiscovery()" id="btn-discover" style="height: 38px;">🔍 Découvrir les objets</button>
-            </div>
-        </form>
-    </div>
-
-    <div id="loading-indicator" style="display: none; padding: 20px; text-align: center; color: #3498db; font-weight: bold;">
-        <span style="font-size: 1.5em; display: inline-block; animation: spin 1s linear infinite;">⚙️</span> Interrogation du réseau BACnet en cours... (peut prendre jusqu'à 10 secondes)
-    </div>
-
-    <div id="results-area" style="display: none; margin-top: 20px;">
-        <div class="card" style="padding: 0;">
-            <div style="padding: 15px; background: #f8fafc; border-bottom: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center;">
-                <h3 style="margin: 0;">Objets Découverts <span id="objects-count" class="badge-count-main">0</span></h3>
-                <button class="btn-secondary" onclick="generateTemplate()" id="btn-generate" disabled>📄 Créer un template depuis la sélection</button>
-            </div>
-            <div style="max-height: 60vh; overflow-y: auto;">
-                <table class="data-table" id="objects-table">
-                    <thead>
-                        <tr>
-                            <th style="width: 40px; text-align: center;"><input type="checkbox" id="selectAll" onchange="toggleAll(this)"></th>
-                            <th>Object ID</th>
-                            <th>Libellé (Object Name)</th>
-                            <th>Valeur actuelle (Present Value)</th>
-                        </tr>
-                    </thead>
-                    <tbody id="objects-tbody">
-                        <!-- Rempli en JS -->
-                    </tbody>
-                </table>
-            </div>
+    <div class="header-with-actions" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 12px;">
+        <div>
+            <h2>Outils d'investigation BACnet</h2>
+            <p class="hint">Diagnostic, découverte d'équipements et inspection des objets (BACnet/IP & BACnet MS/TP RS-485).</p>
+        </div>
+        <div style="display: flex; gap: 10px;">
+            <a href="${base_url}/devices" class="btn-secondary" style="text-decoration: none;">
+                <span>🔌</span> Voir les Périphériques
+            </a>
+            <a href="${base_url}/bacnet/devices" class="btn-secondary" style="text-decoration: none;">
+                <span>📋</span> Appareils du chantier
+            </a>
         </div>
     </div>
-    <div class="card params-card" style="margin-top: 30px;">
-        <h3>📚 Dictionnaire local des points BACnet</h3>
-        <p class="form-hint" style="margin-bottom: 10px;">
-            Construit une fois (ou sur planification) la liste de tous les points de tous les appareils déjà repérés par le scan réseau.
-            Une fois construit, la recherche ci-dessous est instantanée et supporte les jokers (<code>*</code> = n'importe quelle suite de caractères, <code>?</code> = un caractère).
-        </p>
-        <div id="catalog-status-line" style="margin-bottom: 12px; font-size: 0.9em; color: #475569;">Chargement du statut...</div>
-        <div style="display: flex; gap: 15px; align-items: flex-end; flex-wrap: wrap;">
-            <div>
-                <button type="button" class="btn-primary" id="btn-build-now" onclick="buildCatalogNow()">⚡ Construire maintenant</button>
-            </div>
-            <div>
-                <label style="display:block; font-size:0.85em; font-weight:bold; color:#475569; margin-bottom:5px;">Ou planifier à une heure précise :</label>
-                <div style="display:flex; gap:8px;">
-                    <input type="datetime-local" id="catalog-schedule-when" style="padding:8px 12px; border:1px solid #cbd5e1; border-radius:4px;">
-                    <button type="button" class="btn-secondary" onclick="scheduleCatalogBuild()">🕒 Planifier</button>
+
+    <!-- Onglets BACnet/IP vs BACnet MS/TP -->
+    <div class="tabs-nav" style="display: flex; gap: 8px; margin-bottom: 20px; border-bottom: 2px solid #e2e8f0; padding-bottom: 2px;">
+        <button type="button" class="tab-btn ${tab_ip_active}" id="tab-btn-ip" onclick="switchTab('ip')" style="padding: 10px 20px; font-weight: bold; border: none; background: none; cursor: pointer; border-bottom: 3px solid transparent; font-size: 0.95rem;">
+            🌐 BACnet/IP (Ethernet / WiFi)
+        </button>
+        <button type="button" class="tab-btn ${tab_mstp_active}" id="tab-btn-mstp" onclick="switchTab('mstp')" style="padding: 10px 20px; font-weight: bold; border: none; background: none; cursor: pointer; border-bottom: 3px solid transparent; font-size: 0.95rem; display: flex; align-items: center; gap: 6px;">
+            🔌 BACnet MS/TP (RS-485 / Passerelle Série)
+            <span id="mstp-status-pill" class="badge-pill" style="display: none;">● En cours</span>
+        </button>
+    </div>
+
+    <!-- ================================================================= -->
+    <!-- ONGLET 1 : BACNET / IP -->
+    <!-- ================================================================= -->
+    <div id="tab-content-ip" style="${tab_ip_style}">
+        <div class="card params-card">
+            <h3>Cible BACnet (IP)</h3>
+            <form id="form-connection" style="display: flex; gap: 15px; align-items: flex-end; flex-wrap: wrap;">
+                <div style="flex: 1; min-width: 220px;">
+                    <label>Adresse IP :</label>
+                    <input type="text" id="address" name="address" value="${target_ip}" list="discovered-bacnet-ips" placeholder="Ex: 192.168.1.100" autocomplete="off" required>
+                    <datalist id="discovered-bacnet-ips">
+                        ${discovered_ips_options}
+                    </datalist>
+                </div>
+                <div>
+                    <label>Instance de l'appareil (Device ID) :</label>
+                    <input type="number" id="device_instance" name="device_instance" value="${target_instance}" style="width: 150px;" required>
+                </div>
+                <div>
+                    <button type="button" class="btn-primary" onclick="runDiscovery()" id="btn-discover" style="height: 38px;">🔍 Découvrir les objets</button>
+                </div>
+            </form>
+        </div>
+
+        <div id="loading-indicator" style="display: none; padding: 20px; text-align: center; color: #3498db; font-weight: bold;">
+            <span style="font-size: 1.5em; display: inline-block; animation: spin 1s linear infinite;">⚙️</span> Interrogation du réseau BACnet en cours... (peut prendre jusqu'à 10 secondes)
+        </div>
+
+        <div id="results-area" style="display: none; margin-top: 20px;">
+            <div class="card" style="padding: 0;">
+                <div style="padding: 15px; background: #f8fafc; border-bottom: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center;">
+                    <h3 style="margin: 0;">Objets Découverts <span id="objects-count" class="badge-count-main">0</span></h3>
+                    <button class="btn-secondary" onclick="generateTemplate()" id="btn-generate" disabled>📄 Créer un template depuis la sélection</button>
+                </div>
+                <div style="max-height: 60vh; overflow-y: auto;">
+                    <table class="data-table" id="objects-table">
+                        <thead>
+                            <tr>
+                                <th style="width: 40px; text-align: center;"><input type="checkbox" id="selectAll" onchange="toggleAll(this)"></th>
+                                <th>Object ID</th>
+                                <th>Libellé (Object Name)</th>
+                                <th>Valeur actuelle (Present Value)</th>
+                            </tr>
+                        </thead>
+                        <tbody id="objects-tbody">
+                            <!-- Rempli en JS -->
+                        </tbody>
+                    </table>
                 </div>
             </div>
-            <div>
-                <button type="button" class="btn-secondary" id="btn-cancel-build" onclick="cancelCatalogBuild()" style="display:none;">✕ Annuler la planification</button>
+        </div>
+
+        <div class="card params-card" style="margin-top: 30px;">
+            <h3>📚 Dictionnaire local des points BACnet</h3>
+            <p class="form-hint" style="margin-bottom: 10px;">
+                Construit une fois (ou sur planification) la liste de tous les points de tous les appareils déjà repérés par le scan réseau.
+                Une fois construit, la recherche ci-dessous est instantanée et supporte les jokers (<code>*</code> = n'importe quelle suite de caractères, <code>?</code> = un caractère).
+            </p>
+            <div id="catalog-status-line" style="margin-bottom: 12px; font-size: 0.9em; color: #475569;">Chargement du statut...</div>
+            <div style="display: flex; gap: 15px; align-items: flex-end; flex-wrap: wrap;">
+                <div>
+                    <button type="button" class="btn-primary" id="btn-build-now" onclick="buildCatalogNow()">⚡ Construire maintenant</button>
+                </div>
+                <div>
+                    <label style="display:block; font-size:0.85em; font-weight:bold; color:#475569; margin-bottom:5px;">Ou planifier à une heure précise :</label>
+                    <div style="display:flex; gap:8px;">
+                        <input type="datetime-local" id="catalog-schedule-when" style="padding:8px 12px; border:1px solid #cbd5e1; border-radius:4px;">
+                        <button type="button" class="btn-secondary" onclick="scheduleCatalogBuild()">🕒 Planifier</button>
+                    </div>
+                </div>
+                <div>
+                    <button type="button" class="btn-secondary" id="btn-cancel-build" onclick="cancelCatalogBuild()" style="display:none;">✕ Annuler la planification</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="card params-card">
+            <h3>🔍 Recherche par nom (avec jokers)</h3>
+            <form id="form-catalog-search" style="display: flex; gap: 15px; align-items: flex-end; flex-wrap: wrap;" onsubmit="event.preventDefault(); runCatalogSearch();">
+                <div style="flex: 1; min-width: 220px;">
+                    <label>Motif recherché :</label>
+                    <input type="text" id="catalog_pattern" placeholder="Ex: BExt25'R'Flr*'R*'RHvacCoo'RTemp" style="width: 100%;" required>
+                </div>
+                <div>
+                    <button type="submit" class="btn-primary" id="btn-catalog-search" style="height: 38px;">🔍 Rechercher dans le dictionnaire</button>
+                </div>
+            </form>
+        </div>
+
+        <div id="catalog-loading" style="display: none; padding: 20px; text-align: center; color: #16a085; font-weight: bold;">
+            <span style="font-size: 1.5em; display: inline-block; animation: spin 1s linear infinite;">🔍</span> Recherche et lecture des valeurs en direct...
+        </div>
+
+        <div id="catalog-results-area" style="display: none; margin-top: 20px;">
+            <div class="card" style="padding: 0;">
+                <div style="padding: 12px 15px; background: #f0fdf4; border-bottom: 1px solid #bbf7d0; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+                    <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                        <h3 style="margin: 0; color: #166534;">Résultats <span id="catalog-count" class="badge-count-main" style="background: #16a085;">0</span></h3>
+                        <div style="display: flex; gap: 6px; margin-left: 8px;">
+                            <button type="button" class="btn-secondary btn-sm" onclick="selectCatalogAll(true)">Tout sélectionner</button>
+                            <button type="button" class="btn-secondary btn-sm" onclick="selectCatalogAll(false)">Rien sélectionner</button>
+                        </div>
+                        <button type="button" class="btn-primary btn-sm" id="btn-catalog-mark-suivi" onclick="markSelectedCatalogAsSuivi()" disabled style="background: #16a085; border-color: #138d75; display: inline-flex; align-items: center; gap: 4px; height: 30px;">
+                            <span>⭐</span> Marquer comme suivi (<span id="catalog-selected-count">0</span>)
+                        </button>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <label style="display: flex; align-items: center; gap: 6px; font-size: 0.85em; cursor: pointer; background: white; padding: 4px 10px; border-radius: 6px; border: 1px solid #cbd5e1; color: #334155;">
+                            <input type="checkbox" id="catalog-auto-refresh" checked onchange="toggleCatalogAutoRefresh(this.checked)">
+                            <span>Auto-refresh (5s)</span>
+                        </label>
+                        <button type="button" class="btn-secondary" id="btn-catalog-refresh-manual" onclick="refreshCatalogLiveValues(true)" style="padding: 5px 12px; font-size: 0.85em; height: 32px;">
+                            <span>🔄</span> Rafraîchir
+                        </button>
+                    </div>
+                </div>
+                <div style="max-height: 50vh; overflow-y: auto;">
+                    <table class="data-table" id="catalog-table">
+                        <thead>
+                            <tr>
+                                <th style="width: 40px; text-align: center;">
+                                    <input type="checkbox" id="catalog-select-all-cb" onchange="toggleCatalogSelectAll(this.checked)" title="Tout cocher / décocher">
+                                </th>
+                                <th>IP / Adresse</th>
+                                <th>Device ID</th>
+                                <th>Nom instance BACnet</th>
+                                <th>Object ID</th>
+                                <th>Libellé</th>
+                                <th>Valeur (en direct)</th>
+                                <th style="text-align: center;">Suivi</th>
+                            </tr>
+                        </thead>
+                        <tbody id="catalog-tbody">
+                            <!-- Rempli en JS -->
+                        </tbody>
+                    </table>
+                </div>
+                <!-- Barre de pagination -->
+                <div id="catalog-pagination" style="display: flex; justify-content: space-between; align-items: center; padding: 10px 15px; background: #f8fafc; border-top: 1px solid #e2e8f0; flex-wrap: wrap; gap: 10px;">
+                    <div style="font-size: 0.85em; color: #64748b;">
+                        Affichage de <strong id="catalog-range-start">0</strong> à <strong id="catalog-range-end">0</strong> sur <strong id="catalog-total-count">0</strong> point(s)
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <button type="button" class="btn-secondary btn-sm" id="btn-catalog-prev" onclick="goToCatalogPage(currentCatalogPage - 1)" disabled>
+                            ◀ Précédent
+                        </button>
+                        <span style="font-size: 0.9em; font-weight: bold; color: #334155; padding: 0 6px;">
+                            Page <span id="catalog-current-page">1</span> / <span id="catalog-total-pages">1</span>
+                        </span>
+                        <button type="button" class="btn-secondary btn-sm" id="btn-catalog-next" onclick="goToCatalogPage(currentCatalogPage + 1)" disabled>
+                            Suivant ▶
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card params-card" style="margin-top: 30px;">
+            <h3>Recherche globale de point (Who-Has)</h3>
+            <p class="form-hint" style="margin-bottom: 10px;">Interroge dynamiquement tout le réseau BACnet pour trouver les équipements possédant un objet spécifique (par son nom).</p>
+            <form id="form-whohas" style="display: flex; gap: 15px; align-items: flex-end; flex-wrap: wrap;" onsubmit="event.preventDefault(); runWhoHas();">
+                <div style="flex: 1; min-width: 220px;">
+                    <label>Nom exact du point (Object Name) :</label>
+                    <input type="text" id="whohas_name" placeholder="Ex: BExt25'R'Flr**'R*****'RHvacCoo'RTemp" style="width: 100%;" required>
+                </div>
+                <div>
+                    <button type="submit" class="btn-primary" id="btn-whohas" style="height: 38px;">🌐 Chercher sur le réseau</button>
+                </div>
+            </form>
+        </div>
+
+        <div id="whohas-loading" style="display: none; padding: 20px; text-align: center; color: #e67e22; font-weight: bold;">
+            <span style="font-size: 1.5em; display: inline-block; animation: spin 1s linear infinite;">📡</span> Émission d'un Who-Has et attente des réponses... (5 secondes)
+        </div>
+
+        <div id="whohas-results-area" style="display: none; margin-top: 20px;">
+            <div class="card" style="padding: 0;">
+                <div style="padding: 15px; background: #fff7ed; border-bottom: 1px solid #fed7aa; display: flex; justify-content: space-between; align-items: center;">
+                    <h3 style="margin: 0; color: #9a3412;">Résultats I-Have <span id="whohas-count" class="badge-count-main" style="background: #ea580c;">0</span></h3>
+                </div>
+                <div style="max-height: 40vh; overflow-y: auto;">
+                    <table class="data-table" id="whohas-table">
+                        <thead>
+                            <tr>
+                                <th>IP / Adresse source</th>
+                                <th>Device ID</th>
+                                <th>Object ID</th>
+                                <th>Valeur lue</th>
+                            </tr>
+                        </thead>
+                        <tbody id="whohas-tbody">
+                            <!-- Rempli en JS -->
+                        </tbody>
+                    </table>
+                </div>
             </div>
         </div>
     </div>
 
-    <div class="card params-card">
-        <h3>🔍 Recherche par nom (avec jokers)</h3>
-        <form id="form-catalog-search" style="display: flex; gap: 15px; align-items: flex-end; flex-wrap: wrap;" onsubmit="event.preventDefault(); runCatalogSearch();">
-            <div style="flex: 1; min-width: 220px;">
-                <label>Motif recherché :</label>
-                <input type="text" id="catalog_pattern" placeholder="Ex: BExt25'R'Flr*'R*'RHvacCoo'RTemp" style="width: 100%;" required>
+    <!-- ================================================================= -->
+    <!-- ONGLET 2 : BACNET MS/TP (RS-485) -->
+    <!-- ================================================================= -->
+    <div id="tab-content-mstp" style="${tab_mstp_style}">
+        <div class="card params-card">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; flex-wrap: wrap; gap: 10px;">
+                <h3 style="margin: 0;">🔌 Surveillance & Découverte BACnet MS/TP</h3>
+                <div id="mstp-session-badge" style="font-size: 0.9em; font-weight: bold;">
+                    <!-- Badge de statut en direct -->
+                </div>
             </div>
-            <div>
-                <button type="submit" class="btn-primary" id="btn-catalog-search" style="height: 38px;">🔍 Rechercher dans le dictionnaire</button>
-            </div>
-        </form>
-    </div>
+            <p class="form-hint" style="margin-bottom: 15px;">
+                Découverte continue des équipements sur le bus RS-485 à jeton tournant.
+                Chaque cycle <strong>écoute d'abord passivement le bus</strong> (détectant les nœuds même si l'anneau est rompu),
+                puis émet un <strong>Who-Is</strong> pour résoudre les Device IDs BACnet.
+            </p>
 
-    <div id="catalog-loading" style="display: none; padding: 20px; text-align: center; color: #16a085; font-weight: bold;">
-        <span style="font-size: 1.5em; display: inline-block; animation: spin 1s linear infinite;">🔍</span> Recherche et lecture des valeurs en direct...
-    </div>
+            <form id="form-mstp" onsubmit="event.preventDefault(); startMstp();">
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 15px; margin-bottom: 18px;">
+                    <div>
+                        <label>Port Série (Passerelle) :</label>
+                        <select id="mstp_device" name="device" style="width: 100%;" required>
+                            ${mstp_serial_options}
+                        </select>
+                    </div>
+                    <div>
+                        <label>Vitesse (bauds) :</label>
+                        <select id="mstp_baud" name="baud" style="width: 100%;">
+                            <option value="9600">9600 bauds</option>
+                            <option value="19200">19200 bauds</option>
+                            <option value="38400" selected>38400 bauds (Standard)</option>
+                            <option value="57600">57600 bauds</option>
+                            <option value="76800">76800 bauds</option>
+                            <option value="115200">115200 bauds</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label>Notre adresse MAC (0-127) :</label>
+                        <input type="number" id="mstp_mac" name="mac" value="127" min="0" max="127" style="width: 100%;" title="Adresse du boîtier sur le bus">
+                    </div>
+                    <div>
+                        <label>Max Master (0-127) :</label>
+                        <input type="number" id="mstp_max_master" name="max_master" value="127" min="0" max="127" style="width: 100%;">
+                    </div>
+                    <div>
+                        <label>Npoll (Jetons avant sondage) :</label>
+                        <input type="number" id="mstp_npoll" name="npoll" value="2" min="1" max="50" style="width: 100%;" title="2 = optimisé mise en service (~15s d'intégration)">
+                    </div>
+                    <div>
+                        <label>Cycle Who-Is (ms) :</label>
+                        <input type="number" id="mstp_cycle" name="cycle_ms" value="20000" min="5000" max="120000" step="1000" style="width: 100%;">
+                    </div>
+                    <div>
+                        <label>Écoute passive (ms) :</label>
+                        <input type="number" id="mstp_sniff" name="sniff_ms" value="5000" min="1000" max="30000" step="1000" style="width: 100%;">
+                    </div>
+                </div>
 
-    <div id="catalog-results-area" style="display: none; margin-top: 20px;">
-        <div class="card" style="padding: 0;">
-            <div style="padding: 15px; background: #f0fdf4; border-bottom: 1px solid #bbf7d0; display: flex; justify-content: space-between; align-items: center;">
-                <h3 style="margin: 0; color: #166534;">Résultats <span id="catalog-count" class="badge-count-main" style="background: #16a085;">0</span></h3>
-                <span id="catalog-truncated-msg" style="display:none; color:#d97706; font-size:0.85em;">⚠️ Résultats tronqués, affinez votre recherche</span>
+                <div style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
+                    <button type="submit" class="btn-primary" id="btn-mstp-start" style="background: #16a34a; border-color: #15803d; height: 38px; display: inline-flex; align-items: center; gap: 6px;">
+                        <span>▶</span> Démarrer la surveillance
+                    </button>
+                    <button type="button" class="btn-secondary" id="btn-mstp-stop" onclick="stopMstp()" disabled style="background: #ef4444; border-color: #dc2626; color: white; height: 38px; display: inline-flex; align-items: center; gap: 6px;">
+                        <span>⏹</span> Arrêter la surveillance
+                    </button>
+                    <span id="mstp-cycle-info" style="font-size: 0.85rem; color: #64748b; margin-left: 8px;"></span>
+                </div>
+            </form>
+        </div>
+
+        <!-- Bloc Diagnostic Santé du Bus RS-485 -->
+        <div id="mstp-health-card" class="card" style="display: none; margin-top: 20px; background: #f8fafc; border-left: 4px solid #3b82f6;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                <h4 style="margin: 0; color: #1e293b; display: flex; align-items: center; gap: 6px;">
+                    <span>🩺</span> Diagnostic du Bus RS-485
+                </h4>
+                <span id="mstp-health-stats" style="font-size: 0.85rem; font-family: monospace; color: #475569;"></span>
             </div>
-            <div style="max-height: 40vh; overflow-y: auto;">
-                <table class="data-table" id="catalog-table">
-                    <thead>
-                        <tr>
-                            <th>IP / Adresse</th>
-                            <th>Device ID</th>
-                            <th>Object ID</th>
-                            <th>Libellé</th>
-                            <th>Valeur (en direct)</th>
-                        </tr>
-                    </thead>
-                    <tbody id="catalog-tbody">
-                        <!-- Rempli en JS -->
-                    </tbody>
-                </table>
+            <div id="mstp-anomalies-container">
+                <!-- Rempli en JS -->
             </div>
         </div>
-    </div>
 
-    <div class="card params-card" style="margin-top: 30px;">
-        <h3>Recherche globale de point (Who-Has)</h3>
-        <p class="form-hint" style="margin-bottom: 10px;">Interroge dynamiquement tout le réseau BACnet pour trouver les équipements possédant un objet spécifique (par son nom).</p>
-        <form id="form-whohas" style="display: flex; gap: 15px; align-items: flex-end; flex-wrap: wrap;" onsubmit="event.preventDefault(); runWhoHas();">
-            <div style="flex: 1; min-width: 220px;">
-                <label>Nom exact du point (Object Name) :</label>
-                <input type="text" id="whohas_name" placeholder="Ex: BExt25'R'Flr**'R*****'RHvacCoo'RTemp" style="width: 100%;" required>
+        <!-- Tableau des équipements MS/TP détectés -->
+        <div class="card" style="padding: 0; margin-top: 20px;">
+            <div style="padding: 15px; background: #f8fafc; border-bottom: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center;">
+                <h3 style="margin: 0; display: flex; align-items: center; gap: 8px;">
+                    <span>📋</span> Nœuds & Équipements MS/TP découverts
+                    <span id="mstp-nodes-count" class="badge-count-main">0</span>
+                </h3>
             </div>
-            <div>
-                <button type="submit" class="btn-primary" id="btn-whohas" style="height: 38px;">🌐 Chercher sur le réseau</button>
-            </div>
-        </form>
-    </div>
-
-    <div id="whohas-loading" style="display: none; padding: 20px; text-align: center; color: #e67e22; font-weight: bold;">
-        <span style="font-size: 1.5em; display: inline-block; animation: spin 1s linear infinite;">📡</span> Émission d'un Who-Has et attente des réponses... (5 secondes)
-    </div>
-
-    <div id="whohas-results-area" style="display: none; margin-top: 20px;">
-        <div class="card" style="padding: 0;">
-            <div style="padding: 15px; background: #fff7ed; border-bottom: 1px solid #fed7aa; display: flex; justify-content: space-between; align-items: center;">
-                <h3 style="margin: 0; color: #9a3412;">Résultats I-Have <span id="whohas-count" class="badge-count-main" style="background: #ea580c;">0</span></h3>
-            </div>
-            <div style="max-height: 40vh; overflow-y: auto;">
-                <table class="data-table" id="whohas-table">
+            <div style="overflow-x: auto; max-height: 60vh;">
+                <table class="data-table" id="mstp-table">
                     <thead>
                         <tr>
-                            <th>IP / Adresse source</th>
+                            <th style="width: 30px;"></th>
+                            <th style="width: 100px;">Adresse MAC</th>
                             <th>Device ID</th>
-                            <th>Object ID</th>
-                            <th>Valeur lue</th>
+                            <th>APDU Max</th>
+                            <th>Dernière activité</th>
+                            <th>Trames entendues</th>
+                            <th>Réponses I-Am</th>
                         </tr>
                     </thead>
-                    <tbody id="whohas-tbody">
-                        <!-- Rempli en JS -->
+                    <tbody id="mstp-tbody">
+                        <tr>
+                            <td colspan="7" style="text-align: center; padding: 30px; color: #64748b;">
+                                Aucune surveillance active. Cliquez sur « Démarrer la surveillance » pour écouter le bus et lancer les Who-Is.
+                            </td>
+                        </tr>
                     </tbody>
                 </table>
             </div>
@@ -158,7 +341,44 @@
     </div>
 </section>
 
+<div id="toast-msg" style="display:none; position:fixed; bottom:20px; right:20px; background:#2ecc71; color:white; padding:12px 20px; border-radius:6px; box-shadow:0 4px 10px rgba(0,0,0,0.2); z-index:9999; font-weight:bold;"></div>
+
 <style>
+.tab-btn.active {
+    color: #2563eb !important;
+    border-bottom: 3px solid #2563eb !important;
+}
+.tab-btn:not(.active) {
+    color: #64748b !important;
+}
+.tab-btn:hover {
+    color: #1e293b !important;
+}
+.badge-pill {
+    background: #22c55e;
+    color: white;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 0.75rem;
+    animation: pulse 2s infinite;
+}
+.mstp-dot {
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+}
+.mstp-dot-fresh { background: #22c55e; box-shadow: 0 0 6px rgba(34, 197, 94, 0.6); }
+.mstp-dot-stale { background: #f59e0b; }
+.mstp-dot-lost { background: #94a3b8; }
+.mstp-anomaly-item {
+    margin: 4px 0;
+    font-size: 0.88rem;
+    padding: 6px 10px;
+    border-radius: 4px;
+}
+.mstp-anomaly-warn { background: #fef3c7; color: #92400e; border-left: 3px solid #f59e0b; }
+.mstp-anomaly-error { background: #fee2e2; color: #991b1b; border-left: 3px solid #ef4444; }
 .card { background: white; padding: 15px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); margin-bottom: 20px; }
 .params-card { background: #f8fafc; border: 1px solid #e2e8f0; }
 .params-card label { display: block; font-size: 0.85em; font-weight: bold; color: #475569; margin-bottom: 5px; }
@@ -166,22 +386,251 @@
 .params-card input:focus, .params-card select:focus { border-color: #3498db; }
 .btn-primary { background: #3498db; color: white; padding: 8px 15px; border-radius: 4px; border: none; cursor: pointer; font-weight: bold; transition: background 0.2s; }
 .btn-primary:hover { background: #2980b9; }
-.btn-primary:disabled { background: #95a5a6; cursor: not-allowed; }
+.btn-primary:disabled { background: #95a5a6; cursor: not-allowed; opacity: 0.6; }
 .btn-secondary { background: #f1f5f9; color: #334155; border: 1px solid #cbd5e1; padding: 8px 15px; border-radius: 4px; cursor: pointer; font-weight: bold; }
 .btn-secondary:hover { background: #e2e8f0; }
-.btn-secondary:disabled { background: #f1f5f9; color: #94a3b8; cursor: not-allowed; }
+.btn-secondary:disabled { background: #f1f5f9; color: #94a3b8; cursor: not-allowed; opacity: 0.6; }
 .data-table { width: 100%; border-collapse: collapse; }
 .data-table th, .data-table td { padding: 10px 12px; border-bottom: 1px solid #f1f5f9; text-align: left; }
 .data-table th { background: #f8fafc; position: sticky; top: 0; z-index: 10; font-size: 0.85em; text-transform: uppercase; color: #64748b; }
 .data-table tbody tr:hover { background: #f8fafc; }
 .badge-count-main { background: #3498db; color: white; padding: 2px 8px; border-radius: 12px; font-size: 0.85em; font-weight: normal; margin-left: 10px; }
+.badge-gray { background: #eee; color: #555; padding: 4px 8px; border-radius: 4px; font-family: monospace; font-size: 0.95em; }
+.badge-success { background: #e8f8f5; color: #16a085; padding: 4px 8px; border-radius: 4px; font-family: monospace; font-weight: bold; font-size: 0.95em; }
+.badge-error { background: #fdedec; color: #c0392b; padding: 4px 8px; border-radius: 4px; font-family: monospace; font-size: 0.9em; }
+.btn-sm { padding: 4px 8px; font-size: 0.85em; }
+.cb-catalog-select { width: 16px; height: 16px; cursor: pointer; }
+.suivi-flash { animation: flashHighlight 1s ease-out; }
+@keyframes flashHighlight {
+    0% { background-color: #d4edda; }
+    100% { background-color: #e8f8f5; }
+}
 @keyframes spin { 100% { transform: rotate(360deg); } }
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
 </style>
 
 <script>
 const baseUrl = window.CONFIG?.baseUrl || '';
+let currentTab = "${active_tab}" || "ip";
+let mstpStream = null;
+let mstpTickTimer = null;
+let mstpData = null;
+let mstpDevices = [];
 let discoveredObjects = [];
 
+function switchTab(tab) {
+    currentTab = tab;
+    const ipContent = document.getElementById('tab-content-ip');
+    const mstpContent = document.getElementById('tab-content-mstp');
+    const ipBtn = document.getElementById('tab-btn-ip');
+    const mstpBtn = document.getElementById('tab-btn-mstp');
+
+    if (tab === 'mstp') {
+        ipContent.style.display = 'none';
+        mstpContent.style.display = 'block';
+        ipBtn.classList.remove('active');
+        mstpBtn.classList.add('active');
+        startMstpSse();
+    } else {
+        ipContent.style.display = 'block';
+        mstpContent.style.display = 'none';
+        ipBtn.classList.add('active');
+        mstpBtn.classList.remove('active');
+    }
+}
+
+// -------------------------------------------------------------
+// LOGIQUE BACNET MS/TP
+// -------------------------------------------------------------
+async function startMstp() {
+    const form = document.getElementById('form-mstp');
+    const payload = {
+        device: document.getElementById('mstp_device').value,
+        baud: parseInt(document.getElementById('mstp_baud').value, 10),
+        mac: parseInt(document.getElementById('mstp_mac').value, 10),
+        max_master: parseInt(document.getElementById('mstp_max_master').value, 10),
+        npoll: parseInt(document.getElementById('mstp_npoll').value, 10),
+        cycle_ms: parseInt(document.getElementById('mstp_cycle').value, 10),
+        sniff_ms: parseInt(document.getElementById('mstp_sniff').value, 10),
+    };
+
+    document.getElementById('btn-mstp-start').disabled = true;
+
+    try {
+        const res = await fetch((baseUrl + '/api/bacnet/mstp/start').replace(/\/+/g, '/'), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (data.status === 'ok') {
+            showToast(data.message || 'Surveillance MS/TP démarrée.');
+            startMstpSse();
+        } else {
+            alert('Erreur démarrage MS/TP : ' + (data.message || 'Échec'));
+            document.getElementById('btn-mstp-start').disabled = false;
+        }
+    } catch (e) {
+        alert('Erreur réseau : ' + e);
+        document.getElementById('btn-mstp-start').disabled = false;
+    }
+}
+
+async function stopMstp() {
+    document.getElementById('btn-mstp-stop').disabled = true;
+    try {
+        const res = await fetch((baseUrl + '/api/bacnet/mstp/stop').replace(/\/+/g, '/'), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        });
+        const data = await res.json();
+        showToast(data.message || 'Surveillance arrêtée.');
+    } catch (e) {
+        console.error('Erreur stop MS/TP:', e);
+    }
+}
+
+function startMstpSse() {
+    if (mstpStream) return;
+    const url = (baseUrl + '/api/bacnet/mstp/stream').replace(/\/+/g, '/');
+    mstpStream = new EventSource(url);
+
+    mstpStream.onmessage = function (ev) {
+        try {
+            const data = JSON.parse(ev.data);
+            updateMstpUI(data);
+        } catch (e) {
+            console.error('Erreur parse SSE MS/TP:', e);
+        }
+    };
+
+    mstpStream.onerror = function () {
+        if (mstpStream) {
+            mstpStream.close();
+            mstpStream = null;
+        }
+        setTimeout(() => {
+            if (currentTab === 'mstp') startMstpSse();
+        }, 3000);
+    };
+
+    if (!mstpTickTimer) {
+        mstpTickTimer = setInterval(mstpTick, 1000);
+    }
+}
+
+function updateMstpUI(data) {
+    if (!data) return;
+    mstpData = data;
+    mstpDevices = data.devices || [];
+
+    const isRunning = data.running;
+    document.getElementById('btn-mstp-start').disabled = isRunning;
+    document.getElementById('btn-mstp-stop').disabled = !isRunning;
+
+    const pill = document.getElementById('mstp-status-pill');
+    if (isRunning) {
+        pill.style.display = 'inline-block';
+        pill.textContent = `● ${data.phase === 'ecoute' ? 'Écoute...' : (data.phase === 'who-is' ? 'Who-Is...' : 'En cours')}`;
+    } else {
+        pill.style.display = 'none';
+    }
+
+    const badge = document.getElementById('mstp-session-badge');
+    if (isRunning) {
+        badge.innerHTML = `<span style="color:#16a34a;">● En cours (${data.cycles || 0} cycles)</span>`;
+    } else {
+        badge.innerHTML = `<span style="color:#64748b;">⚪ Inactif</span>`;
+    }
+
+    if (data.error) {
+        badge.innerHTML += ` <span style="color:#dc2626; font-size:0.85em;">(${data.error})</span>`;
+    }
+
+    // Health
+    const healthCard = document.getElementById('mstp-health-card');
+    const healthStats = document.getElementById('mstp-health-stats');
+    const anomaliesCont = document.getElementById('mstp-anomalies-container');
+
+    if (data.health) {
+        healthCard.style.display = 'block';
+        healthStats.textContent = data.health.stats || '';
+        const anomalies = data.health.anomalies || [];
+        if (anomalies.length > 0) {
+            anomaliesCont.innerHTML = anomalies.map(a => `
+                <div class="mstp-anomaly-item mstp-anomaly-${a.level || 'warn'}">
+                    ⚠️ ${a.text}
+                </div>
+            `).join('');
+        } else {
+            anomaliesCont.innerHTML = '<div style="color:#16a34a; font-size:0.88rem;">✅ Bus RS-485 sain (jeton circulant normalement, aucune anomalie détectée).</div>';
+        }
+    } else if (!isRunning) {
+        healthCard.style.display = 'none';
+    }
+
+    // Table
+    const tbody = document.getElementById('mstp-tbody');
+    document.getElementById('mstp-nodes-count').textContent = mstpDevices.length;
+
+    if (mstpDevices.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; padding:25px; color:#64748b;">
+            ${isRunning ? 'Écoute du bus RS-485 en cours... En attente de détection de nœuds.' : 'Aucun équipement détecté.'}
+        </td></tr>`;
+        return;
+    }
+
+    const now = Date.now() / 1000;
+    const cycleS = data.cycle_s || 25;
+
+    let rowsHtml = '';
+    mstpDevices.forEach(d => {
+        const ageS = Math.max(0, Math.round(now - (d.last_seen || now)));
+        let dotClass = 'mstp-dot-fresh';
+        let dotTitle = 'En ligne';
+        if (ageS > cycleS * 3) {
+            dotClass = 'mstp-dot-lost';
+            dotTitle = 'Perdu';
+        } else if (ageS > cycleS * 1.5) {
+            dotClass = 'mstp-dot-stale';
+            dotTitle = 'Silencieux';
+        }
+
+        const devDisplay = (d.device !== null && d.device !== undefined)
+            ? `<strong>${d.device}</strong>`
+            : `<span style="color:#ea580c; font-style:italic;">— Répond au jeton, muet au Who-Is</span>`;
+
+        rowsHtml += `
+            <tr id="mstp-row-${d.mac}">
+                <td><span class="mstp-dot ${dotClass}" title="${dotTitle}"></span></td>
+                <td><code>0x${d.mac}</code></td>
+                <td>${devDisplay}</td>
+                <td>${d.apdu || '—'}</td>
+                <td class="mstp-age-cell" data-last-seen="${d.last_seen}">${ageS}s</td>
+                <td>${d.frames || 0}</td>
+                <td>${d.seen || 0}</td>
+            </tr>
+        `;
+    });
+    tbody.innerHTML = rowsHtml;
+}
+
+function mstpTick() {
+    if (!mstpData) return;
+    const now = Date.now() / 1000;
+    const cells = document.querySelectorAll('.mstp-age-cell');
+    cells.forEach(cell => {
+        const lastSeen = parseFloat(cell.getAttribute('data-last-seen'));
+        if (!isNaN(lastSeen)) {
+            const age = Math.max(0, Math.round(now - lastSeen));
+            cell.textContent = age + 's';
+        }
+    });
+}
+
+// -------------------------------------------------------------
+// LOGIQUE BACNET / IP (Existante)
+// -------------------------------------------------------------
 async function runDiscovery() {
     const ip = document.getElementById('address').value;
     const instance = document.getElementById('device_instance').value;
@@ -200,301 +649,462 @@ async function runDiscovery() {
         const res = await fetch(url, {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ ip: ip, device_instance: parseInt(instance) })
+            body: JSON.stringify({ip: ip, device_instance: instance})
         });
         
         const data = await res.json();
+        document.getElementById('loading-indicator').style.display = 'none';
+        document.getElementById('btn-discover').disabled = false;
+        
         if (data.status === 'ok') {
             discoveredObjects = data.objects || [];
-            renderObjects();
+            renderObjectsTable(discoveredObjects);
+            document.getElementById('results-area').style.display = 'block';
         } else {
-            alert("Erreur: " + (data.message || "Impossible de découvrir l'appareil."));
+            alert("Erreur lors de la découverte : " + (data.message || "Erreur inconnue"));
         }
     } catch (e) {
-        alert("Erreur réseau: " + e);
-    } finally {
-        document.getElementById('btn-discover').disabled = false;
         document.getElementById('loading-indicator').style.display = 'none';
+        document.getElementById('btn-discover').disabled = false;
+        alert("Erreur réseau : " + e);
     }
 }
 
-function renderObjects() {
+function renderObjectsTable(objects) {
     const tbody = document.getElementById('objects-tbody');
     tbody.innerHTML = '';
+    document.getElementById('objects-count').innerText = objects.length;
     
-    document.getElementById('objects-count').textContent = discoveredObjects.length;
-    document.getElementById('results-area').style.display = 'block';
-    document.getElementById('selectAll').checked = false;
-    updateGenerateBtn();
-    
-    if (discoveredObjects.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: #94a3b8; padding: 20px;">Aucun objet BACnet trouvé ou connexion échouée.</td></tr>';
+    if (objects.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; padding: 20px; color:#888;">Aucun objet BACnet découvert sur cet équipement.</td></tr>';
+        document.getElementById('btn-generate').disabled = true;
         return;
     }
     
-    discoveredObjects.forEach((obj, idx) => {
+    objects.forEach((obj, idx) => {
         const tr = document.createElement('tr');
         tr.innerHTML = `
-            <td style="text-align: center;"><input type="checkbox" class="obj-checkbox" data-idx="${idx}" onchange="updateGenerateBtn()"></td>
-            <td><code style="background: #f1f5f9; padding: 2px 6px; border-radius: 4px;">${obj.object_id}</code></td>
-            <td><strong>${obj.name}</strong></td>
-            <td>${obj.value || '—'}</td>
+            <td style="text-align: center;"><input type="checkbox" class="obj-select" data-index="${idx}" onchange="updateGenerateButton()"></td>
+            <td><code>${obj.obj || ''}</code></td>
+            <td><strong>${obj.name || ''}</strong></td>
+            <td><span class="badge-success">${obj.val !== undefined ? obj.val : '—'}</span></td>
         `;
         tbody.appendChild(tr);
     });
-}
-
-function toggleAll(cb) {
-    const checkboxes = document.querySelectorAll('.obj-checkbox');
-    checkboxes.forEach(c => c.checked = cb.checked);
-    updateGenerateBtn();
-}
-
-function updateGenerateBtn() {
-    const checkboxes = document.querySelectorAll('.obj-checkbox:checked');
-    document.getElementById('btn-generate').disabled = checkboxes.length === 0;
-}
-
-async function generateTemplate() {
-    const checkboxes = document.querySelectorAll('.obj-checkbox:checked');
-    if (checkboxes.length === 0) return;
     
-    const selected = Array.from(checkboxes).map(cb => discoveredObjects[parseInt(cb.dataset.idx)]);
+    document.getElementById('selectAll').checked = false;
+    updateGenerateButton();
+}
+
+function toggleAll(master) {
+    const checkboxes = document.querySelectorAll('.obj-select');
+    checkboxes.forEach(cb => cb.checked = master.checked);
+    updateGenerateButton();
+}
+
+function updateGenerateButton() {
+    const checkedCount = document.querySelectorAll('.obj-select:checked').length;
+    const btn = document.getElementById('btn-generate');
+    btn.disabled = checkedCount === 0;
+    if (checkedCount > 0) {
+        btn.innerText = `📄 Créer un template (${checkedCount} sélectionnés)`;
+    } else {
+        btn.innerText = `📄 Créer un template depuis la sélection`;
+    }
+}
+
+function generateTemplate() {
+    const selected = [];
+    document.querySelectorAll('.obj-select:checked').forEach(cb => {
+        const idx = parseInt(cb.getAttribute('data-index'));
+        if (discoveredObjects[idx]) {
+            selected.push(discoveredObjects[idx]);
+        }
+    });
     
-    const tplName = prompt("Nom du nouveau Template :", "BACnet Découvert " + document.getElementById('address').value);
+    if (selected.length === 0) return;
+    
+    const tplName = prompt("Nom du nouveau Template BACnet :", "Template " + document.getElementById('address').value);
     if (!tplName) return;
     
-    const mfr = prompt("Nom du fabricant (Optionnel) :", "");
+    const manufacturer = prompt("Fabricant (ex: Siemens, Honeywell...) :", "Générique BACnet") || "Inconnu";
     
-    // Convert to objects_json format
-    const objectsDef = selected.map(o => ({ obj: o.object_id, name: o.name }));
+    const payload = {
+        name: tplName,
+        manufacturer: manufacturer,
+        objects: selected
+    };
     
-    try {
-        const url = (baseUrl + '/api/bacnet/template/save').replace(/\/+/g, '/');
-        // Structure handled by handle_bacnet_template_save is usually form data mapped to json, 
-        // we can mimic the expected json payload
-        const payload = {
-            name: tplName,
-            manufacturer: mfr,
-            "obj_id[]": objectsDef.map(o => o.obj),
-            "obj_name[]": objectsDef.map(o => o.name),
-            is_shared: 0
-        };
-        
-        const res = await fetch(url, {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify(payload)
-        });
-        const data = await res.json();
-        
+    const url = (baseUrl + '/api/bacnet/template/save').replace(/\/+/g, '/');
+    fetch(url, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(payload)
+    }).then(res => res.json()).then(data => {
         if (data.status === 'ok') {
-            alert("✅ Template créé avec succès !");
-            window.location.href = (baseUrl + '/bacnet/templates').replace(/\/+/g, '/');
+            showToast("Template créé avec succès !");
+            setTimeout(() => {
+                window.location.href = (baseUrl + '/bacnet/templates').replace(/\/+/g, '/');
+            }, 1000);
         } else {
-            alert("Erreur: " + data.message);
+            alert("Erreur lors de la création du template : " + (data.message || "Erreur"));
         }
-    } catch (e) {
-        alert("Erreur lors de la sauvegarde.");
-    }
+    }).catch(e => alert("Erreur réseau : " + e));
 }
-async function runWhoHas() {
-    const objName = document.getElementById('whohas_name').value.trim();
-    if (!objName) return;
 
-    document.getElementById('btn-whohas').disabled = true;
-    document.getElementById('whohas-loading').style.display = 'block';
-    document.getElementById('whohas-results-area').style.display = 'none';
+// -------------------------------------------------------------
+// DICTIONNAIRE / WHO-HAS / INIT
+// -------------------------------------------------------------
+let currentCatalogPage = 1;
+const CATALOG_PAGE_SIZE = 50;
+let catalogTotalItems = 0;
+let catalogRefreshInterval = null;
 
+async function refreshCatalogStatus() {
     try {
-        const url = (baseUrl + '/api/bacnet/tools/whohas').replace(/\/+/g, '/');
-        const res = await fetch(url, {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ object_name: objName })
-        });
-
+        const res = await fetch((baseUrl + '/api/bacnet/catalog/status').replace(/\/+/g, '/'));
         const data = await res.json();
-        const tbody = document.getElementById('whohas-tbody');
-        tbody.innerHTML = '';
-        
-        if (data.status === 'ok') {
-            const results = data.objects || [];
-            document.getElementById('whohas-count').textContent = results.length;
-            
-            if (results.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: #94a3b8; padding: 20px;">Aucun appareil n\'a répondu "I-Have" pour ce nom.</td></tr>';
-            } else {
-                results.forEach((obj) => {
-                    if (obj.error) {
-                        tbody.innerHTML += `<tr><td colspan="4" style="color:red;">Erreur: ${obj.error}</td></tr>`;
-                    } else {
-                        const tr = document.createElement('tr');
-                        tr.innerHTML = `
-                            <td><code style="background: #f1f5f9; padding: 2px 6px; border-radius: 4px;">${obj.address}</code></td>
-                            <td><strong>${obj.device_id}</strong></td>
-                            <td>${obj.object_id}</td>
-                            <td><strong>${obj.value !== null ? obj.value : '<em>Erreur de lecture</em>'}</strong></td>
-                        `;
-                        tbody.appendChild(tr);
-                    }
-                });
-            }
-            document.getElementById('whohas-results-area').style.display = 'block';
-        } else {
-            alert("Erreur Who-Has: " + (data.message || "Requête échouée."));
-        }
-    } catch (e) {
-        alert("Erreur réseau: " + e);
-    } finally {
-        document.getElementById('btn-whohas').disabled = false;
-        document.getElementById('whohas-loading').style.display = 'none';
-    }
-}
-
-let catalogPollTimer = null;
-
-function formatDateTime(iso) {
-    if (!iso) return null;
-    try {
-        return new Date(iso).toLocaleString('fr-BE');
-    } catch (e) {
-        return iso;
-    }
-}
-
-async function loadCatalogStatus() {
-    try {
-        const url = (baseUrl + '/api/bacnet/catalog/status').replace(/\/+/g, '/');
-        const res = await fetch(url);
-        const s = await res.json();
-
         const line = document.getElementById('catalog-status-line');
-        const cancelBtn = document.getElementById('btn-cancel-build');
-        const buildBtn = document.getElementById('btn-build-now');
+        const btnNow = document.getElementById('btn-build-now');
+        const btnCancel = document.getElementById('btn-cancel-build');
+        if (!line) return;
 
-        let msg = `<strong>${s.catalog_count || 0}</strong> point(s) au dictionnaire`;
-        if (s.last_built_at) {
-            msg += ` &middot; dernière mise à jour : ${formatDateTime(s.last_built_at)}`;
-        } else {
-            msg += ` &middot; jamais construit`;
-        }
-
-        if (s.status === 'scheduled') {
-            msg += `<br>🕒 Construction planifiée pour le <strong>${formatDateTime(s.scheduled_at)}</strong>`;
-            cancelBtn.style.display = 'inline-block';
-            buildBtn.disabled = false;
-        } else if (s.status === 'running') {
-            msg += `<br>⚡ Construction en cours... (${s.done_devices || 0} / ${s.total_devices || 0} appareils, ${s.failed_devices || 0} échec(s))`;
-            cancelBtn.style.display = 'none';
-            buildBtn.disabled = true;
-        } else {
-            cancelBtn.style.display = 'none';
-            buildBtn.disabled = false;
-            if (s.status === 'error' && s.last_error) {
-                msg += `<br><span style="color:#dc2626;">Erreur lors de la dernière construction : ${s.last_error}</span>`;
-            }
-        }
-        line.innerHTML = msg;
-
-        const needsPolling = (s.status === 'running' || s.status === 'scheduled');
-        if (needsPolling && !catalogPollTimer) {
-            catalogPollTimer = setInterval(loadCatalogStatus, 4000);
-        } else if (!needsPolling && catalogPollTimer) {
-            clearInterval(catalogPollTimer);
-            catalogPollTimer = null;
+        const st = data.status || 'idle';
+        if (st === 'idle') {
+            line.innerHTML = `Statut : <strong>Inactif</strong> (aucun catalogage en cours).`;
+            if (btnNow) btnNow.disabled = false;
+            if (btnCancel) btnCancel.style.display = 'none';
+        } else if (st === 'running') {
+            const pct = data.total_devices > 0 ? Math.round((data.done_devices / data.total_devices) * 100) : 0;
+            line.innerHTML = `Statut : <span style="color:#e67e22; font-weight:bold;">⚙️ Construction en cours...</span> (${data.done_devices}/${data.total_devices} appareils — ${pct}%).`;
+            if (btnNow) btnNow.disabled = true;
+            if (btnCancel) btnCancel.style.display = 'none';
+        } else if (st === 'scheduled') {
+            line.innerHTML = `Statut : <span style="color:#2980b9; font-weight:bold;">🕒 Planifié pour ${data.scheduled_at || 'bientôt'}</span>.`;
+            if (btnNow) btnNow.disabled = false;
+            if (btnCancel) btnCancel.style.display = 'inline-block';
+        } else if (st === 'done') {
+            line.innerHTML = `Statut : <span style="color:#27ae60; font-weight:bold;">✅ Terminé</span> (${data.done_devices} appareils traités avec succès).`;
+            if (btnNow) btnNow.disabled = false;
+            if (btnCancel) btnCancel.style.display = 'none';
         }
     } catch (e) {
-        document.getElementById('catalog-status-line').textContent = "Impossible de récupérer le statut du dictionnaire.";
+        console.error("Erreur statut dictionnaire:", e);
     }
 }
 
 async function buildCatalogNow() {
-    if (!confirm("Lancer maintenant la construction du dictionnaire ? Cette opération interroge tous les appareils BACnet déjà connus et peut prendre plusieurs minutes.")) return;
+    const btn = document.getElementById('btn-build-now');
+    btn.disabled = true;
     try {
-        const url = (baseUrl + '/api/bacnet/catalog/build').replace(/\/+/g, '/');
-        await fetch(url, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ when: null }) });
-        loadCatalogStatus();
+        const res = await fetch((baseUrl + '/api/bacnet/catalog/build').replace(/\/+/g, '/'), {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({action: 'now'})
+        });
+        const data = await res.json();
+        showToast(data.message || "Construction lancée.");
+        refreshCatalogStatus();
     } catch (e) {
-        alert("Erreur réseau: " + e);
+        alert("Erreur : " + e);
+        btn.disabled = false;
     }
 }
 
 async function scheduleCatalogBuild() {
-    const when = document.getElementById('catalog-schedule-when').value;
+    const whenInput = document.getElementById('catalog-schedule-when');
+    const when = whenInput.value;
     if (!when) {
-        alert("Choisissez une date et une heure.");
+        alert("Veuillez sélectionner une date et une heure.");
         return;
     }
     try {
-        const url = (baseUrl + '/api/bacnet/catalog/build').replace(/\/+/g, '/');
-        await fetch(url, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ when: when }) });
-        loadCatalogStatus();
+        const res = await fetch((baseUrl + '/api/bacnet/catalog/build').replace(/\/+/g, '/'), {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({action: 'schedule', scheduled_at: when})
+        });
+        const data = await res.json();
+        showToast(data.message || "Planification enregistrée.");
+        refreshCatalogStatus();
     } catch (e) {
-        alert("Erreur réseau: " + e);
+        alert("Erreur : " + e);
     }
 }
 
 async function cancelCatalogBuild() {
     try {
-        const url = (baseUrl + '/api/bacnet/catalog/cancel').replace(/\/+/g, '/');
-        await fetch(url, { method: 'POST' });
-        loadCatalogStatus();
+        const res = await fetch((baseUrl + '/api/bacnet/catalog/cancel').replace(/\/+/g, '/'), {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'}
+        });
+        const data = await res.json();
+        showToast(data.message || "Planification annulée.");
+        refreshCatalogStatus();
     } catch (e) {
-        alert("Erreur réseau: " + e);
+        alert("Erreur : " + e);
     }
 }
 
-async function runCatalogSearch() {
+async function runCatalogSearch(page = 1) {
     const pattern = document.getElementById('catalog_pattern').value.trim();
     if (!pattern) return;
-
-    document.getElementById('btn-catalog-search').disabled = true;
+    
+    currentCatalogPage = page;
     document.getElementById('catalog-loading').style.display = 'block';
     document.getElementById('catalog-results-area').style.display = 'none';
-
+    
     try {
         const url = (baseUrl + '/api/bacnet/catalog/search').replace(/\/+/g, '/');
+        const offset = (page - 1) * CATALOG_PAGE_SIZE;
         const res = await fetch(url, {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ pattern: pattern })
+            body: JSON.stringify({pattern: pattern, offset: offset, limit: CATALOG_PAGE_SIZE})
         });
         const data = await res.json();
-        const tbody = document.getElementById('catalog-tbody');
-        tbody.innerHTML = '';
-
+        document.getElementById('catalog-loading').style.display = 'none';
+        
         if (data.status === 'ok') {
-            const results = data.objects || [];
-            document.getElementById('catalog-count').textContent = results.length;
-            document.getElementById('catalog-truncated-msg').style.display = data.truncated ? 'inline' : 'none';
-
-            if (results.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: #94a3b8; padding: 20px;">Aucun point ne correspond à ce motif dans le dictionnaire.<br><small>Le dictionnaire a-t-il déjà été construit ?</small></td></tr>';
-            } else {
-                results.forEach((obj) => {
-                    const tr = document.createElement('tr');
-                    tr.innerHTML = `
-                        <td><code style="background: #f1f5f9; padding: 2px 6px; border-radius: 4px;">${obj.address}</code></td>
-                        <td><strong>${obj.device_id}</strong></td>
-                        <td>${obj.object_id}</td>
-                        <td>${obj.object_name}</td>
-                        <td><strong>${obj.value !== null && obj.value !== undefined ? obj.value : '—'}</strong></td>
-                    `;
-                    tbody.appendChild(tr);
-                });
-            }
+            catalogTotalItems = data.total || 0;
+            renderCatalogTable(data.points || [], catalogTotalItems);
             document.getElementById('catalog-results-area').style.display = 'block';
         } else {
-            alert("Erreur: " + (data.message || "Recherche échouée."));
+            alert("Erreur recherche : " + (data.message || "Erreur"));
         }
     } catch (e) {
-        alert("Erreur réseau: " + e);
-    } finally {
-        document.getElementById('btn-catalog-search').disabled = false;
         document.getElementById('catalog-loading').style.display = 'none';
+        alert("Erreur réseau : " + e);
     }
 }
 
-loadCatalogStatus();
+function renderCatalogTable(points, totalCount) {
+    const tbody = document.getElementById('catalog-tbody');
+    tbody.innerHTML = '';
+    document.getElementById('catalog-count').innerText = totalCount;
+    
+    if (points.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="8" style="text-align:center; padding:20px; color:#888;">Aucun point correspondant trouvé.</td></tr>';
+        updateCatalogPagination(0);
+        return;
+    }
+    
+    points.forEach(p => {
+        const tr = document.createElement('tr');
+        tr.id = `cat-row-${p.id}`;
+        tr.dataset.pointId = p.id;
+        tr.dataset.ip = p.network_address;
+        tr.dataset.instance = p.device_instance;
+        tr.dataset.object = p.object_id;
+        
+        const isMon = p.is_monitored ? '⭐ Suivi' : '—';
+        const monColor = p.is_monitored ? '#27ae60' : '#888';
+        
+        tr.innerHTML = `
+            <td style="text-align: center;">
+                <input type="checkbox" class="cb-catalog-select" value="${p.id}" onchange="updateCatalogSelectionCount()">
+            </td>
+            <td><code>${p.network_address}</code></td>
+            <td><code>${p.device_instance}</code></td>
+            <td><small>${p.device_name || '—'}</small></td>
+            <td><code>${p.object_id}</code></td>
+            <td><strong>${p.name || ''}</strong></td>
+            <td><span class="badge-success cat-live-val" id="cat-val-${p.id}">—</span></td>
+            <td style="text-align: center; color: ${monColor}; font-weight: bold;">${isMon}</td>
+        `;
+        tbody.appendChild(tr);
+    });
+    
+    updateCatalogPagination(totalCount);
+    updateCatalogSelectionCount();
+    refreshCatalogLiveValues(false);
+}
+
+function updateCatalogPagination(total) {
+    const totalPages = Math.max(1, Math.ceil(total / CATALOG_PAGE_SIZE));
+    document.getElementById('catalog-total-count').textContent = total;
+    document.getElementById('catalog-current-page').textContent = currentCatalogPage;
+    document.getElementById('catalog-total-pages').textContent = totalPages;
+    
+    const start = total === 0 ? 0 : (currentCatalogPage - 1) * CATALOG_PAGE_SIZE + 1;
+    const end = Math.min(total, currentCatalogPage * CATALOG_PAGE_SIZE);
+    document.getElementById('catalog-range-start').textContent = start;
+    document.getElementById('catalog-range-end').textContent = end;
+    
+    document.getElementById('btn-catalog-prev').disabled = currentCatalogPage <= 1;
+    document.getElementById('btn-catalog-next').disabled = currentCatalogPage >= totalPages;
+}
+
+function goToCatalogPage(p) {
+    if (p < 1) return;
+    runCatalogSearch(p);
+}
+
+function toggleCatalogSelectAll(checked) {
+    document.querySelectorAll('.cb-catalog-select').forEach(cb => cb.checked = checked);
+    updateCatalogSelectionCount();
+}
+
+function selectCatalogAll(checked) {
+    const master = document.getElementById('catalog-select-all-cb');
+    if (master) master.checked = checked;
+    toggleCatalogSelectAll(checked);
+}
+
+function updateCatalogSelectionCount() {
+    const checked = document.querySelectorAll('.cb-catalog-select:checked').length;
+    document.getElementById('catalog-selected-count').textContent = checked;
+    document.getElementById('btn-catalog-mark-suivi').disabled = (checked === 0);
+}
+
+async function markSelectedCatalogAsSuivi() {
+    const cbs = Array.from(document.querySelectorAll('.cb-catalog-select:checked'));
+    const pointIds = cbs.map(cb => parseInt(cb.value, 10)).filter(id => !isNaN(id));
+    if (pointIds.length === 0) return;
+    
+    const btn = document.getElementById('btn-catalog-mark-suivi');
+    btn.disabled = true;
+    try {
+        const res = await fetch((baseUrl + '/api/bacnet/points/track').replace(/\/+/g, '/'), {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({point_ids: pointIds, is_monitored: true})
+        });
+        const data = await res.json();
+        if (data.status === 'ok') {
+            showToast(`${data.updated_count || pointIds.length} point(s) marqués comme suivis !`);
+            runCatalogSearch(currentCatalogPage);
+        } else {
+            alert("Erreur : " + (data.message || "Échec"));
+        }
+    } catch (e) {
+        alert("Erreur réseau : " + e);
+    } finally {
+        btn.disabled = false;
+    }
+}
+
+async function refreshCatalogLiveValues(flash = false) {
+    const rows = Array.from(document.querySelectorAll('#catalog-tbody tr[data-point-id]'));
+    if (rows.length === 0) return;
+    
+    const requests = rows.map(r => ({
+        point_id: parseInt(r.dataset.pointId, 10),
+        ip: r.dataset.ip,
+        instance: parseInt(r.dataset.instance, 10),
+        object_id: r.dataset.object
+    }));
+    
+    try {
+        const res = await fetch((baseUrl + '/api/bacnet/catalog/values').replace(/\/+/g, '/'), {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({points: requests})
+        });
+        const data = await res.json();
+        if (data.status === 'ok' && data.values) {
+            data.values.forEach(item => {
+                const el = document.getElementById(`cat-val-${item.point_id}`);
+                if (el) {
+                    const oldVal = el.textContent;
+                    const newVal = item.value !== null && item.value !== undefined ? String(item.value) : (item.error ? 'Err' : '—');
+                    el.textContent = newVal;
+                    if (item.error) {
+                        el.className = 'badge-error';
+                        el.title = item.error;
+                    } else {
+                        el.className = 'badge-success';
+                        el.title = '';
+                    }
+                    if (flash && oldVal !== newVal) {
+                        el.classList.add('suivi-flash');
+                        setTimeout(() => el.classList.remove('suivi-flash'), 1000);
+                    }
+                }
+            });
+        }
+    } catch (e) {
+        console.error("Erreur lecture live dictionnaire:", e);
+    }
+}
+
+function toggleCatalogAutoRefresh(enabled) {
+    if (catalogRefreshInterval) {
+        clearInterval(catalogRefreshInterval);
+        catalogRefreshInterval = null;
+    }
+    if (enabled) {
+        catalogRefreshInterval = setInterval(() => refreshCatalogLiveValues(true), 5000);
+    }
+}
+
+async function runWhoHas() {
+    const name = document.getElementById('whohas_name').value.trim();
+    if (!name) return;
+    
+    document.getElementById('btn-whohas').disabled = true;
+    document.getElementById('whohas-loading').style.display = 'block';
+    document.getElementById('whohas-results-area').style.display = 'none';
+    
+    try {
+        const url = (baseUrl + '/api/bacnet/tools/whohas').replace(/\/+/g, '/');
+        const res = await fetch(url, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({object_name: name})
+        });
+        const data = await res.json();
+        document.getElementById('whohas-loading').style.display = 'none';
+        document.getElementById('btn-whohas').disabled = false;
+        
+        if (data.status === 'ok') {
+            renderWhoHasTable(data.results || []);
+            document.getElementById('whohas-results-area').style.display = 'block';
+        } else {
+            alert("Erreur Who-Has : " + (data.message || "Erreur"));
+        }
+    } catch (e) {
+        document.getElementById('whohas-loading').style.display = 'none';
+        document.getElementById('btn-whohas').disabled = false;
+        alert("Erreur réseau : " + e);
+    }
+}
+
+function renderWhoHasTable(results) {
+    const tbody = document.getElementById('whohas-tbody');
+    tbody.innerHTML = '';
+    document.getElementById('whohas-count').innerText = results.length;
+    
+    if (results.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; padding:20px; color:#888;">Aucun équipement n\'a répondu à ce Who-Has.</td></tr>';
+        return;
+    }
+    
+    results.forEach(r => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+            <td><code>${r.ip || ''}</code></td>
+            <td><code>${r.device_instance || ''}</code></td>
+            <td><code>${r.object_id || ''}</code></td>
+            <td><span class="badge-success">${r.present_value !== undefined && r.present_value !== null ? r.present_value : '—'}</span></td>
+        `;
+        tbody.appendChild(tr);
+    });
+}
+
+function showToast(msg) {
+    const t = document.getElementById('toast-msg');
+    t.innerText = msg;
+    t.style.display = 'block';
+    setTimeout(() => { t.style.display = 'none'; }, 3000);
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    refreshCatalogStatus();
+    setInterval(refreshCatalogStatus, 10000);
+    toggleCatalogAutoRefresh(true);
+    if (currentTab === 'mstp') {
+        startMstpSse();
+    }
+});
 </script>

@@ -217,26 +217,62 @@ def build_catalog():
         logger.debug(f"Synchro flotte du dictionnaire BACnet ignorée : {e}")
 
 
-def search_points(pattern):
+def count_search_points(pattern, site_id=None):
+    """
+    Compte le nombre total de points correspondant au motif dans le dictionnaire pour le chantier courant.
+    """
+    if site_id is None:
+        site_id = get_current_site_id()
+    if not site_id:
+        return 0
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT COUNT(*) as c FROM bacnet_points_catalog WHERE site_id = ? AND object_name GLOB ?",
+            (site_id, pattern)
+        )
+        row = cursor.fetchone()
+        return row["c"] if row else 0
+
+
+def search_points(pattern, site_id=None, limit=100, offset=0):
     """
     Recherche des points dans le dictionnaire local par nom, avec le support natif des
     jokers SQLite (`*` = n'importe quelle suite de caractères, `?` = un seul caractère).
     Toujours limitée au chantier courant.
     """
-    site_id = get_current_site_id()
+    if site_id is None:
+        site_id = get_current_site_id()
     if not site_id:
         return []
     with get_db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute(
             """
-            SELECT network_address, device_instance, object_id, object_name
-            FROM bacnet_points_catalog
-            WHERE site_id = ? AND object_name GLOB ?
-            ORDER BY device_instance, object_id
-            LIMIT 500
+            SELECT 
+                c.network_address, 
+                c.device_instance, 
+                c.object_id, 
+                c.object_name,
+                COALESCE(
+                    (SELECT d.name FROM bacnet_devices d WHERE d.site_id = c.site_id AND d.device_instance = c.device_instance AND d.name IS NOT NULL AND d.name != '' LIMIT 1),
+                    (SELECT dd.bacnet_name FROM discovered_devices dd WHERE dd.site_id = c.site_id AND dd.bacnet_instance = c.device_instance AND dd.bacnet_name IS NOT NULL AND dd.bacnet_name != '' LIMIT 1),
+                    (SELECT dd.bacnet_name FROM discovered_devices dd WHERE dd.site_id = c.site_id AND dd.last_ip = c.network_address AND dd.bacnet_name IS NOT NULL AND dd.bacnet_name != '' LIMIT 1),
+                    ''
+                ) AS device_name,
+                EXISTS (
+                    SELECT 1 FROM bacnet_points bp 
+                    WHERE bp.site_id = c.site_id 
+                      AND (bp.device_instance = c.device_instance OR (bp.device_instance IS NULL AND bp.network_address = c.network_address))
+                      AND bp.object_id = c.object_id 
+                      AND bp.is_monitored = 1
+                ) AS is_monitored
+            FROM bacnet_points_catalog c
+            WHERE c.site_id = ? AND c.object_name GLOB ?
+            ORDER BY c.device_instance, c.object_id
+            LIMIT ? OFFSET ?
             """,
-            (site_id, pattern)
+            (site_id, pattern, limit, offset)
         )
         return [dict(r) for r in cursor.fetchall()]
 

@@ -9,6 +9,7 @@ data/*.db-*
 data/*.sqlite
 data/*.db-journal
 data/*.tmp
+data/*.json
 data/config.json
 
 # Logs

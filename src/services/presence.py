@@ -17,6 +17,10 @@ def label_current_location(site_name, is_provisional=False, external_id=None):
 
     hostname = socket.gethostname()
     
+    # Tout nom commençant par AUTO- ou TEMP- est par essence provisoire
+    if site_name and (site_name.startswith("AUTO-") or site_name.startswith("TEMP-")):
+        is_provisional = True
+    
     with get_db_connection() as conn:
         cursor = conn.cursor()
         
@@ -46,12 +50,33 @@ def label_current_location(site_name, is_provisional=False, external_id=None):
                 )
         
         if not site_id:
-            # Création
+            # Si le site actuel est provisoire (ou AUTO-... / TEMP-...) et qu'on définit un vrai nom
             cursor.execute(
-                "INSERT INTO sites (name, external_id, is_provisional, is_dirty) VALUES (?, ?, ?, 1)",
-                (site_name, external_id, 1 if is_provisional else 0)
+                """
+                SELECT s.id, s.name, s.external_id, s.is_provisional
+                FROM sites s
+                JOIN node_presence p ON s.id = p.site_id
+                JOIN nodes n ON p.node_id = n.id
+                WHERE n.hostname = ? AND p.is_current = 1
+                LIMIT 1
+                """,
+                (hostname,)
             )
-            site_id = cursor.lastrowid
+            curr_row = cursor.fetchone()
+            if curr_row and (curr_row["is_provisional"] or (curr_row["name"] and (curr_row["name"].startswith("AUTO-") or curr_row["name"].startswith("TEMP-")))):
+                # On renomme le site provisoire existant pour conserver les configurations associées
+                site_id = curr_row["id"]
+                cursor.execute(
+                    "UPDATE sites SET name = ?, external_id = COALESCE(?, external_id), is_provisional = ?, is_dirty = 1 WHERE id = ?",
+                    (site_name, external_id, 1 if is_provisional else 0, site_id)
+                )
+            else:
+                # Création
+                cursor.execute(
+                    "INSERT INTO sites (name, external_id, is_provisional, is_dirty) VALUES (?, ?, ?, 1)",
+                    (site_name, external_id, 1 if is_provisional else 0)
+                )
+                site_id = cursor.lastrowid
         
         # 2. S'assurer que l'antenne existe
         # On met à jour les coordonnées GPS si on en a de nouvelles
@@ -161,7 +186,7 @@ def is_current_site_provisional():
         cursor = conn.cursor()
         cursor.execute(
             """
-            SELECT s.is_provisional 
+            SELECT s.is_provisional, s.name 
             FROM sites s
             JOIN node_presence p ON s.id = p.site_id
             JOIN nodes n ON p.node_id = n.id
@@ -171,7 +196,10 @@ def is_current_site_provisional():
             (hostname,)
         )
         row = cursor.fetchone()
-        return bool(row["is_provisional"]) if row else True
+        if not row:
+            return True
+        name = row["name"] or ""
+        return bool(row["is_provisional"] or name.startswith("AUTO-") or name.startswith("TEMP-") or name == "Inconnu")
 
 if __name__ == "__main__":
     import sys

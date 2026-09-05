@@ -82,6 +82,15 @@ class WebAdminHandler(BaseHTTPRequestHandler):
         elif path == "/api/network/wifi/list":
             from services.wifi_mgr import get_visible_ssids
             return self.send_json(get_visible_ssids())
+        elif path == "/api/devices":
+            return self.handle_devices_api()
+        elif path == "/api/devices/ports":
+            return self.handle_devices_ports_api()
+        elif path == "/api/bacnet/mstp/status":
+            return self.handle_bacnet_mstp_status()
+        elif path == "/api/bacnet/mstp/stream":
+            from web.stream import handle_bacnet_mstp_stream
+            return handle_bacnet_mstp_stream(self)
         elif path == "/api/monitor/logs":
             return self.handle_logs_api(query)
         elif path == "/api/monitor/logs/download":
@@ -131,6 +140,8 @@ class WebAdminHandler(BaseHTTPRequestHandler):
             return self.serve_configuration_mqtt()
         elif path == "/scan/ip":
             return self.serve_ip_scan()
+        elif path == "/devices" or path == "/storage/devices":
+            return self.serve_devices()
             
         self.send_error(404, "Page non trouvée")
 
@@ -200,12 +211,20 @@ class WebAdminHandler(BaseHTTPRequestHandler):
             self.handle_bacnet_tools_discover()
         elif path == "/api/bacnet/tools/whohas":
             self.handle_bacnet_tools_whohas()
+        elif path == "/api/bacnet/mstp/start":
+            self.handle_bacnet_mstp_start()
+        elif path == "/api/bacnet/mstp/stop":
+            self.handle_bacnet_mstp_stop()
         elif path == "/api/bacnet/catalog/build":
             self.handle_bacnet_catalog_build()
         elif path == "/api/bacnet/catalog/cancel":
             self.handle_bacnet_catalog_cancel()
         elif path == "/api/bacnet/catalog/search":
             self.handle_bacnet_catalog_search()
+        elif path == "/api/bacnet/catalog/values":
+            self.handle_bacnet_catalog_values()
+        elif path == "/api/bacnet/points/track":
+            self.handle_bacnet_points_track()
         elif path == "/api/table/columns/add":
             self.handle_column_add()
         elif path == "/api/table/columns/delete":
@@ -1578,6 +1597,21 @@ class WebAdminHandler(BaseHTTPRequestHandler):
 
         target_ip = query.get("ip", [""])[0] if query else ""
         target_instance = query.get("instance", [""])[0] if query else ""
+        active_tab = query.get("tab", ["ip"])[0] if query else "ip"
+        target_device = query.get("device", [""])[0] if query else ""
+
+        from services.device_mgr import list_serial_ports
+        from services.bacnet_mstp import mstp_available, get_mstp_snapshot
+
+        serial_ports = list_serial_ports(include_modems=False)
+        mstp_options_html = ""
+        if serial_ports:
+            for p in serial_ports:
+                sel = "selected" if (target_device and target_device == p["path"]) or (not target_device and p.get("is_moxa")) else ""
+                label = f"{p['description']} ({p['path']})"
+                mstp_options_html += f"<option value='{escape(p['path'])}' {sel}>{escape(label)}</option>"
+        else:
+            mstp_options_html = "<option value='' disabled selected>Aucun port série détecté (branchez le Moxa)</option>"
 
         options_html = ""
         try:
@@ -1590,11 +1624,23 @@ class WebAdminHandler(BaseHTTPRequestHandler):
         except Exception:
             pass
 
+        tab_ip_active = "active" if active_tab != "mstp" else ""
+        tab_mstp_active = "active" if active_tab == "mstp" else ""
+        tab_ip_style = "display: block;" if active_tab != "mstp" else "display: none;"
+        tab_mstp_style = "display: block;" if active_tab == "mstp" else "display: none;"
+
         content = render(
             "bacnet_tools.html",
             target_ip=escape(target_ip),
             target_instance=escape(target_instance),
-            discovered_ips_options=options_html
+            discovered_ips_options=options_html,
+            active_tab=escape(active_tab),
+            tab_ip_active=tab_ip_active,
+            tab_mstp_active=tab_mstp_active,
+            tab_ip_style=tab_ip_style,
+            tab_mstp_style=tab_mstp_style,
+            mstp_serial_options=mstp_options_html,
+            base_url=base_url
         )
         nav_html = render("nav.html", base_url=base_url)
         final_html = render("layout.html", title="Outils BACnet", hostname=escape(hostname), base_url=escape(base_url), version=version, nav=nav_html, content=content)
@@ -1602,6 +1648,176 @@ class WebAdminHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.end_headers()
         self.wfile.write(final_html.encode("utf-8"))
+
+    def serve_devices(self):
+        config = load_config()
+        base_url = config.get("base_url", "")
+        hostname = socket.gethostname()
+        version = str(int(time.time()))
+
+        from services.device_mgr import list_system_devices
+        sys_devices = list_system_devices()
+        moxa_dev = sys_devices.get("moxa_device")
+
+        # 1. Carte Moxa UPort 1150
+        if sys_devices.get("moxa_connected") and moxa_dev:
+            moxa_card_html = f"""
+            <div class="moxa-hero-card">
+                <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 10px;">
+                    <div>
+                        <h3>⚡ {escape(moxa_dev.get('description', 'Passerelle Moxa UPort 1150'))}</h3>
+                        <div class="moxa-badges">
+                            <span class="moxa-badge moxa-badge-green">● Connecté & Opérationnel</span>
+                            <span class="moxa-badge moxa-badge-blue">Pilote ti_usb_3410_5052 (RS-485 2 fils)</span>
+                            <span class="moxa-badge moxa-badge-purple">BACnet MS/TP & Modbus RTU</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="moxa-details-grid">
+                    <div class="moxa-detail-item">
+                        <div class="label">Port TTY / Périphérique</div>
+                        <div class="value">{escape(moxa_dev.get('path', ''))}</div>
+                    </div>
+                    <div class="moxa-detail-item">
+                        <div class="label">Identifiant persistant (by-id)</div>
+                        <div class="value" style="font-size: 0.8rem;">{escape(moxa_dev.get('by_id_name', moxa_dev.get('path', '')))}</div>
+                    </div>
+                    <div class="moxa-detail-item">
+                        <div class="label">Pilote Noyau</div>
+                        <div class="value">{escape(moxa_dev.get('driver', 'ti_usb_3410_5052'))}</div>
+                    </div>
+                </div>
+                <div class="moxa-actions">
+                    <a href="{base_url}/bacnet/tools?tab=mstp&device={escape(moxa_dev.get('path', ''))}" class="btn-primary" style="text-decoration: none; background: #22c55e; border-color: #16a34a; display: inline-flex; align-items: center; gap: 6px;">
+                        <span>🔌</span> Lancer la recherche BACnet MS/TP
+                    </a>
+                    <a href="{base_url}/modbus/tools?port={escape(moxa_dev.get('path', ''))}" class="btn-secondary" style="text-decoration: none; background: rgba(255,255,255,0.15); color: white; border-color: rgba(255,255,255,0.3); display: inline-flex; align-items: center; gap: 6px;">
+                        <span>🔍</span> Outils Modbus RTU
+                    </a>
+                </div>
+            </div>
+            """
+        else:
+            moxa_card_html = f"""
+            <div class="card" style="padding: 24px; text-align: center; background: #f8fafc; border: 2px dashed #cbd5e1;">
+                <div style="font-size: 2.5rem; margin-bottom: 10px;">🔌</div>
+                <h3 style="margin: 0 0 8px 0; color: #475569;">Aucune passerelle Moxa UPort détectée</h3>
+                <p style="color: #64748b; max-width: 550px; margin: 0 auto 15px auto; font-size: 0.95rem;">
+                    Branchez l'adaptateur Moxa UPort 1150 sur un port USB du Raspberry Pi pour activer la communication BACnet MS/TP et Modbus RTU sur bus RS-485.
+                </p>
+                <a href="{base_url}/devices" class="btn-secondary" style="text-decoration: none;"><span>🔄</span> Vérifier à nouveau</a>
+            </div>
+            """
+
+        # 2. Table des ports série
+        serial_ports = sys_devices.get("rs485_ports", []) + sys_devices.get("modem_ports", [])
+        if serial_ports:
+            serial_rows = ""
+            for p in serial_ports:
+                badge_color = "#22c55e" if p.get("is_moxa") else ("#3b82f6" if p.get("is_rs485") else "#64748b")
+                caps = ", ".join(p.get("capabilities", [])) or "Série générique"
+                serial_rows += f"""
+                <tr>
+                    <td><code>{escape(p.get('path', ''))}</code></td>
+                    <td><small style="color: #64748b; font-family: monospace;">{escape(p.get('by_id_name', '—'))}</small></td>
+                    <td><strong>{escape(p.get('description', ''))}</strong></td>
+                    <td><code>{escape(p.get('driver', '—'))}</code></td>
+                    <td><span style="font-size: 0.85rem; color: {badge_color}; font-weight: bold;">{escape(caps)}</span></td>
+                    <td>
+                        <div style="display: flex; gap: 6px;">
+                            {f'<a href="{base_url}/bacnet/tools?tab=mstp&device={escape(p.get("path", ""))}" class="btn-secondary btn-sm" style="text-decoration: none;">BACnet MS/TP</a>' if p.get("is_rs485") else ''}
+                            {f'<a href="{base_url}/modbus/tools?port={escape(p.get("path", ""))}" class="btn-secondary btn-sm" style="text-decoration: none;">Modbus</a>' if p.get("is_rs485") else ''}
+                        </div>
+                    </td>
+                </tr>
+                """
+            serial_ports_table_html = f"""
+            <div style="overflow-x: auto;">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th style="width: 140px;">Port TTY</th>
+                            <th>Identifiant (by-id)</th>
+                            <th>Description</th>
+                            <th style="width: 150px;">Pilote</th>
+                            <th style="width: 180px;">Capacités</th>
+                            <th style="width: 180px;">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {serial_rows}
+                    </tbody>
+                </table>
+            </div>
+            """
+        else:
+            serial_ports_table_html = "<p style='color: #64748b; padding: 15px;'>Aucun port série détecté.</p>"
+
+        # 3. Lignes périphériques USB
+        usb_rows = ""
+        for u in sys_devices.get("usb_devices", []):
+            usb_rows += f"""
+            <tr>
+                <td><code>Bus {u.get('bus')} / Dev {u.get('device')}</code></td>
+                <td><code>{escape(u.get('vendor_id', ''))}:{escape(u.get('product_id', ''))}</code></td>
+                <td><strong>{escape(u.get('description', ''))}</strong></td>
+                <td><span class="badge-gray">{escape(u.get('category', ''))}</span></td>
+                <td><code>{escape(u.get('driver_str', 'Aucun'))}</code></td>
+            </tr>
+            """
+        if not usb_rows:
+            usb_rows = "<tr><td colspan='5' style='text-align: center; color: #64748b; padding: 15px;'>Aucun périphérique USB listé.</td></tr>"
+
+        content = render(
+            "devices.html",
+            base_url=base_url,
+            moxa_card_html=moxa_card_html,
+            serial_ports_table_html=serial_ports_table_html,
+            usb_devices_rows_html=usb_rows,
+            total_serial=sys_devices.get("total_serial", 0),
+            total_usb=sys_devices.get("total_usb", 0),
+        )
+        nav_html = render("nav.html", base_url=base_url)
+        final_html = render("layout.html", title="Périphériques & Passerelles", hostname=escape(hostname), base_url=escape(base_url), version=version, nav=nav_html, content=content)
+
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.end_headers()
+        self.wfile.write(final_html.encode("utf-8"))
+
+    def handle_devices_api(self):
+        from services.device_mgr import list_system_devices
+        self.send_json(list_system_devices())
+
+    def handle_devices_ports_api(self):
+        from services.device_mgr import list_serial_ports
+        self.send_json(list_serial_ports())
+
+    def handle_bacnet_mstp_status(self):
+        from services.bacnet_mstp import get_mstp_snapshot
+        self.send_json(get_mstp_snapshot())
+
+    def handle_bacnet_mstp_start(self):
+        content_length = int(self.headers.get('Content-Length', 0))
+        post_data = self.rfile.read(content_length)
+        try:
+            data = json.loads(post_data) if post_data else {}
+            from services.bacnet_mstp import start_mstp_session, get_mstp_snapshot
+            ok, msg = start_mstp_session(data)
+            if ok:
+                self.send_json({"status": "ok", "message": msg, "snapshot": get_mstp_snapshot()})
+            else:
+                self.send_json({"status": "error", "message": msg}, status_code=400)
+        except Exception as e:
+            self.send_json({"status": "error", "message": str(e)}, status_code=500)
+
+    def handle_bacnet_mstp_stop(self):
+        try:
+            from services.bacnet_mstp import stop_mstp_session, get_mstp_snapshot
+            ok, msg = stop_mstp_session()
+            self.send_json({"status": "ok", "message": msg, "snapshot": get_mstp_snapshot()})
+        except Exception as e:
+            self.send_json({"status": "error", "message": str(e)}, status_code=500)
 
     def handle_bacnet_tools_discover(self):
         content_length = int(self.headers.get('Content-Length', 0))
@@ -1689,70 +1905,104 @@ class WebAdminHandler(BaseHTTPRequestHandler):
             if not pattern:
                 raise ValueError("Motif de recherche manquant")
 
-            from services.bacnet_catalog import search_points
-            matches = search_points(pattern)
+            page = max(1, int(data.get("page", 1)))
+            limit = max(1, min(500, int(data.get("limit", 100))))
+            offset = (page - 1) * limit
 
-            if not matches:
-                self.send_json({"status": "ok", "objects": [], "truncated": False})
-                return
+            from services.bacnet_catalog import search_points, count_search_points
+            from services.presence import get_current_site_id, get_current_site_name
+            site_id = get_current_site_id()
+            if not site_id:
+                site_name = get_current_site_name()
+                with get_db_connection() as conn:
+                    cursor = conn.cursor()
+                    cursor.execute("SELECT id FROM sites WHERE name = ?", (site_name,))
+                    row = cursor.fetchone()
+                    site_id = row["id"] if row else None
 
-            # On limite le nombre de lectures en direct pour éviter qu'un joker trop
-            # large (ex: juste "*") ne déclenche des centaines de lectures BACnet d'un coup.
-            MAX_LIVE_READS = 100
-            truncated = len(matches) > MAX_LIVE_READS
-            matches_to_read = matches[:MAX_LIVE_READS]
+            total_count = count_search_points(pattern, site_id=site_id) if site_id else 0
+            matches = search_points(pattern, site_id=site_id, limit=limit, offset=offset) if site_id else []
 
-            points = [
-                {"address": m["network_address"], "object_id": m["object_id"], "device_id": m["device_instance"]}
-                for m in matches_to_read
-            ]
+            total_pages = max(1, (total_count + limit - 1) // limit) if total_count > 0 else 1
 
-            job_id = str(uuid.uuid4())
-            res_queue = queue.Queue()
-
-            def on_msg(client, userdata, msg):
-                try:
-                    res_queue.put(json.loads(msg.payload.decode('utf-8')))
-                except Exception:
-                    pass
-
-            try:
-                temp_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
-            except AttributeError:
-                temp_client = mqtt.Client()
-            temp_client.on_message = on_msg
-            temp_client.connect("127.0.0.1", 1883, 60)
-            temp_client.loop_start()
-            temp_client.subscribe(f"rpinode/bacnet/res/read/{job_id}")
-
-            mqtt_client.publish("rpinode/bacnet/cmd/read", {"job_id": job_id, "points": points})
-
-            try:
-                values = res_queue.get(timeout=10.0)
-            except queue.Empty:
-                values = []
-            finally:
-                temp_client.loop_stop()
-                temp_client.disconnect()
-
-            values_map = {
-                (v.get("address"), v.get("object_id")): v.get("value")
-                for v in (values or []) if isinstance(v, dict)
-            }
-
-            objects = []
-            for m in matches_to_read:
-                key = (m["network_address"], m["object_id"])
-                objects.append({
+            objects = [
+                {
                     "device_id": m["device_instance"],
+                    "device_name": m.get("device_name", "") or "",
                     "address": m["network_address"],
                     "object_id": m["object_id"],
                     "object_name": m["object_name"],
-                    "value": values_map.get(key)
-                })
+                    "is_monitored": bool(m.get("is_monitored", 0)),
+                    "value": None
+                }
+                for m in matches
+            ]
 
-            self.send_json({"status": "ok", "objects": objects, "truncated": truncated})
+            self.send_json({
+                "status": "ok",
+                "objects": objects,
+                "page": page,
+                "limit": limit,
+                "total_count": total_count,
+                "total_pages": total_pages,
+                "has_next": page < total_pages,
+                "has_prev": page > 1,
+                "truncated": total_count > limit
+            })
         except Exception as e:
+            self.send_json({"status": "error", "message": str(e)})
+
+    def handle_bacnet_catalog_values(self):
+        content_length = int(self.headers.get('Content-Length', 0))
+        post_data = self.rfile.read(content_length)
+        try:
+            data = json.loads(post_data)
+            points = data.get("points") or []
+            if not points:
+                self.send_json({"status": "ok", "values": {}})
+                return
+
+            # Limite de sécurité à 100 points
+            points = points[:100]
+
+            from services.bacnet_mgr import read_bacnet_points_live_raw
+            values = read_bacnet_points_live_raw(points, timeout=4.0)
+
+            self.send_json({"status": "ok", "values": values})
+        except Exception as e:
+            self.send_json({"status": "error", "message": str(e)})
+
+    def handle_bacnet_points_track(self):
+        content_length = int(self.headers.get('Content-Length', 0))
+        post_data = self.rfile.read(content_length)
+        try:
+            data = json.loads(post_data)
+            points = data.get("points", [])
+            if not points:
+                return self.send_json({"status": "error", "message": "Aucun point sélectionné"})
+
+            from services.presence import get_current_site_id, get_current_site_name
+            site_id = get_current_site_id()
+            if not site_id:
+                site_name = get_current_site_name()
+                with get_db_connection() as conn:
+                    cursor = conn.cursor()
+                    cursor.execute("SELECT id FROM sites WHERE name = ?", (site_name,))
+                    row = cursor.fetchone()
+                    site_id = row["id"] if row else None
+
+            if not site_id:
+                return self.send_json({"status": "error", "message": "Aucun chantier actif"})
+
+            from services.bacnet_mgr import add_points_to_suivi
+            count = add_points_to_suivi(site_id, points)
+            self.send_json({
+                "status": "ok",
+                "count": count,
+                "message": f"{count} point(s) marqué(s) comme suivi avec succès"
+            })
+        except Exception as e:
+            logger.error(f"Erreur track bacnet points: {e}")
             self.send_json({"status": "error", "message": str(e)})
 
     def handle_bacnet_tools_whohas(self):
