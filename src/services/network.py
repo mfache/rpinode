@@ -205,7 +205,7 @@ def get_dhcp_clients(iface="wlan0"):
                         "mac": mac,
                         "hostname": parts[3] if parts[3] != "*" else "Inconnu"
                     })
-            logger.info(f"DHCP Clients trouvés sur {iface}: {len(clients)}")
+            logger.debug(f"DHCP Clients trouvés sur {iface}: {len(clients)}")
     except Exception as e:
         logger.debug(f"Erreur lecture baux DHCP {iface}: {e}")
         
@@ -217,9 +217,9 @@ def get_network_overview():
     eth = get_interface_status("eth0")
     wlan = get_interface_status("wlan0")
     
-    # Ajout des clients DHCP pour wlan0 et eth0
-    wlan["clients"] = get_dhcp_clients("wlan0")
-    eth["clients"] = get_dhcp_clients("eth0")
+    # Ajout des clients DHCP uniquement si l'interface est serveur DHCP
+    wlan["clients"] = get_dhcp_clients("wlan0") if wlan.get("is_dhcp_server") else []
+    eth["clients"] = get_dhcp_clients("eth0") if eth.get("is_dhcp_server") else []
     
     ts = get_tailscale_status()
     ts_exit = get_tailscale_exit_node()

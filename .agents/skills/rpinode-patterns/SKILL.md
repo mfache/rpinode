@@ -41,4 +41,5 @@ Always check for additional documentation files to understand specific workflows
 - Use `find . -type f -iname "*.md"` to locate all documentation files.
 - Files like `README.md` and `HOWTO.md` contain critical operational information.
 
-Voir aussi /home/marc/.agents/skills/SKILL.md
+## 7. Shortcuts
+When the user says "git" to you, you must perform a git and push.
