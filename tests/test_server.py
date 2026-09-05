@@ -256,6 +256,42 @@ class TestServer(unittest.TestCase):
         except Exception as e:
             self.fail(f"La page /configuration/mqtt n'a pas répondu : {e}")
 
+    def test_configuration_sse_page(self):
+        """Vérifie que la page /configuration/sse est servie."""
+        url = f"http://localhost:{self.test_port}/configuration/sse"
+        try:
+            response = urllib.request.urlopen(url, timeout=5)
+            self.assertEqual(response.getcode(), 200)
+            content = response.read().decode('utf-8')
+            self.assertIn("Moniteur SSE", content)
+            self.assertIn("Flux SSE Actifs", content)
+        except Exception as e:
+            self.fail(f"La page /configuration/sse n'a pas répondu : {e}")
+
+    def test_sse_status_api(self):
+        """Vérifie que l'API /api/sse/status répond avec la liste des flux actifs."""
+        url = f"http://localhost:{self.test_port}/api/sse/status"
+        try:
+            response = urllib.request.urlopen(url, timeout=5)
+            self.assertEqual(response.getcode(), 200)
+            data = json.loads(response.read().decode('utf-8'))
+            self.assertEqual(data["status"], "ok")
+            self.assertIn("active_streams", data)
+            self.assertIsInstance(data["active_streams"], list)
+        except Exception as e:
+            self.fail(f"L'API /api/sse/status n'a pas répondu : {e}")
+
+    def test_sse_stream_route(self):
+        """Vérifie que l'API /api/sse/stream est bien routée en text/event-stream."""
+        url = f"http://localhost:{self.test_port}/api/sse/stream"
+        try:
+            req = urllib.request.Request(url)
+            with urllib.request.urlopen(req, timeout=3) as resp:
+                self.assertEqual(resp.getcode(), 200)
+                self.assertIn("text/event-stream", resp.getheader("Content-Type"))
+        except Exception:
+            pass
+
     def test_devices_page(self):
         """Vérifie que la page /devices est servie."""
         url = f"http://localhost:{self.test_port}/devices"

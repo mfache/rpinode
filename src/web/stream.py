@@ -1,6 +1,7 @@
 import json
 import logging
 import queue
+import threading
 import time
 import uuid
 
@@ -9,6 +10,135 @@ import paho.mqtt.client as mqtt
 from core.utils import get_changed_items
 
 logger = logging.getLogger(__name__)
+
+
+def _extract_client_ip(handler):
+    """Extrait l'adresse IP du client si disponible."""
+    try:
+        if hasattr(handler, "client_address") and isinstance(handler.client_address, (tuple, list)) and len(handler.client_address) > 0:
+            return str(handler.client_address[0])
+    except Exception:
+        pass
+    return "127.0.0.1"
+
+
+class SSEMonitorHub:
+    """
+    Gestionnaire central pour le suivi des connexions SSE actives
+    et la diffusion du trafic SSE vers la page Moniteur SSE.
+    """
+    STREAM_METADATA = {
+        "/api/stream": {"label": "Flux Général (Statut & Alertes)", "color": "#4ec9b0"},
+        "/api/devices/stream": {"label": "Inventaire Périphériques", "color": "#ce9178"},
+        "/api/bacnet/mstp/stream": {"label": "Découverte BACnet MS/TP", "color": "#569cd6"},
+        "/api/mqtt/stream": {"label": "Moniteur MQTT", "color": "#dcdcaa"},
+    }
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._active_connections = {}  # stream_path -> {client_id: {"connected_at": float, "ip": str}}
+        self._monitor_listeners = set()  # set of queue.Queue
+
+    def register_client(self, stream_path: str, client_id: str, client_ip: str = "127.0.0.1"):
+        with self._lock:
+            if stream_path not in self._active_connections:
+                self._active_connections[stream_path] = {}
+            self._active_connections[stream_path][client_id] = {
+                "connected_at": time.time(),
+                "ip": client_ip
+            }
+            active_info = self._get_active_streams_unlocked()
+
+        self._notify_status_change(active_info, change_type="connect", stream=stream_path, client_id=client_id)
+
+    def unregister_client(self, stream_path: str, client_id: str):
+        with self._lock:
+            if stream_path in self._active_connections:
+                self._active_connections[stream_path].pop(client_id, None)
+                if not self._active_connections[stream_path]:
+                    del self._active_connections[stream_path]
+            active_info = self._get_active_streams_unlocked()
+
+        self._notify_status_change(active_info, change_type="disconnect", stream=stream_path, client_id=client_id)
+
+    def is_stream_active(self, stream_path: str) -> bool:
+        with self._lock:
+            return bool(self._active_connections.get(stream_path))
+
+    def _get_active_streams_unlocked(self):
+        result = []
+        for path, clients in self._active_connections.items():
+            if clients:
+                meta = self.STREAM_METADATA.get(path, {"label": path, "color": "#9cdcfe"})
+                result.append({
+                    "path": path,
+                    "label": meta["label"],
+                    "color": meta["color"],
+                    "clients_count": len(clients),
+                    "clients": list(clients.values())
+                })
+        return result
+
+    def get_active_streams(self):
+        with self._lock:
+            return self._get_active_streams_unlocked()
+
+    def _notify_status_change(self, active_streams, **extra):
+        msg = {
+            "type": "status",
+            "active_streams": active_streams,
+            "timestamp": time.time(),
+            **extra
+        }
+        self._dispatch_to_listeners(msg)
+
+    def record_event(self, stream_path: str, event_type: str, data, is_heartbeat: bool = False, client_ip: str = "127.0.0.1"):
+        """
+        Diffuse un événement de trafic SSE à tous les auditeurs du moniteur SSE.
+        """
+        with self._lock:
+            if not self._monitor_listeners:
+                return
+            clients = self._active_connections.get(stream_path, {})
+            clients_count = len(clients)
+
+        meta = self.STREAM_METADATA.get(stream_path, {"label": stream_path, "color": "#9cdcfe"})
+        event_obj = {
+            "type": "traffic",
+            "stream": stream_path,
+            "stream_label": meta["label"],
+            "stream_color": meta["color"],
+            "event": event_type,
+            "data": data,
+            "is_heartbeat": is_heartbeat,
+            "clients_count": clients_count,
+            "client_ip": client_ip,
+            "timestamp": time.time()
+        }
+        self._dispatch_to_listeners(event_obj)
+
+    def _dispatch_to_listeners(self, msg_dict):
+        with self._lock:
+            listeners = list(self._monitor_listeners)
+
+        for q in listeners:
+            try:
+                q.put_nowait(msg_dict)
+            except queue.Full:
+                pass
+
+    def add_monitor_listener(self) -> queue.Queue:
+        q = queue.Queue(maxsize=100)
+        with self._lock:
+            self._monitor_listeners.add(q)
+        return q
+
+    def remove_monitor_listener(self, q: queue.Queue):
+        with self._lock:
+            self._monitor_listeners.discard(q)
+
+
+sse_hub = SSEMonitorHub()
 
 def _get_current_wifi_mode():
     """Détermine si wlan0 est en mode AP ou Client."""
@@ -60,7 +190,11 @@ def handle_sse_stream(handler):
     handler.send_header('Connection', 'keep-alive')
     handler.end_headers()
 
-    logger.info("Nouveau client SSE connecté (via MQTT).")
+    client_id = f"gen_{uuid.uuid4().hex[:6]}"
+    client_ip = _extract_client_ip(handler)
+    sse_hub.register_client("/api/stream", client_id, client_ip)
+
+    logger.info(f"Nouveau client SSE connecté (via MQTT) [{client_id}].")
 
     q = queue.Queue(maxsize=10)
 
@@ -100,6 +234,7 @@ def handle_sse_stream(handler):
                     message = f"event: host_ready\ndata: {json.dumps(data)}\n\n"
                     handler.wfile.write(message.encode("utf-8"))
                     handler.wfile.flush()
+                    sse_hub.record_event("/api/stream", event_type="host_ready", data=data, client_ip=client_ip)
                     continue
 
                 if topic.startswith("rpinode/modbus/point/"):
@@ -107,6 +242,7 @@ def handle_sse_stream(handler):
                     message = f"event: modbus_point\ndata: {json.dumps(data)}\n\n"
                     handler.wfile.write(message.encode("utf-8"))
                     handler.wfile.flush()
+                    sse_hub.record_event("/api/stream", event_type="modbus_point", data=data, client_ip=client_ip)
                     continue
 
                 # On prépare le payload final en fonction du topic
@@ -163,20 +299,26 @@ def handle_sse_stream(handler):
                     handler.wfile.write(message.encode("utf-8"))
                     handler.wfile.flush()
                     last_data.update(current_data)
+                    sse_hub.record_event("/api/stream", event_type="message", data=payload, client_ip=client_ip)
 
             except queue.Empty:
                 # Heartbeat SSE pour garder la connexion vivante
                 handler.wfile.write(b": heartbeat\n\n")
                 handler.wfile.flush()
+                sse_hub.record_event("/api/stream", event_type="heartbeat", data=": heartbeat", is_heartbeat=True, client_ip=client_ip)
                 continue
 
-    except (ConnectionAbortedError, BrokenPipeError):
-        logger.info("Client SSE déconnecté.")
+    except (ConnectionAbortedError, BrokenPipeError, ConnectionResetError):
+        logger.info(f"Client SSE déconnecté [{client_id}].")
     except Exception as e:
         logger.error(f"Erreur flux SSE/MQTT: {e}")
     finally:
-        client.loop_stop()
-        client.disconnect()
+        sse_hub.unregister_client("/api/stream", client_id)
+        try:
+            client.loop_stop()
+            client.disconnect()
+        except Exception:
+            pass
 
 def handle_mqtt_stream(handler, query=None):
     """
@@ -193,7 +335,11 @@ def handle_mqtt_stream(handler, query=None):
     if query and "topic" in query and query["topic"]:
         topic_filter = query["topic"][0] or "#"
 
-    logger.info(f"Nouveau client SSE Moniteur MQTT connecté (topic: {topic_filter}).")
+    client_id = f"rpinode_mqtt_mon_{int(time.time() * 1000)}_{uuid.uuid4().hex[:6]}"
+    client_ip = _extract_client_ip(handler)
+    sse_hub.register_client("/api/mqtt/stream", client_id, client_ip)
+
+    logger.info(f"Nouveau client SSE Moniteur MQTT connecté (topic: {topic_filter}) [{client_id}].")
 
     q = queue.Queue(maxsize=100)
 
@@ -205,7 +351,6 @@ def handle_mqtt_stream(handler, query=None):
         except Exception:
             pass
 
-    client_id = f"rpinode_mqtt_mon_{int(time.time() * 1000)}_{uuid.uuid4().hex[:6]}"
     try:
         client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id=client_id)
     except AttributeError:
@@ -221,19 +366,23 @@ def handle_mqtt_stream(handler, query=None):
         while True:
             try:
                 topic, payload_str = q.get(timeout=3)
-                data = json.dumps({"topic": topic, "payload": payload_str})
+                msg_payload = {"topic": topic, "payload": payload_str}
+                data = json.dumps(msg_payload)
                 message = f"data: {data}\n\n"
                 handler.wfile.write(message.encode("utf-8"))
                 handler.wfile.flush()
+                sse_hub.record_event("/api/mqtt/stream", event_type="message", data=msg_payload, client_ip=client_ip)
             except queue.Empty:
                 handler.wfile.write(b": heartbeat\n\n")
                 handler.wfile.flush()
+                sse_hub.record_event("/api/mqtt/stream", event_type="heartbeat", data=": heartbeat", is_heartbeat=True, client_ip=client_ip)
 
     except (ConnectionAbortedError, BrokenPipeError, ConnectionResetError):
-        logger.info("Client SSE Moniteur MQTT déconnecté.")
+        logger.info(f"Client SSE Moniteur MQTT déconnecté [{client_id}].")
     except Exception as e:
         logger.error(f"Erreur flux SSE Moniteur MQTT: {e}")
     finally:
+        sse_hub.unregister_client("/api/mqtt/stream", client_id)
         try:
             client.loop_stop()
             client.disconnect()
@@ -254,7 +403,11 @@ def handle_bacnet_mstp_stream(handler):
     handler.send_header('Connection', 'keep-alive')
     handler.end_headers()
 
-    logger.info("Nouveau client SSE BACnet MS/TP connecté.")
+    client_id = f"mstp_{uuid.uuid4().hex[:6]}"
+    client_ip = _extract_client_ip(handler)
+    sse_hub.register_client("/api/bacnet/mstp/stream", client_id, client_ip)
+
+    logger.info(f"Nouveau client SSE BACnet MS/TP connecté [{client_id}].")
 
     last_sig = None
     try:
@@ -266,14 +419,18 @@ def handle_bacnet_mstp_stream(handler):
                 handler.wfile.write(message.encode("utf-8"))
                 handler.wfile.flush()
                 last_sig = sig
+                sse_hub.record_event("/api/bacnet/mstp/stream", event_type="message", data=payload, client_ip=client_ip)
             else:
                 handler.wfile.write(b": heartbeat\n\n")
                 handler.wfile.flush()
+                sse_hub.record_event("/api/bacnet/mstp/stream", event_type="heartbeat", data=": heartbeat", is_heartbeat=True, client_ip=client_ip)
             time.sleep(1.0)
     except (ConnectionAbortedError, BrokenPipeError, ConnectionResetError):
-        logger.info("Client SSE BACnet MS/TP déconnecté.")
+        logger.info(f"Client SSE BACnet MS/TP déconnecté [{client_id}].")
     except Exception as e:
         logger.error(f"Erreur flux SSE BACnet MS/TP: {e}")
+    finally:
+        sse_hub.unregister_client("/api/bacnet/mstp/stream", client_id)
 
 
 def handle_devices_stream(handler):
@@ -292,7 +449,11 @@ def handle_devices_stream(handler):
     handler.send_header('Connection', 'keep-alive')
     handler.end_headers()
 
-    logger.info("Nouveau client SSE /devices connecté.")
+    client_id = f"dev_{uuid.uuid4().hex[:6]}"
+    client_ip = _extract_client_ip(handler)
+    sse_hub.register_client("/api/devices/stream", client_id, client_ip)
+
+    logger.info(f"Nouveau client SSE /devices connecté [{client_id}].")
 
     config = load_config()
     base_url = config.get("base_url", "")
@@ -311,12 +472,68 @@ def handle_devices_stream(handler):
                 handler.wfile.write(message.encode("utf-8"))
                 handler.wfile.flush()
                 last_sig = sig
+                sse_hub.record_event("/api/devices/stream", event_type="message", data=components, client_ip=client_ip)
             else:
                 handler.wfile.write(b": heartbeat\n\n")
                 handler.wfile.flush()
+                sse_hub.record_event("/api/devices/stream", event_type="heartbeat", data=": heartbeat", is_heartbeat=True, client_ip=client_ip)
 
             time.sleep(3.0)
     except (ConnectionAbortedError, BrokenPipeError, ConnectionResetError):
-        logger.info("Client SSE /devices déconnecté.")
+        logger.info(f"Client SSE /devices déconnecté [{client_id}].")
     except Exception as e:
         logger.error(f"Erreur flux SSE /devices: {e}")
+    finally:
+        sse_hub.unregister_client("/api/devices/stream", client_id)
+
+
+def handle_sse_monitor_stream(handler, query=None):
+    """
+    Gère une connexion SSE pour le moniteur de flux SSE temps réel.
+    Diffuse les événements transitant sur les flux SSE actifs
+    et les changements d'état des flux connectés.
+    """
+    handler.send_response(200)
+    handler.send_header('Content-type', 'text/event-stream')
+    handler.send_header('Cache-Control', 'no-cache')
+    handler.send_header('Connection', 'keep-alive')
+    handler.end_headers()
+
+    client_id = f"sse_mon_{int(time.time() * 1000)}_{uuid.uuid4().hex[:6]}"
+    logger.info(f"Nouveau client SSE Moniteur SSE connecté [{client_id}].")
+
+    stream_filter = query.get("stream", [None])[0] if query and "stream" in query else None
+
+    q = sse_hub.add_monitor_listener()
+
+    try:
+        # Envoi immédiat de l'état initial des flux actifs
+        initial_status = {
+            "type": "status",
+            "active_streams": sse_hub.get_active_streams(),
+            "timestamp": time.time()
+        }
+        handler.wfile.write(f"data: {json.dumps(initial_status)}\n\n".encode("utf-8"))
+        handler.wfile.flush()
+
+        while True:
+            try:
+                msg = q.get(timeout=3)
+
+                # Filtrage optionnel par stream
+                if stream_filter and msg.get("type") == "traffic":
+                    if msg.get("stream") != stream_filter:
+                        continue
+
+                handler.wfile.write(f"data: {json.dumps(msg)}\n\n".encode("utf-8"))
+                handler.wfile.flush()
+            except queue.Empty:
+                handler.wfile.write(b": heartbeat\n\n")
+                handler.wfile.flush()
+
+    except (ConnectionAbortedError, BrokenPipeError, ConnectionResetError):
+        logger.info(f"Client SSE Moniteur SSE déconnecté [{client_id}].")
+    except Exception as e:
+        logger.error(f"Erreur flux SSE Moniteur SSE: {e}")
+    finally:
+        sse_hub.remove_monitor_listener(q)

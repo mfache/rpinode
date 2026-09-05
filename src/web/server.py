@@ -22,7 +22,7 @@ from services.gsm import get_gsm_info
 from services.ipscan import (is_ipscan_running, load_ipscan_results,
                              start_ip_scan_in_background)
 from services.mqtt_service import mqtt_client
-from web.stream import handle_sse_stream, handle_mqtt_stream
+from web.stream import handle_sse_stream, handle_mqtt_stream, handle_sse_monitor_stream
 from web.templating import escape, render
 
 logger = logging.getLogger(__name__)
@@ -66,6 +66,10 @@ class WebAdminHandler(BaseHTTPRequestHandler):
             return handle_sse_stream(self)
         if path == "/api/mqtt/stream":
             return handle_mqtt_stream(self, query)
+        if path == "/api/sse/stream":
+            return handle_sse_monitor_stream(self, query)
+        if path == "/api/sse/status":
+            return self.handle_sse_status_api()
         if path == "/api/scan/ip/results":
             return self.serve_ip_scan_results()
 
@@ -143,6 +147,8 @@ class WebAdminHandler(BaseHTTPRequestHandler):
             return self.serve_configuration_logger()
         elif path == "/configuration/mqtt":
             return self.serve_configuration_mqtt()
+        elif path == "/configuration/sse":
+            return self.serve_configuration_sse()
         elif path == "/scan/ip":
             return self.serve_ip_scan()
         elif path == "/devices" or path == "/storage/devices":
@@ -2716,6 +2722,25 @@ class WebAdminHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.end_headers()
         self.wfile.write(final_html.encode("utf-8"))
+
+    def serve_configuration_sse(self):
+        config = load_config()
+        base_url = config.get("base_url", "")
+        hostname = socket.gethostname()
+        version = config.get("version", str(int(time.time())))
+        
+        nav_html = render("nav.html", base_url=base_url)
+        content = render("configuration_sse.html")
+        final_html = render("layout.html", title="Moniteur SSE", hostname=escape(hostname), base_url=escape(base_url), version=version, nav=nav_html, content=content)
+        
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.end_headers()
+        self.wfile.write(final_html.encode("utf-8"))
+
+    def handle_sse_status_api(self):
+        from web.stream import sse_hub
+        self.send_json({"status": "ok", "active_streams": sse_hub.get_active_streams()})
 
     def handle_configuration_logger_save(self):
         try:
