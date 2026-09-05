@@ -1,3 +1,11 @@
+## État d'avancement - 05/09/2026
+
+- **Qualification matérielle des passerelles et synchronisation flotte (`src/services/device_mgr.py`, `src/core/schema.sql`, `templates/devices.html`, `src/services/fleet.py`)** :
+  - Création de la table `device_qualifications` avec suivi `is_dirty` et `synced_at` pour persister le nom d'usage, le type de bus physique (RS-485, M-Bus, RS-232, Modem 4G/GPS), les protocoles éligibles et les notes terrain.
+  - Ajout d'une modale interactive de déclaration et qualification sur `/devices` avec validation en direct sans rechargement de page.
+  - Intégration de l'inventaire matériel qualifié dans le cycle `/sync` de `fleet.py` avec acquittement automatique.
+  - Cahier des charges et architecture documentés dans `src/core/README_devices.md`.
+
 ## État d'avancement - 04/09/2026
 
 - **Support matériel de la passerelle Moxa UPort 1150 (`drivers/moxa/`, `src/services/device_mgr.py`)** : Détection automatique de la passerelle USB-Série Moxa UPort 1150 (RS-232/422/485) attachée sur `/dev/ttyUSB5` via son lien stable `/dev/serial/by-id/`. Sauvegarde et documentation du pilote noyau personnalisé `ti_usb_3410_5052-moxa-uport1150.c` qui force le mode RS-485 2 fils.

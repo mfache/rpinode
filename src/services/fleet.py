@@ -184,6 +184,28 @@ class FleetClient:
                         "updated_by": socket.gethostname()
                     })
 
+                # Collecte des périphériques connectés et qualifications (matériel)
+                devices_to_push = []
+                try:
+                    from services.device_mgr import list_system_devices
+                    sys_devs = list_system_devices()
+                    for p in sys_devs.get("rs485_ports", []) + sys_devs.get("modem_ports", []):
+                        devices_to_push.append({
+                            "hardware_key": p.get("hardware_key", p.get("by_id_name", p.get("path"))),
+                            "by_id_name": p.get("by_id_name", ""),
+                            "current_tty_path": p.get("path", ""),
+                            "driver": p.get("driver", ""),
+                            "user_label": p.get("user_label", p.get("description", "")),
+                            "physical_type": p.get("physical_type", "generic_serial"),
+                            "capabilities": p.get("capabilities", []),
+                            "notes": p.get("notes", ""),
+                            "is_qualified": p.get("is_qualified", False),
+                            "is_dirty": p.get("is_dirty", False),
+                            "is_connected": True
+                        })
+                except Exception as e:
+                    logger.debug(f"Erreur collecte devices pour sync: {e}")
+
                 # Télémétrie d'usage des templates Modbus
                 template_usages = []
                 try:
@@ -222,6 +244,7 @@ class FleetClient:
             "annotations": dirty_annotations,
             "table_columns": table_columns_to_push,
             "net_profiles": net_profiles_to_push,
+            "devices": devices_to_push,
             "template_usage": template_usages
         }
         if site_hint_name:
@@ -265,6 +288,13 @@ class FleetClient:
                         conn.execute("UPDATE site_network_profiles SET is_dirty = 0, updated_at = CURRENT_TIMESTAMP WHERE is_dirty = 1")
                         
                         conn.commit()
+
+                # Marquer les qualifications matérielles comme synchronisées
+                try:
+                    from services.device_mgr import mark_qualifications_synced
+                    mark_qualifications_synced()
+                except Exception as e:
+                    logger.debug(f"Erreur mark_qualifications_synced: {e}")
                 
                 return data
             return None

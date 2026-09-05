@@ -3,9 +3,9 @@
     <div class="header-with-actions" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 12px;">
         <div>
             <h2>Périphériques &amp; Passerelles</h2>
-            <p class="hint">Inventaire du matériel connecté en USB et ports série (passerelles RS-485 / M-Bus, modems, adaptateurs).</p>
+            <p class="hint">Inventaire et qualification du matériel connecté (passerelles RS-485, M-Bus, RS-232, modems 4G/GPS).</p>
         </div>
-        <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+        <div style="display: flex; gap: 10px; flex-wrap: wrap; align-items: center;">
             <button class="btn-secondary" onclick="window.location.reload()">
                 <span>🔄</span> Rafraîchir
             </button>
@@ -22,7 +22,7 @@
     <div class="card params-card" style="margin-top: 24px;">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; border-bottom: 1px solid #f1f5f9; padding-bottom: 10px;">
             <h3 style="margin: 0; display: flex; align-items: center; gap: 8px;">
-                <span>🔌</span> Ports Série &amp; Passerelles Bus (RS-485 / M-Bus)
+                <span>🔌</span> Ports Série &amp; Passerelles Bus (RS-485 / M-Bus / RS-232)
                 <span class="badge-count-main" style="background: #3b82f6;" id="subt_total_serial">${total_serial}</span>
             </h3>
         </div>
@@ -60,17 +60,105 @@
         <div style="display: flex; align-items: flex-start; gap: 14px;">
             <span style="font-size: 1.8rem;">⚙️</span>
             <div>
-                <h4 style="margin: 0 0 6px 0; color: #1e293b;">Passerelles &amp; Pilotes Série (RS-485, M-Bus, USB-UART)</h4>
+                <h4 style="margin: 0 0 6px 0; color: #1e293b;">Passerelles &amp; Qualification des Bus (RS-485, M-Bus, RS-232)</h4>
                 <p style="margin: 0 0 8px 0; font-size: 0.9rem; color: #475569;">
-                    Prise en charge automatique des adaptateurs série standards (Silicon Labs CP210x, FTDI, CH340/341, Prolific, CDC-ACM) pour la scrutation des bus BACnet MS/TP, Modbus RTU et M-Bus. Le pilote officiel Moxa a également été patché sur ce noyau pour forcer le Moxa UPort 1150 en mode <strong>RS-485 2 fils</strong>.
+                    Un convertisseur USB-Série générique (CP210x, FTDI, CH340) peut piloter indifféremment un bus <strong>RS-485</strong>, une passerelle maître <strong>M-Bus</strong> ou un port <strong>RS-232</strong>. Utilisez le bouton <strong>« ✏️ Déclarer / Qualifier »</strong> pour nommer la passerelle et définir son bus physique. Vos déclarations sont conservées localement et synchronisées avec le serveur central <code>docs</code>.
                 </p>
                 <div style="font-size: 0.85rem; color: #64748b; font-family: monospace;">
-                    Pilotes supportés : <code>cp210x, ftdi_sio, ch341, pl2303, ti_usb_3410_5052, cdc_acm</code>
+                    Pilotes supportés : <code>cp210x, ftdi_sio, ch341, pl2303, ti_usb_3410_5052 (patch Moxa 2 fils), cdc_acm</code>
                 </div>
             </div>
         </div>
     </div>
 </section>
+
+<!-- Modal de Qualification de Périphérique -->
+<div id="qualifyModal" class="modal-backdrop" style="display: none;">
+    <div class="modal-box">
+        <div class="modal-header">
+            <h3 id="qualifyModalTitle">✏️ Déclarer / Qualifier la passerelle</h3>
+            <button class="modal-close" onclick="closeQualifyModal()">&times;</button>
+        </div>
+        <form id="qualifyForm" onsubmit="submitQualifyForm(event)">
+            <input type="hidden" id="q_hardware_key" name="hardware_key">
+            <input type="hidden" id="q_by_id_name" name="by_id_name">
+            <input type="hidden" id="q_vendor_id" name="vendor_id">
+            <input type="hidden" id="q_product_id" name="product_id">
+            <input type="hidden" id="q_serial_number" name="serial_number">
+
+            <div class="device-summary-box">
+                <div><strong>Port :</strong> <code id="q_summary_path">/dev/ttyUSB0</code></div>
+                <div><strong>Identifiant :</strong> <code id="q_summary_by_id" style="font-size: 0.8rem;">usb-xxx</code></div>
+                <div><strong>Pilote :</strong> <span id="q_summary_driver">cp210x</span></div>
+            </div>
+
+            <div class="form-group" style="margin-top: 15px;">
+                <label for="q_user_label"><strong>Nom d'usage personnalisé *</strong></label>
+                <input type="text" id="q_user_label" name="user_label" class="form-control" required placeholder="Ex: Passerelle M-Bus Compteurs Chaufferie">
+                <small class="hint">Libellé explicite affiché dans les sélecteurs de ports et sur le tableau de bord.</small>
+            </div>
+
+            <div class="form-group" style="margin-top: 15px;">
+                <label for="q_physical_type"><strong>Type de bus physique *</strong></label>
+                <select id="q_physical_type" name="physical_type" class="form-control" onchange="onPhysicalTypeChange(this.value)">
+                    <option value="rs485">Bus RS-485 (Différentiel 2 fils - BACnet MS/TP &amp; Modbus RTU)</option>
+                    <option value="mbus">Maître M-Bus (Compteurs Énergie / Eau / Chaleur)</option>
+                    <option value="rs232">Port Série RS-232 (Point-à-point)</option>
+                    <option value="modem_4g_gps">Modem 4G / GPS</option>
+                    <option value="generic_serial">Port Série Générique</option>
+                </select>
+            </div>
+
+            <div class="form-group" style="margin-top: 15px;">
+                <label><strong>Protocoles &amp; Capacités éligibles</strong></label>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; margin-top: 8px; background: #f8fafc; padding: 12px; border-radius: 6px; border: 1px solid #e2e8f0;">
+                    <label style="display: flex; align-items: center; gap: 8px; font-weight: normal; cursor: pointer;">
+                        <input type="checkbox" id="cap_bacnet_mstp" value="bacnet_mstp">
+                        <span>🔌 BACnet MS/TP</span>
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 8px; font-weight: normal; cursor: pointer;">
+                        <input type="checkbox" id="cap_modbus_rtu" value="modbus_rtu">
+                        <span>🔍 Modbus RTU</span>
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 8px; font-weight: normal; cursor: pointer;">
+                        <input type="checkbox" id="cap_mbus" value="mbus">
+                        <span>⚡ M-Bus (Comptage)</span>
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 8px; font-weight: normal; cursor: pointer;">
+                        <input type="checkbox" id="cap_gsm_modem" value="gsm_modem">
+                        <span>📶 Modem 4G / AT</span>
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 8px; font-weight: normal; cursor: pointer;">
+                        <input type="checkbox" id="cap_gps_nmea" value="gps_nmea">
+                        <span>🛰️ GPS NMEA</span>
+                    </label>
+                </div>
+            </div>
+
+            <div class="form-group" style="margin-top: 15px;">
+                <label for="q_notes"><strong>Notes &amp; Repérage terrain</strong></label>
+                <textarea id="q_notes" name="notes" rows="2" class="form-control" placeholder="Ex: Débit 2400 bauds fixe, relié aux compteurs d'énergie du tableau principal"></textarea>
+            </div>
+
+            <div class="form-group" style="margin-top: 15px;">
+                <label style="display: flex; align-items: center; gap: 8px; font-weight: normal; cursor: pointer;">
+                    <input type="checkbox" id="q_is_shared_model" name="is_shared_model">
+                    <span>Partager la signature matérielle de ce modèle au référentiel flotte (<code>docs</code>)</span>
+                </label>
+            </div>
+
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 24px; padding-top: 15px; border-top: 1px solid #e2e8f0; flex-wrap: wrap; gap: 10px;">
+                <button type="button" class="btn-danger" id="btnResetQualif" onclick="resetQualifyForm()" style="display: none;">
+                    🗑️ Réinitialiser
+                </button>
+                <div style="display: flex; gap: 10px; margin-left: auto;">
+                    <button type="button" class="btn-secondary" onclick="closeQualifyModal()">Annuler</button>
+                    <button type="submit" class="btn-primary" id="btnSubmitQualif">💾 Enregistrer</button>
+                </div>
+            </div>
+        </form>
+    </div>
+</div>
 
 <style>
 .badge-count-main {
@@ -141,4 +229,235 @@
     gap: 12px;
     flex-wrap: wrap;
 }
+
+/* Modal */
+.modal-backdrop {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background: rgba(15, 23, 42, 0.6);
+    backdrop-filter: blur(4px);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 9999;
+    padding: 20px;
+}
+.modal-box {
+    background: white;
+    border-radius: 12px;
+    width: 100%;
+    max-width: 600px;
+    max-height: 90vh;
+    overflow-y: auto;
+    padding: 24px;
+    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.3);
+}
+.modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid #e2e8f0;
+    padding-bottom: 12px;
+    margin-bottom: 16px;
+}
+.modal-header h3 {
+    margin: 0;
+    font-size: 1.25rem;
+    color: #1e293b;
+}
+.modal-close {
+    background: transparent;
+    border: none;
+    font-size: 1.5rem;
+    color: #64748b;
+    cursor: pointer;
+}
+.device-summary-box {
+    background: #f1f5f9;
+    padding: 10px 14px;
+    border-radius: 6px;
+    font-size: 0.85rem;
+    color: #334155;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+.form-control {
+    width: 100%;
+    padding: 8px 12px;
+    border-radius: 6px;
+    border: 1px solid #cbd5e1;
+    font-size: 0.95rem;
+    box-sizing: border-box;
+}
+.form-control:focus {
+    border-color: #3b82f6;
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+}
+.btn-danger {
+    background: #ef4444;
+    color: white;
+    border: 1px solid #dc2626;
+    padding: 8px 14px;
+    border-radius: 6px;
+    font-weight: 600;
+    cursor: pointer;
+}
+.btn-danger:hover {
+    background: #dc2626;
+}
 </style>
+
+<script>
+let currentEditingDevice = null;
+
+function openQualifyModal(device) {
+    currentEditingDevice = device;
+    const modal = document.getElementById("qualifyModal");
+    const hwKey = device.hardware_key || device.by_id_name || device.path;
+
+    document.getElementById("q_hardware_key").value = hwKey;
+    document.getElementById("q_by_id_name").value = device.by_id_name || "";
+    document.getElementById("q_vendor_id").value = device.vendor_id || device.vid || "";
+    document.getElementById("q_product_id").value = device.product_id || device.pid || "";
+    document.getElementById("q_serial_number").value = device.serial_number || "";
+
+    document.getElementById("q_summary_path").textContent = device.path || "USB";
+    document.getElementById("q_summary_by_id").textContent = device.by_id_name || hwKey;
+    document.getElementById("q_summary_driver").textContent = device.driver || device.driver_str || "Inconnu";
+
+    document.getElementById("q_user_label").value = device.user_label || device.description || "";
+    document.getElementById("q_notes").value = device.notes || "";
+    document.getElementById("q_physical_type").value = device.physical_type || (device.is_moxa ? "rs485" : "generic_serial");
+
+    // Cocher les capacités
+    const caps = device.capabilities || [];
+    document.getElementById("cap_bacnet_mstp").checked = caps.includes("bacnet_mstp");
+    document.getElementById("cap_modbus_rtu").checked = caps.includes("modbus_rtu");
+    document.getElementById("cap_mbus").checked = caps.includes("mbus");
+    document.getElementById("cap_gsm_modem").checked = caps.includes("gsm_modem");
+    document.getElementById("cap_gps_nmea").checked = caps.includes("gps_nmea");
+
+    // Afficher bouton reset si qualifié
+    document.getElementById("btnResetQualif").style.display = device.is_qualified ? "inline-block" : "none";
+
+    modal.style.display = "flex";
+}
+
+function closeQualifyModal() {
+    document.getElementById("qualifyModal").style.display = "none";
+    currentEditingDevice = null;
+}
+
+function onPhysicalTypeChange(type) {
+    if (type === "rs485") {
+        document.getElementById("cap_bacnet_mstp").checked = true;
+        document.getElementById("cap_modbus_rtu").checked = true;
+        document.getElementById("cap_mbus").checked = false;
+        document.getElementById("cap_gsm_modem").checked = false;
+        document.getElementById("cap_gps_nmea").checked = false;
+    } else if (type === "mbus") {
+        document.getElementById("cap_bacnet_mstp").checked = false;
+        document.getElementById("cap_modbus_rtu").checked = false;
+        document.getElementById("cap_mbus").checked = true;
+        document.getElementById("cap_gsm_modem").checked = false;
+        document.getElementById("cap_gps_nmea").checked = false;
+    } else if (type === "rs232") {
+        document.getElementById("cap_bacnet_mstp").checked = false;
+        document.getElementById("cap_modbus_rtu").checked = true;
+        document.getElementById("cap_mbus").checked = false;
+        document.getElementById("cap_gsm_modem").checked = false;
+        document.getElementById("cap_gps_nmea").checked = false;
+    } else if (type === "modem_4g_gps") {
+        document.getElementById("cap_bacnet_mstp").checked = false;
+        document.getElementById("cap_modbus_rtu").checked = false;
+        document.getElementById("cap_mbus").checked = false;
+        document.getElementById("cap_gsm_modem").checked = true;
+        document.getElementById("cap_gps_nmea").checked = true;
+    }
+}
+
+async function submitQualifyForm(event) {
+    event.preventDefault();
+    const btn = document.getElementById("btnSubmitQualif");
+    btn.disabled = true;
+    btn.textContent = "Enregistrement...";
+
+    const caps = [];
+    if (document.getElementById("cap_bacnet_mstp").checked) caps.push("bacnet_mstp");
+    if (document.getElementById("cap_modbus_rtu").checked) caps.push("modbus_rtu");
+    if (document.getElementById("cap_mbus").checked) caps.push("mbus");
+    if (document.getElementById("cap_gsm_modem").checked) caps.push("gsm_modem");
+    if (document.getElementById("cap_gps_nmea").checked) caps.push("gps_nmea");
+
+    const payload = {
+        hardware_key: document.getElementById("q_hardware_key").value,
+        by_id_name: document.getElementById("q_by_id_name").value,
+        vendor_id: document.getElementById("q_vendor_id").value,
+        product_id: document.getElementById("q_product_id").value,
+        serial_number: document.getElementById("q_serial_number").value,
+        user_label: document.getElementById("q_user_label").value,
+        physical_type: document.getElementById("q_physical_type").value,
+        capabilities: caps,
+        notes: document.getElementById("q_notes").value,
+        is_shared_model: document.getElementById("q_is_shared_model").checked
+    };
+
+    try {
+        const res = await fetch("${base_url}/api/devices/qualify", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (data.status === "ok") {
+            closeQualifyModal();
+            // Le flux SSE mettra à jour l'interface automatiquement
+            // ou rechargement doux
+            setTimeout(() => window.location.reload(), 300);
+        } else {
+            alert("Erreur : " + (data.message || "Échec de l'enregistrement"));
+        }
+    } catch (err) {
+        alert("Erreur réseau : " + err);
+    } finally {
+        btn.disabled = false;
+        btn.textContent = "💾 Enregistrer";
+    }
+}
+
+async function resetQualifyForm() {
+    if (!currentEditingDevice) return;
+    if (!confirm("Voulez-vous réinitialiser la qualification de ce périphérique ?")) return;
+
+    const hwKey = document.getElementById("q_hardware_key").value;
+    try {
+        const res = await fetch("${base_url}/api/devices/delete_qualification", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ hardware_key: hwKey })
+        });
+        const data = await res.json();
+        if (data.status === "ok") {
+            closeQualifyModal();
+            setTimeout(() => window.location.reload(), 300);
+        } else {
+            alert("Erreur : " + data.message);
+        }
+    } catch (err) {
+        alert("Erreur réseau : " + err);
+    }
+}
+
+// Fermer la modal si on clique à l'extérieur
+window.onclick = function(event) {
+    const modal = document.getElementById("qualifyModal");
+    if (event.target === modal) {
+        closeQualifyModal();
+    }
+};
+</script>

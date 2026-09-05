@@ -6,6 +6,8 @@ import re
 import subprocess
 from pathlib import Path
 
+from core.database import get_db_connection
+
 logger = logging.getLogger(__name__)
 
 SERIAL_BY_ID_DIR = "/dev/serial/by-id"
@@ -21,16 +23,208 @@ SERIAL_DRIVERS = {
     "cypress_m8": "Cypress M8 USB-Série",
 }
 
+PHYSICAL_TYPES = {
+    "rs485": "Bus RS-485 (Différentiel 2 fils)",
+    "mbus": "Maître M-Bus (Comptage Énergie)",
+    "rs232": "Port Série RS-232",
+    "modem_4g_gps": "Modem 4G / GPS",
+    "generic_serial": "Port Série Générique",
+}
+
 CAPABILITY_LABELS = {
     "bacnet_mstp": "BACnet MS/TP",
     "modbus_rtu": "Modbus RTU",
     "mbus": "M-Bus",
-    "gsm_modem": "Modem 4G / GPS",
+    "gsm_modem": "Modem 4G",
+    "gps_nmea": "GPS NMEA",
 }
 
 _LSUSB_RE = re.compile(r"^Bus (\d+) Device (\d+): ID ([0-9a-fA-F]{4}):([0-9a-fA-F]{4})\s*(.*)$")
 _TREE_BUS_RE = re.compile(r"^/:\s+Bus (\d+)")
 _TREE_DEV_RE = re.compile(r"Dev (\d+),.*?Driver=([^,]*)")
+
+# -----------------------------------------------------------------------------
+# Base de données : Qualifications des Périphériques
+# -----------------------------------------------------------------------------
+
+def get_device_qualification(hardware_key: str) -> dict | None:
+    """Récupère la qualification enregistrée pour une clé matérielle donnée."""
+    if not hardware_key:
+        return None
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT id, hardware_key, vendor_id, product_id, serial_number, by_id_name,
+                       user_label, physical_type, capabilities_json, notes, is_dirty, synced_at,
+                       is_shared_model, created_at, updated_at
+                FROM device_qualifications
+                WHERE hardware_key = ? OR by_id_name = ?
+            """, (hardware_key, hardware_key))
+            row = cursor.fetchone()
+            if row:
+                d = dict(row)
+                try:
+                    d["capabilities"] = json.loads(d["capabilities_json"])
+                except Exception:
+                    d["capabilities"] = []
+                return d
+    except Exception as e:
+        logger.warning(f"Erreur get_device_qualification({hardware_key}): {e}")
+    return None
+
+def get_all_qualifications() -> dict[str, dict]:
+    """Retourne toutes les qualifications indexées par hardware_key et by_id_name."""
+    qualifs = {}
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT id, hardware_key, vendor_id, product_id, serial_number, by_id_name,
+                       user_label, physical_type, capabilities_json, notes, is_dirty, synced_at,
+                       is_shared_model, created_at, updated_at
+                FROM device_qualifications
+            """)
+            for row in cursor.fetchall():
+                d = dict(row)
+                try:
+                    d["capabilities"] = json.loads(d["capabilities_json"])
+                except Exception:
+                    d["capabilities"] = []
+                if d.get("hardware_key"):
+                    qualifs[str(d["hardware_key"])] = d
+                if d.get("by_id_name"):
+                    qualifs[str(d["by_id_name"])] = d
+                if d.get("vendor_id") and d.get("product_id"):
+                    qualifs[f"{d['vendor_id']}:{d['product_id']}"] = d
+    except Exception as e:
+        logger.warning(f"Erreur get_all_qualifications: {e}")
+    return qualifs
+
+def save_device_qualification(
+    hardware_key: str,
+    user_label: str,
+    physical_type: str,
+    capabilities: list[str],
+    notes: str = "",
+    vendor_id: str = "",
+    product_id: str = "",
+    serial_number: str = "",
+    by_id_name: str = "",
+    is_shared_model: bool = False
+) -> dict:
+    """
+    Enregistre ou met à jour la qualification d'un périphérique.
+    Positionne automatiquement is_dirty = 1 et updated_at = CURRENT_TIMESTAMP.
+    """
+    if not hardware_key:
+        raise ValueError("hardware_key obligatoire")
+    if not user_label:
+        user_label = "Périphérique Série"
+    if physical_type not in PHYSICAL_TYPES:
+        physical_type = "generic_serial"
+
+    caps_json = json.dumps(list(set(capabilities)))
+
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO device_qualifications (
+                hardware_key, vendor_id, product_id, serial_number, by_id_name,
+                user_label, physical_type, capabilities_json, notes,
+                is_dirty, is_shared_model, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(hardware_key) DO UPDATE SET
+                user_label = EXCLUDED.user_label,
+                physical_type = EXCLUDED.physical_type,
+                capabilities_json = EXCLUDED.capabilities_json,
+                notes = EXCLUDED.notes,
+                vendor_id = CASE WHEN EXCLUDED.vendor_id != '' THEN EXCLUDED.vendor_id ELSE device_qualifications.vendor_id END,
+                product_id = CASE WHEN EXCLUDED.product_id != '' THEN EXCLUDED.product_id ELSE device_qualifications.product_id END,
+                serial_number = CASE WHEN EXCLUDED.serial_number != '' THEN EXCLUDED.serial_number ELSE device_qualifications.serial_number END,
+                by_id_name = CASE WHEN EXCLUDED.by_id_name != '' THEN EXCLUDED.by_id_name ELSE device_qualifications.by_id_name END,
+                is_dirty = 1,
+                is_shared_model = EXCLUDED.is_shared_model,
+                updated_at = CURRENT_TIMESTAMP
+        """, (
+            hardware_key,
+            vendor_id.lower() if vendor_id else "",
+            product_id.lower() if product_id else "",
+            serial_number,
+            by_id_name,
+            user_label.strip(),
+            physical_type,
+            caps_json,
+            notes.strip(),
+            1 if is_shared_model else 0
+        ))
+        conn.commit()
+
+    return get_device_qualification(hardware_key) or {}
+
+def delete_device_qualification(hardware_key: str) -> bool:
+    """Supprime une qualification manuelle pour revenir au profil auto-détecté."""
+    try:
+        with get_db_connection() as conn:
+            conn.execute("DELETE FROM device_qualifications WHERE hardware_key = ?", (hardware_key,))
+            conn.commit()
+        return True
+    except Exception as e:
+        logger.warning(f"Erreur delete_device_qualification({hardware_key}): {e}")
+        return False
+
+def get_dirty_qualifications() -> list[dict]:
+    """Retourne la liste des qualifications modifiées localement en attente de synchronisation."""
+    dirty = []
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT hardware_key, vendor_id, product_id, serial_number, by_id_name,
+                       user_label, physical_type, capabilities_json, notes, is_dirty,
+                       synced_at, is_shared_model, created_at, updated_at
+                FROM device_qualifications
+                WHERE is_dirty = 1
+            """)
+            for row in cursor.fetchall():
+                d = dict(row)
+                try:
+                    d["capabilities"] = json.loads(d["capabilities_json"])
+                except Exception:
+                    d["capabilities"] = []
+                dirty.append(d)
+    except Exception as e:
+        logger.warning(f"Erreur get_dirty_qualifications: {e}")
+    return dirty
+
+def mark_qualifications_synced(hardware_keys: list[str] | None = None) -> int:
+    """Marque les qualifications spécifiées (ou toutes les dirty) comme synchronisées."""
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            if hardware_keys is not None and len(hardware_keys) > 0:
+                placeholders = ",".join(["?"] * len(hardware_keys))
+                cursor.execute(f"""
+                    UPDATE device_qualifications
+                    SET is_dirty = 0, synced_at = CURRENT_TIMESTAMP
+                    WHERE hardware_key IN ({placeholders})
+                """, tuple(hardware_keys))
+            else:
+                cursor.execute("""
+                    UPDATE device_qualifications
+                    SET is_dirty = 0, synced_at = CURRENT_TIMESTAMP
+                    WHERE is_dirty = 1
+                """)
+            conn.commit()
+            return cursor.rowcount
+    except Exception as e:
+        logger.warning(f"Erreur mark_qualifications_synced: {e}")
+        return 0
+
+# -----------------------------------------------------------------------------
+# Détection Système & Pilotes
+# -----------------------------------------------------------------------------
 
 def is_moxa_driver_installed() -> bool:
     """Vérifie si le module noyau ti_usb_3410_5052 est chargé ou présent."""
@@ -69,7 +263,6 @@ def _get_tty_driver(tty_name: str) -> str:
         dev_path = Path(f"/sys/class/tty/{tty_name}/device/driver")
         if dev_path.exists():
             drv = dev_path.resolve().name
-            # Nettoyer les suffixes comme _1 (ex: ti_usb_3410_5052_1 -> ti_usb_3410_5052, option1 -> option)
             for base in list(SERIAL_DRIVERS.keys()) + list(MODEM_DRIVERS):
                 if drv.startswith(base):
                     return base
@@ -78,12 +271,14 @@ def _get_tty_driver(tty_name: str) -> str:
         pass
     return ""
 
-def list_serial_ports(include_modems: bool = False) -> list:
+def list_serial_ports(include_modems: bool = False, filter_capability: str | None = None) -> list:
     """
-    Liste les ports série disponibles sur le système avec résolution par identifiant stable (/dev/serial/by-id).
+    Liste les ports série disponibles sur le système en intégrant les qualifications enregistrées.
+    Résolution stable par /dev/serial/by-id.
     """
     ports = []
     seen_paths = set()
+    qualifs = get_all_qualifications()
 
     # 1. Parcourir /dev/serial/by-id
     if os.path.isdir(SERIAL_BY_ID_DIR):
@@ -94,34 +289,73 @@ def list_serial_ports(include_modems: bool = False) -> list:
                 tty_name = os.path.basename(real_path)
                 driver = _get_tty_driver(tty_name)
 
-                is_modem = driver in MODEM_DRIVERS or "SimTech" in name or "Quectel" in name
+                is_modem_driver = driver in MODEM_DRIVERS or "SimTech" in name or "Quectel" in name
+                is_moxa_driver = "Moxa" in name or driver == "ti_usb_3410_5052" or "110a:1150" in name or "UPort" in name
+
+                hw_key = name
+                q = qualifs.get(hw_key) or qualifs.get(name)
+
+                if q:
+                    physical_type = str(q["physical_type"])
+                    user_label = str(q["user_label"])
+                    capabilities = list(q.get("capabilities", []))
+                    notes = str(q.get("notes", "") or "")
+                    is_dirty = bool(q.get("is_dirty", 0))
+                    synced_at = q.get("synced_at")
+                    is_moxa = is_moxa_driver or (physical_type == "rs485" and "moxa" in user_label.lower())
+                    is_modem = physical_type == "modem_4g_gps" or "gsm_modem" in capabilities
+                    is_rs485 = physical_type == "rs485" or "bacnet_mstp" in capabilities or "modbus_rtu" in capabilities
+                    is_qualified = True
+                else:
+                    physical_type = "modem_4g_gps" if is_modem_driver else ("rs485" if is_moxa_driver else "generic_serial")
+                    if is_moxa_driver:
+                        user_label = "Moxa UPort 1150 (RS-485)"
+                    elif driver in SERIAL_DRIVERS:
+                        user_label = f"{SERIAL_DRIVERS[driver]} ({name})"
+                    elif is_modem_driver:
+                        user_label = f"Modem 4G / GPS ({name})"
+                    else:
+                        user_label = name
+
+                    capabilities = []
+                    if is_moxa_driver or driver in SERIAL_DRIVERS:
+                        capabilities.extend(["bacnet_mstp", "modbus_rtu", "mbus"])
+                    if is_modem_driver:
+                        capabilities.extend(["gsm_modem", "gps_nmea"])
+
+                    notes = ""
+                    is_dirty = False
+                    synced_at = None
+                    is_moxa = is_moxa_driver
+                    is_modem = is_modem_driver
+                    is_rs485 = is_moxa_driver or (driver in SERIAL_DRIVERS and not is_modem)
+                    is_qualified = False
+
                 if is_modem and not include_modems:
                     continue
 
-                is_moxa = "Moxa" in name or driver == "ti_usb_3410_5052" or "110a:1150" in name or "UPort" in name
-                desc = name
-                if is_moxa:
-                    desc = "Moxa UPort 1150 (RS-485)"
-                elif driver in SERIAL_DRIVERS:
-                    desc = f"{SERIAL_DRIVERS[driver]} ({name})"
-
-                capabilities = []
-                if is_moxa or driver in SERIAL_DRIVERS:
-                    capabilities.extend(["bacnet_mstp", "modbus_rtu", "mbus"])
-                if is_modem:
-                    capabilities.append("gsm_modem")
+                if filter_capability and filter_capability not in capabilities:
+                    continue
 
                 ports.append({
                     "path": real_path,
                     "by_id": full_by_id,
                     "by_id_name": name,
+                    "hardware_key": hw_key,
                     "tty_name": tty_name,
                     "driver": driver,
                     "driver_label": SERIAL_DRIVERS.get(driver, driver or "Inconnu"),
-                    "description": desc,
+                    "description": user_label,
+                    "user_label": user_label,
+                    "physical_type": physical_type,
+                    "physical_type_label": PHYSICAL_TYPES.get(physical_type, physical_type),
+                    "is_qualified": is_qualified,
+                    "is_dirty": is_dirty,
+                    "synced_at": synced_at,
+                    "notes": notes,
                     "is_moxa": is_moxa,
                     "is_modem": is_modem,
-                    "is_rs485": is_moxa or (driver in SERIAL_DRIVERS and not is_modem),
+                    "is_rs485": is_rs485,
                     "capabilities": capabilities,
                 })
                 seen_paths.add(real_path)
@@ -135,36 +369,77 @@ def list_serial_ports(include_modems: bool = False) -> list:
             real_path = f"/dev/{tty_name}"
             if real_path not in seen_paths and os.path.exists(real_path):
                 driver = _get_tty_driver(tty_name)
-                is_modem = driver in MODEM_DRIVERS
+                is_modem_driver = driver in MODEM_DRIVERS
+                is_moxa_driver = driver == "ti_usb_3410_5052"
+
+                hw_key = tty_name
+                q = qualifs.get(hw_key) or qualifs.get(real_path)
+
+                if q:
+                    physical_type = str(q["physical_type"])
+                    user_label = str(q["user_label"])
+                    capabilities = list(q.get("capabilities", []))
+                    notes = str(q.get("notes", "") or "")
+                    is_dirty = bool(q.get("is_dirty", 0))
+                    synced_at = q.get("synced_at")
+                    is_moxa = is_moxa_driver or (physical_type == "rs485" and "moxa" in user_label.lower())
+                    is_modem = physical_type == "modem_4g_gps" or "gsm_modem" in capabilities
+                    is_rs485 = physical_type == "rs485" or "bacnet_mstp" in capabilities or "modbus_rtu" in capabilities
+                    is_qualified = True
+                else:
+                    physical_type = "modem_4g_gps" if is_modem_driver else ("rs485" if is_moxa_driver else "generic_serial")
+                    user_label = "Moxa UPort (RS-485)" if is_moxa_driver else f"Port série {tty_name}"
+                    capabilities = ["bacnet_mstp", "modbus_rtu", "mbus"] if (is_moxa_driver or driver in SERIAL_DRIVERS) else []
+                    if is_modem_driver:
+                        capabilities = ["gsm_modem", "gps_nmea"]
+                    notes = ""
+                    is_dirty = False
+                    synced_at = None
+                    is_moxa = is_moxa_driver
+                    is_modem = is_modem_driver
+                    is_rs485 = is_moxa_driver or (driver in SERIAL_DRIVERS and not is_modem)
+                    is_qualified = False
+
                 if is_modem and not include_modems:
                     continue
-                is_moxa = driver == "ti_usb_3410_5052"
+
+                if filter_capability and filter_capability not in capabilities:
+                    continue
+
                 ports.append({
                     "path": real_path,
                     "by_id": real_path,
                     "by_id_name": tty_name,
+                    "hardware_key": hw_key,
                     "tty_name": tty_name,
                     "driver": driver,
                     "driver_label": SERIAL_DRIVERS.get(driver, driver or "Inconnu"),
-                    "description": "Moxa UPort (RS-485)" if is_moxa else f"Port série {tty_name}",
+                    "description": user_label,
+                    "user_label": user_label,
+                    "physical_type": physical_type,
+                    "physical_type_label": PHYSICAL_TYPES.get(physical_type, physical_type),
+                    "is_qualified": is_qualified,
+                    "is_dirty": is_dirty,
+                    "synced_at": synced_at,
+                    "notes": notes,
                     "is_moxa": is_moxa,
                     "is_modem": is_modem,
-                    "is_rs485": is_moxa or (driver in SERIAL_DRIVERS and not is_modem),
-                    "capabilities": ["bacnet_mstp", "modbus_rtu", "mbus"] if (is_moxa or driver in SERIAL_DRIVERS) else [],
+                    "is_rs485": is_rs485,
+                    "capabilities": capabilities,
                 })
                 seen_paths.add(real_path)
     except Exception as e:
         logger.warning(f"Erreur parcours sys/class/tty: {e}")
 
-    # Trier pour mettre le Moxa en premier
-    ports.sort(key=lambda p: (0 if p["is_moxa"] else (2 if p["is_modem"] else 1), p["path"]))
+    # Trier : Passerelles qualifiées/Moxa en premier
+    ports.sort(key=lambda p: (0 if p["is_moxa"] else (1 if p["is_qualified"] else (3 if p["is_modem"] else 2)), p["path"]))
     return ports
 
 def _lsusb_tree_drivers() -> dict:
     """{(bus, dev): {pilotes...}} via `lsusb -t`."""
     drivers = {}
     try:
-        res = subprocess.run(["lsusb", "-t"], capture_output=True, text=True, timeout=3)
+        res = subprocess.run(["lsusb", "-t"], capture_output=True, text=True, timeout=3, check=False)
         if res.returncode != 0:
             return drivers
         bus = None
@@ -189,7 +464,7 @@ def list_usb_devices(include_root_hubs: bool = False) -> list:
     tree_drivers = _lsusb_tree_drivers()
 
     try:
-        res = subprocess.run(["lsusb"], capture_output=True, text=True, timeout=3)
+        res = subprocess.run(["lsusb"], capture_output=True, text=True, timeout=3, check=False)
         if res.returncode != 0:
             return devices
 
@@ -203,7 +478,6 @@ def list_usb_devices(include_root_hubs: bool = False) -> list:
             vid_lower = vid.lower()
             pid_lower = pid.lower()
 
-            # Ignore root hubs / bus internes si non demandés
             is_root_hub = (vid_lower == "1d6b" or "root hub" in desc.lower())
             if not include_root_hubs and is_root_hub:
                 continue
@@ -247,53 +521,15 @@ def list_usb_devices(include_root_hubs: bool = False) -> list:
     return devices
 
 def list_system_devices() -> dict:
-    """
-    Rassemble la vue d'ensemble des périphériques matériels pour la page /devices.
-    """
+    """Rassemble la vue d'ensemble des périphériques matériels pour la page /devices."""
     serial_ports = list_serial_ports(include_modems=True)
     rs485_ports = [p for p in serial_ports if not p["is_modem"]]
     modem_ports = [p for p in serial_ports if p["is_modem"]]
     usb_devs = list_usb_devices()
     moxa_driver_info = get_moxa_driver_info()
 
-    moxa_device = None
-    for p in rs485_ports:
-        if p["is_moxa"]:
-            moxa_device = p
-            break
-
-    if not moxa_device:
-        for u in usb_devs:
-            if u["is_moxa"]:
-                moxa_device = {
-                    "path": "Détecté (USB)",
-                    "description": u["description"],
-                    "is_moxa": True,
-                    "is_rs485": True,
-                    "driver": u["driver_str"],
-                }
-                break
-
-    # Passerelles de communication connectées (Moxa, CP210x, FTDI, CH341, etc.)
-    gateways = [p for p in rs485_ports if p.get("is_rs485")]
-
-    moxa_device = None
-    for p in rs485_ports:
-        if p["is_moxa"]:
-            moxa_device = p
-            break
-
-    if not moxa_device:
-        for u in usb_devs:
-            if u["is_moxa"]:
-                moxa_device = {
-                    "path": "Détecté (USB)",
-                    "description": u["description"],
-                    "is_moxa": True,
-                    "is_rs485": True,
-                    "driver": u["driver_str"],
-                }
-                break
+    gateways = [p for p in rs485_ports if p.get("is_rs485") or p.get("is_qualified")]
+    moxa_device = next((p for p in rs485_ports if p.get("is_moxa")), None)
 
     return {
         "moxa_connected": moxa_device is not None,
@@ -305,13 +541,14 @@ def list_system_devices() -> dict:
         "usb_devices": usb_devs,
         "total_serial": len(rs485_ports),
         "total_usb": len([u for u in usb_devs if not u["is_hub"]]),
+        "dirty_count": len(get_dirty_qualifications()),
     }
 
 def render_devices_components(sys_devices: dict, base_url: str = "") -> dict:
-    """Génère les fragments HTML pour les périphériques connectés."""
+    """Génère les fragments HTML pour les périphériques connectés et leur qualification."""
     gateways = sys_devices.get("gateways", [])
     if not gateways and sys_devices.get("rs485_ports"):
-        gateways = [p for p in sys_devices.get("rs485_ports", []) if isinstance(p, dict) and p.get("is_rs485")]
+        gateways = [p for p in sys_devices.get("rs485_ports", []) if isinstance(p, dict) and (p.get("is_rs485") or p.get("is_qualified"))]
     if not gateways and sys_devices.get("moxa_connected") and isinstance(sys_devices.get("moxa_device"), dict):
         gateways = [sys_devices["moxa_device"]]
 
@@ -321,18 +558,41 @@ def render_devices_components(sys_devices: dict, base_url: str = "") -> dict:
         if not isinstance(gw, dict):
             continue
         is_moxa = bool(gw.get("is_moxa", False))
+        is_qualified = bool(gw.get("is_qualified", False))
+        is_dirty = bool(gw.get("is_dirty", False))
+        physical_type = str(gw.get("physical_type", "rs485" if is_moxa else "generic_serial") or "generic_serial")
         driver_name = str(gw.get("driver", "") or "")
         driver_label = str(gw.get("driver_label", driver_name) or driver_name)
+
         if is_moxa:
             driver_badge_text = "Pilote ti_usb_3410_5052 (RS-485 2 fils)"
         elif driver_name:
             driver_badge_text = f"Pilote {driver_name} ({driver_label})"
         else:
-            driver_badge_text = "Adaptateur Série / Passerelle Bus"
+            driver_badge_text = "Adaptateur Série"
 
         path_val = str(gw.get("path", "") or "")
         by_id_val = str(gw.get("by_id_name", path_val) or path_val)
-        desc_val = str(gw.get("description", "Passerelle Bus / Série") or "Passerelle Bus / Série")
+        desc_val = str(gw.get("user_label", gw.get("description", "Passerelle Bus / Série")) or "Passerelle Bus / Série")
+        notes_val = str(gw.get("notes", "") or "")
+
+        caps_raw = gw.get("capabilities", [])
+        caps_labels: list[str] = [str(CAPABILITY_LABELS.get(str(c), str(c))) for c in caps_raw if c]
+        caps_str = ", ".join(caps_labels) if caps_labels else "Non spécifié"
+
+        # Badge Qualification
+        if is_qualified:
+            qualif_badge = f'<span class="moxa-badge moxa-badge-green">● Qualifié : {html.escape(PHYSICAL_TYPES.get(physical_type, physical_type))}</span>'
+        else:
+            qualif_badge = '<span class="moxa-badge" style="background: rgba(245, 158, 11, 0.2); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.3);">⚠️ Auto-détecté (À qualifier)</span>'
+
+        # Badge Sync
+        if is_dirty:
+            sync_badge = '<span class="moxa-badge" style="background: rgba(245, 158, 11, 0.2); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.4);" title="Modifié localement, en attente de synchro avec docs">🟡 Sync en attente</span>'
+        elif is_qualified:
+            sync_badge = '<span class="moxa-badge" style="background: rgba(16, 185, 129, 0.2); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3);" title="Synchronisé avec le serveur central docs">🟢 Sync docs</span>'
+        else:
+            sync_badge = ''
 
         cards_html.append(f"""
         <div class="moxa-hero-card" style="margin-bottom: 16px;">
@@ -340,11 +600,15 @@ def render_devices_components(sys_devices: dict, base_url: str = "") -> dict:
                 <div>
                     <h3>⚡ {html.escape(desc_val)}</h3>
                     <div class="moxa-badges">
-                        <span class="moxa-badge moxa-badge-green">● Connecté &amp; Opérationnel</span>
+                        {qualif_badge}
+                        {sync_badge}
                         <span class="moxa-badge moxa-badge-blue">{html.escape(driver_badge_text)}</span>
-                        <span class="moxa-badge moxa-badge-purple">BACnet MS/TP, Modbus RTU &amp; M-Bus</span>
+                        <span class="moxa-badge moxa-badge-purple">{html.escape(caps_str)}</span>
                     </div>
                 </div>
+                <button class="btn-secondary btn-sm" onclick="openQualifyModal({html.escape(json.dumps(gw))})" style="background: rgba(255,255,255,0.2); color: white; border: 1px solid rgba(255,255,255,0.3); font-weight: 600; padding: 6px 12px; border-radius: 6px; cursor: pointer;">
+                    ✏️ Déclarer / Qualifier
+                </button>
             </div>
             <div class="moxa-details-grid">
                 <div class="moxa-detail-item">
@@ -359,14 +623,11 @@ def render_devices_components(sys_devices: dict, base_url: str = "") -> dict:
                     <div class="label">Pilote Noyau</div>
                     <div class="value">{html.escape(driver_name or '—')}</div>
                 </div>
+                {f'<div class="moxa-detail-item"><div class="label">Notes / Repérage</div><div class="value" style="font-family: inherit; font-size: 0.85rem; font-weight: normal; color: #cbd5e1;">{html.escape(notes_val)}</div></div>' if notes_val else ''}
             </div>
             <div class="moxa-actions">
-                <a href="{base_url}/bacnet/tools?tab=mstp&amp;device={html.escape(path_val)}" class="btn-primary" style="text-decoration: none; background: #22c55e; border-color: #16a34a; display: inline-flex; align-items: center; gap: 6px;">
-                    <span>🔌</span> Lancer la recherche BACnet MS/TP
-                </a>
-                <a href="{base_url}/modbus/tools?port={html.escape(path_val)}" class="btn-secondary" style="text-decoration: none; background: rgba(255,255,255,0.15); color: white; border-color: rgba(255,255,255,0.3); display: inline-flex; align-items: center; gap: 6px;">
-                    <span>🔍</span> Outils Modbus RTU
-                </a>
+                {f'<a href="{base_url}/bacnet/tools?tab=mstp&amp;device={html.escape(path_val)}" class="btn-primary" style="text-decoration: none; background: #22c55e; border-color: #16a34a; display: inline-flex; align-items: center; gap: 6px;"><span>🔌</span> Recherche BACnet MS/TP</a>' if 'bacnet_mstp' in caps_raw else ''}
+                {f'<a href="{base_url}/modbus/tools?port={html.escape(path_val)}" class="btn-secondary" style="text-decoration: none; background: rgba(255,255,255,0.15); color: white; border-color: rgba(255,255,255,0.3); display: inline-flex; align-items: center; gap: 6px;"><span>🔍</span> Outils Modbus RTU</a>' if 'modbus_rtu' in caps_raw else ''}
             </div>
         </div>
         """)
@@ -378,21 +639,32 @@ def render_devices_components(sys_devices: dict, base_url: str = "") -> dict:
     if serial_ports:
         serial_rows = ""
         for p in serial_ports:
-            badge_color = "#22c55e" if p.get("is_moxa") else ("#3b82f6" if p.get("is_rs485") else "#64748b")
+            badge_color = "#22c55e" if p.get("is_qualified") else ("#3b82f6" if p.get("is_rs485") else "#64748b")
             raw_caps = p.get("capabilities", []) if isinstance(p, dict) else []
-            cap_labels: list[str] = [CAPABILITY_LABELS.get(str(c), str(c)) for c in raw_caps if c]
+            cap_labels: list[str] = [str(CAPABILITY_LABELS.get(str(c), str(c))) for c in raw_caps if c]
             caps = ", ".join(cap_labels) if cap_labels else "Série générique"
+            p_json = html.escape(json.dumps(p))
+            is_dirty = p.get("is_dirty", False)
+            sync_tag = '<span style="font-size: 0.75rem; color: #f59e0b; margin-left: 4px;" title="Modifié, en attente de sync">🟡</span>' if is_dirty else ''
+            p_type_label = str(PHYSICAL_TYPES.get(str(p.get("physical_type", "")), str(p.get("physical_type", ""))))
+
             serial_rows += f"""
             <tr>
-                <td><code>{html.escape(p.get('path', ''))}</code></td>
-                <td><small style="color: #64748b; font-family: monospace;">{html.escape(p.get('by_id_name', '—'))}</small></td>
-                <td><strong>{html.escape(p.get('description', ''))}</strong></td>
-                <td><code>{html.escape(p.get('driver', '—'))}</code></td>
+                <td><code>{html.escape(str(p.get('path', '')))}</code></td>
+                <td><small style="color: #64748b; font-family: monospace;">{html.escape(str(p.get('by_id_name', '—')))}</small></td>
+                <td>
+                    <strong>{html.escape(str(p.get('user_label', p.get('description', ''))))}</strong>{sync_tag}
+                    {f'<br><small style="color: #94a3b8;">{html.escape(p_type_label)}</small>' if p.get("is_qualified") else ''}
+                </td>
+                <td><code>{html.escape(str(p.get('driver', '—')))}</code></td>
                 <td><span style="font-size: 0.85rem; color: {badge_color}; font-weight: bold;">{html.escape(caps)}</span></td>
                 <td>
-                    <div style="display: flex; gap: 6px;">
-                        {f'<a href="{base_url}/bacnet/tools?tab=mstp&amp;device={html.escape(p.get("path", ""))}" class="btn-secondary btn-sm" style="text-decoration: none;">BACnet MS/TP</a>' if p.get("is_rs485") else ''}
-                        {f'<a href="{base_url}/modbus/tools?port={html.escape(p.get("path", ""))}" class="btn-secondary btn-sm" style="text-decoration: none;">Modbus</a>' if p.get("is_rs485") else ''}
+                    <div style="display: flex; gap: 6px; flex-wrap: wrap; align-items: center;">
+                        <button class="btn-secondary btn-sm" onclick="openQualifyModal({p_json})" style="padding: 4px 8px; font-size: 0.8rem;">
+                            ✏️ Qualifier
+                        </button>
+                        {f'<a href="{base_url}/bacnet/tools?tab=mstp&amp;device={html.escape(str(p.get("path", "")))}" class="btn-secondary btn-sm" style="text-decoration: none;">BACnet</a>' if 'bacnet_mstp' in raw_caps else ''}
+                        {f'<a href="{base_url}/modbus/tools?port={html.escape(str(p.get("path", "")))}" class="btn-secondary btn-sm" style="text-decoration: none;">Modbus</a>' if 'modbus_rtu' in raw_caps else ''}
                     </div>
                 </td>
             </tr>
@@ -404,10 +676,10 @@ def render_devices_components(sys_devices: dict, base_url: str = "") -> dict:
                     <tr>
                         <th style="width: 140px;">Port TTY</th>
                         <th>Identifiant (by-id)</th>
-                        <th>Description</th>
-                        <th style="width: 150px;">Pilote</th>
+                        <th>Nom &amp; Type Déclaré</th>
+                        <th style="width: 130px;">Pilote</th>
                         <th style="width: 180px;">Capacités</th>
-                        <th style="width: 180px;">Actions</th>
+                        <th style="width: 190px;">Actions</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -425,10 +697,10 @@ def render_devices_components(sys_devices: dict, base_url: str = "") -> dict:
         usb_rows += f"""
         <tr>
             <td><code>Bus {u.get('bus')} / Dev {u.get('device')}</code></td>
-            <td><code>{html.escape(u.get('vendor_id', ''))}:{html.escape(u.get('product_id', ''))}</code></td>
-            <td><strong>{html.escape(u.get('description', ''))}</strong></td>
-            <td><span class="badge-gray">{html.escape(u.get('category', ''))}</span></td>
-            <td><code>{html.escape(u.get('driver_str', 'Aucun'))}</code></td>
+            <td><code>{html.escape(str(u.get('vendor_id', '')))}:{html.escape(str(u.get('product_id', '')))}</code></td>
+            <td><strong>{html.escape(str(u.get('description', '')))}</strong></td>
+            <td><span class="badge-gray">{html.escape(str(u.get('category', '')))}</span></td>
+            <td><code>{html.escape(str(u.get('driver_str', 'Aucun')))}</code></td>
         </tr>
         """
     if not usb_rows:
@@ -440,4 +712,5 @@ def render_devices_components(sys_devices: dict, base_url: str = "") -> dict:
         "usb_devices_rows_html": usb_rows,
         "total_serial": sys_devices.get("total_serial", 0),
         "total_usb": sys_devices.get("total_usb", 0),
+        "dirty_count": sys_devices.get("dirty_count", 0),
     }

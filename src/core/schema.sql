@@ -261,3 +261,22 @@ CREATE TABLE IF NOT EXISTS bacnet_catalog_status (
     last_error TEXT
 );
 INSERT OR IGNORE INTO bacnet_catalog_status (id) VALUES (1);
+
+-- Qualification et déclaration des passerelles et périphériques matériels
+CREATE TABLE IF NOT EXISTS device_qualifications (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    hardware_key TEXT NOT NULL UNIQUE,      -- Empreinte stable : by_id_name ou "VID:PID:SERIAL"
+    vendor_id TEXT,                         -- Ex: "10c4"
+    product_id TEXT,                        -- Ex: "ea60"
+    serial_number TEXT,                     -- Numéro de série matériel USB si disponible
+    by_id_name TEXT,                        -- Ex: "usb-Silicon_Labs_CP2102_USB_to_UART_Bridge_0001-if00-port0"
+    user_label TEXT NOT NULL,               -- Ex: "Passerelle M-Bus Compteurs Chaufferie"
+    physical_type TEXT NOT NULL,            -- "rs485", "mbus", "rs232", "modem_4g_gps", "generic_serial"
+    capabilities_json TEXT NOT NULL,        -- JSON : ["bacnet_mstp", "modbus_rtu", "mbus", "gsm_modem", "gps_nmea"]
+    notes TEXT,                             -- Notes libres du technicien (ex: "2400 bauds")
+    is_dirty BOOLEAN DEFAULT 1,             -- 1 = modifié localement / non acquitté par docs, 0 = synchronisé
+    synced_at DATETIME,                     -- Date/heure du dernier acquittement réussi par docs
+    is_shared_model BOOLEAN DEFAULT 0,      -- 1 si l'utilisateur souhaite partager cette signature matérielle à la flotte
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);

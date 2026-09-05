@@ -2,6 +2,7 @@ import unittest
 from unittest.mock import patch, MagicMock
 from pathlib import Path
 
+from src.core.database import init_db, get_db_connection
 from src.services.device_mgr import (
     list_serial_ports,
     list_usb_devices,
@@ -9,9 +10,18 @@ from src.services.device_mgr import (
     render_devices_components,
     is_moxa_driver_installed,
     get_moxa_driver_info,
+    save_device_qualification,
+    get_device_qualification,
+    delete_device_qualification,
+    get_dirty_qualifications,
+    mark_qualifications_synced,
+    get_all_qualifications,
 )
 
 class TestDeviceMgr(unittest.TestCase):
+    def setUp(self):
+        init_db()
+
     def test_list_system_devices_structure(self):
         """Vérifie la structure retournée par list_system_devices."""
         devices = list_system_devices()
@@ -24,6 +34,7 @@ class TestDeviceMgr(unittest.TestCase):
         self.assertIn("usb_devices", devices)
         self.assertIn("total_serial", devices)
         self.assertIn("total_usb", devices)
+        self.assertIn("dirty_count", devices)
 
     def test_moxa_driver_info(self):
         """Vérifie les informations du pilote Moxa."""
@@ -40,6 +51,42 @@ class TestDeviceMgr(unittest.TestCase):
             self.assertIn("path", p)
             self.assertIn("capabilities", p)
             self.assertIn("is_moxa", p)
+
+    def test_qualifications_crud_and_dirty_lifecycle(self):
+        """Teste le cycle complet d'enregistrement, is_dirty et synchronisation des qualifications."""
+        hw_key = "usb-test-cp2102-custom-if00-port0"
+        
+        # 1. Enregistrement d'une qualification (devient dirty = 1)
+        qualif = save_device_qualification(
+            hardware_key=hw_key,
+            user_label="Passerelle M-Bus Chaufferie Test",
+            physical_type="mbus",
+            capabilities=["mbus"],
+            notes="Test unitaire 2400 bauds",
+            vendor_id="10c4",
+            product_id="ea60",
+            by_id_name=hw_key,
+            is_shared_model=True
+        )
+        self.assertEqual(qualif["user_label"], "Passerelle M-Bus Chaufferie Test")
+        self.assertEqual(qualif["physical_type"], "mbus")
+        self.assertEqual(qualif["capabilities"], ["mbus"])
+        self.assertEqual(qualif["is_dirty"], 1)
+
+        # 2. Vérification dans get_dirty_qualifications
+        dirty_list = get_dirty_qualifications()
+        self.assertTrue(any(d["hardware_key"] == hw_key for d in dirty_list))
+
+        # 3. Synchronisation (acquittement)
+        mark_qualifications_synced([hw_key])
+        updated_q = get_device_qualification(hw_key)
+        self.assertEqual(updated_q["is_dirty"], 0)
+        self.assertIsNotNone(updated_q["synced_at"])
+
+        # 4. Suppression / Réinitialisation
+        ok = delete_device_qualification(hw_key)
+        self.assertTrue(ok)
+        self.assertIsNone(get_device_qualification(hw_key))
 
     @patch("subprocess.run")
     def test_list_usb_devices_mock(self, mock_run):
@@ -67,12 +114,13 @@ class TestDeviceMgr(unittest.TestCase):
         """Vérifie la génération des fragments HTML pour SSE et vue serveur."""
         sys_devs = {
             "moxa_connected": True,
-            "moxa_device": {"description": "Moxa Test", "path": "/dev/ttyUSB5", "driver": "ti_usb_3410_5052", "by_id_name": "moxa-by-id"},
-            "rs485_ports": [{"path": "/dev/ttyUSB5", "description": "Moxa Test", "driver": "ti_usb_3410_5052", "is_moxa": True, "is_rs485": True, "capabilities": ["bacnet_mstp"]}],
+            "moxa_device": {"description": "Moxa Test", "path": "/dev/ttyUSB5", "driver": "ti_usb_3410_5052", "by_id_name": "moxa-by-id", "is_qualified": True, "user_label": "Moxa RS-485", "physical_type": "rs485"},
+            "rs485_ports": [{"path": "/dev/ttyUSB5", "description": "Moxa Test", "driver": "ti_usb_3410_5052", "is_moxa": True, "is_rs485": True, "capabilities": ["bacnet_mstp"], "is_qualified": True, "user_label": "Moxa RS-485", "physical_type": "rs485"}],
             "modem_ports": [],
             "usb_devices": [{"bus": "1", "device": "5", "vendor_id": "0x110a", "product_id": "0x1150", "description": "Moxa Test", "category": "Passerelle RS-485 / Série", "driver_str": "ti_usb_3410_5052"}],
             "total_serial": 1,
             "total_usb": 1,
+            "dirty_count": 0,
         }
         res = render_devices_components(sys_devs, base_url="")
         self.assertIn("moxa-hero-card", res["moxa_card_html"])
@@ -85,16 +133,17 @@ class TestDeviceMgr(unittest.TestCase):
         sys_devs_cp210x = {
             "moxa_connected": False,
             "moxa_device": None,
-            "gateways": [{"path": "/dev/ttyUSB0", "description": "Silicon Labs CP2102 USB-to-UART (Passerelle M-Bus)", "driver": "cp210x", "driver_label": "Silicon Labs CP210x USB-Série", "by_id_name": "cp2102-by-id", "is_moxa": False, "is_rs485": True, "capabilities": ["bacnet_mstp", "modbus_rtu", "mbus"]}],
-            "rs485_ports": [{"path": "/dev/ttyUSB0", "description": "Silicon Labs CP2102 USB-to-UART (Passerelle M-Bus)", "driver": "cp210x", "driver_label": "Silicon Labs CP210x USB-Série", "by_id_name": "cp2102-by-id", "is_moxa": False, "is_rs485": True, "capabilities": ["bacnet_mstp", "modbus_rtu", "mbus"]}],
+            "gateways": [{"path": "/dev/ttyUSB0", "description": "Silicon Labs CP2102 USB-to-UART (Passerelle M-Bus)", "driver": "cp210x", "driver_label": "Silicon Labs CP210x USB-Série", "by_id_name": "cp2102-by-id", "is_moxa": False, "is_rs485": True, "capabilities": ["bacnet_mstp", "modbus_rtu", "mbus"], "is_qualified": True, "user_label": "Passerelle M-Bus", "physical_type": "mbus"}],
+            "rs485_ports": [{"path": "/dev/ttyUSB0", "description": "Silicon Labs CP2102 USB-to-UART (Passerelle M-Bus)", "driver": "cp210x", "driver_label": "Silicon Labs CP210x USB-Série", "by_id_name": "cp2102-by-id", "is_moxa": False, "is_rs485": True, "capabilities": ["bacnet_mstp", "modbus_rtu", "mbus"], "is_qualified": True, "user_label": "Passerelle M-Bus", "physical_type": "mbus"}],
             "modem_ports": [],
             "usb_devices": [{"bus": "1", "device": "2", "vendor_id": "0x10c4", "product_id": "0xea60", "description": "Silicon Labs CP210x UART Bridge", "category": "Adaptateur Série", "driver_str": "cp210x"}],
             "total_serial": 1,
             "total_usb": 1,
+            "dirty_count": 0,
         }
         res_cp210x = render_devices_components(sys_devs_cp210x, base_url="")
         self.assertIn("moxa-hero-card", res_cp210x["moxa_card_html"])
-        self.assertIn("CP2102", res_cp210x["moxa_card_html"])
+        self.assertIn("Passerelle M-Bus", res_cp210x["moxa_card_html"])
         self.assertIn("cp210x", res_cp210x["moxa_card_html"])
         self.assertIn("M-Bus", res_cp210x["moxa_card_html"])
         self.assertIn("ttyUSB0", res_cp210x["serial_ports_table_html"])
@@ -110,6 +159,7 @@ class TestDeviceMgr(unittest.TestCase):
             "usb_devices": [],
             "total_serial": 0,
             "total_usb": 0,
+            "dirty_count": 0,
         }
         res_no_moxa = render_devices_components(sys_devs_no_moxa, base_url="")
         self.assertEqual(res_no_moxa["moxa_card_html"], "")

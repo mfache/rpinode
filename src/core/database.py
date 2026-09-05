@@ -171,4 +171,19 @@ def init_db():
         except Exception as e:
             logger.warning(f"Erreur lors de la migration des colonnes site_network_profiles : {e}")
 
+        # Migration des colonnes de device_qualifications si nécessaire
+        try:
+            cursor.execute("PRAGMA table_info(device_qualifications)")
+            dcols = [r["name"] for r in cursor.fetchall()]
+            if dcols:
+                if "is_dirty" not in dcols:
+                    cursor.execute("ALTER TABLE device_qualifications ADD COLUMN is_dirty BOOLEAN DEFAULT 1")
+                if "synced_at" not in dcols:
+                    cursor.execute("ALTER TABLE device_qualifications ADD COLUMN synced_at DATETIME")
+                if "is_shared_model" not in dcols:
+                    cursor.execute("ALTER TABLE device_qualifications ADD COLUMN is_shared_model BOOLEAN DEFAULT 0")
+                conn.commit()
+        except Exception as e:
+            logger.warning(f"Erreur lors de la migration des colonnes device_qualifications : {e}")
+
         logger.info("Base de données synchronisée avec le schéma.")
