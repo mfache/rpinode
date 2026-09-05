@@ -171,16 +171,19 @@ class TestServer(unittest.TestCase):
         """Vérifie que la page /bacnet/device/view est servie pour un appareil existant."""
         from src.core.database import get_db_connection
         from src.services.bacnet_mgr import save_template, add_device_to_site
-        with get_db_connection() as conn:
-            conn.execute("INSERT OR IGNORE INTO sites (name) VALUES ('TEST_SITE_DEV')")
-            conn.commit()
-            site_row = conn.execute("SELECT id FROM sites WHERE name = 'TEST_SITE_DEV'").fetchone()
-            site_id = site_row["id"]
-        tpl_id = save_template("TPL Test View", "Manu", [{"obj": "analogInput:1", "name": "AI 1"}])
-        dev_id = add_device_to_site(site_id, tpl_id, "Dev Test View", 999, "192.168.1.50")
-
-        url = f"http://localhost:{self.test_port}/bacnet/device/view?id={dev_id}"
+        tpl_id = None
+        dev_id = None
+        site_id = None
         try:
+            with get_db_connection() as conn:
+                conn.execute("INSERT OR IGNORE INTO sites (name) VALUES ('TEST_SITE_DEV')")
+                conn.commit()
+                site_row = conn.execute("SELECT id FROM sites WHERE name = 'TEST_SITE_DEV'").fetchone()
+                site_id = site_row["id"]
+            tpl_id = save_template("TPL Test View", "Manu", [{"obj": "analogInput:1", "name": "AI 1"}])
+            dev_id = add_device_to_site(site_id, tpl_id, "Dev Test View", 999, "192.168.1.50")
+
+            url = f"http://localhost:{self.test_port}/bacnet/device/view?id={dev_id}"
             response = urllib.request.urlopen(url, timeout=5)
             self.assertEqual(response.getcode(), 200)
             content = response.read().decode('utf-8')
@@ -188,6 +191,16 @@ class TestServer(unittest.TestCase):
             self.assertIn("analogInput:1", content)
         except Exception as e:
             self.fail(f"La page /bacnet/device/view n'a pas répondu : {e}")
+        finally:
+            with get_db_connection() as conn:
+                if dev_id:
+                    conn.execute("DELETE FROM bacnet_points WHERE device_id = ?", (dev_id,))
+                    conn.execute("DELETE FROM bacnet_devices WHERE id = ?", (dev_id,))
+                if tpl_id:
+                    conn.execute("DELETE FROM bacnet_templates WHERE id = ?", (tpl_id,))
+                if site_id:
+                    conn.execute("DELETE FROM sites WHERE id = ?", (site_id,))
+                conn.commit()
 
     def test_monitor_suivi_page(self):
         """Vérifie que la page /monitor/suivi est servie."""

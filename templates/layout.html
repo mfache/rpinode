@@ -3,11 +3,15 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="theme-color" content="#2c3e50">
+    <meta name="theme-color" content="#0e1416">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <title>${title}</title>
     <link rel="manifest" href="${base_url}/manifest.json">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet">
     <link rel="stylesheet" href="${base_url}/static/style.css?v=${version}">
     <script>
         // Configuration globale pour le JS
@@ -19,7 +23,6 @@
                 navigator.serviceWorker.register('${base_url}/sw.js?v=${version}', { scope: '${base_url}/' })
                     .then(reg => {
                         console.log('Service Worker enregistré !', reg);
-                        // Force l'update si une nouvelle version est dispo
                         reg.update();
                     })
                     .catch(err => console.log('Échec enregistrement SW', err));
@@ -28,57 +31,79 @@
     </script>
     <script src="${base_url}/static/app.js?v=${version}" defer></script>
 </head>
-<body>
-    <header style="background: #2c3e50; color: white; padding: 10px 20px;">
-        <div style="display: flex; justify-content: space-between; align-items: center;">
+<body class="bg-background text-on-background">
+    <header class="app-header">
+        <div class="header-content">
             <!-- Gauche : Menu Mobile, Logo et Hostname -->
-            <div style="display: flex; align-items: center; gap: 15px;">
-                <button class="menu-toggle" onclick="toggleSidebar()" title="Menu">☰</button>
-                <a href="${base_url}/">
-                    <img src="${base_url}/static/DELTA-Thermic-v3_reverse.png" alt="Deltathermic" style="height: 40px; display: block;">
+            <div class="header-left">
+                <button class="menu-toggle" onclick="toggleSidebar()" title="Menu">
+                    <span class="material-symbols-outlined">menu</span>
+                </button>
+                <a href="${base_url}/" class="brand-link">
+                    <img src="${base_url}/static/DELTA-Thermic-v3_reverse.png" alt="Deltathermic" class="brand-logo">
                 </a>
-                <div style="border-left: 1px solid rgba(255,255,255,0.3); padding-left: 15px;">
-                    <div style="display: flex; align-items: center; gap: 10px;">
-                        <h2 style="margin: 0; font-size: 1.2rem; letter-spacing: 1px;">${hostname}</h2>
-                        <span id="heartbeat-dot" title="Flux de données actif" style="height: 10px; width: 10px; background-color: #2ecc71; border-radius: 50%; display: inline-block; opacity: 0;"></span>
-                        <a href="${base_url}/monitor/system" id="subt_sync_ok" title="⚠️ Problème de synchronisation avec le serveur (Cliquez pour voir l'état système détaillé)" style="height: 11px; width: 11px; background-color: #f39c12; border-radius: 50%; display: none; text-decoration: none; cursor: pointer; border: 2px solid rgba(255,255,255,0.6); box-shadow: 0 0 6px #f39c12; animation: pulse-sync 1.5s infinite;"></a>
-                        <span id="heartbeat-timer" style="font-family: monospace; font-size: 0.8rem; color: #e74c3c; display: none; font-weight: bold;"></span>
+                <div class="header-divider"></div>
+                <div class="host-info">
+                    <div class="host-title-row">
+                        <h2 class="host-name">${hostname}</h2>
+                        <span id="heartbeat-dot" title="Flux de données actif" class="pulse-dot"></span>
+                        <a href="${base_url}/monitor/system" id="subt_sync_ok" title="⚠️ Problème de synchronisation (Cliquez pour voir l'état)" class="sync-warn-dot"></a>
+                        <span id="heartbeat-timer" class="heartbeat-timer"></span>
                     </div>
-                    <div style="font-size: 0.8rem; opacity: 0.7;">
-                        CPU: <span id="subt_cpu_temp">--°C</span> | Uptime: <span id="subt_uptime">--</span>
+                    <div class="host-telemetry">
+                        <span class="telemetry-item"><span class="material-symbols-outlined icon-inline">thermostat</span> CPU: <span id="subt_cpu_temp" class="data-val">--°C</span></span>
+                        <span class="telemetry-sep">•</span>
+                        <span class="telemetry-item"><span class="material-symbols-outlined icon-inline">schedule</span> Uptime: <span id="subt_uptime" class="data-val">--</span></span>
                     </div>
+                </div>
+            </div>
+
+            <!-- Droite : Actions système -->
+            <div class="header-right">
+                <div class="user-badge">
+                    <span class="material-symbols-outlined icon-sm">account_circle</span>
+                    <span class="user-name">marc@fache.be</span>
+                </div>
+                <div class="header-actions">
+                    <button class="btn-icon" onclick="restartServer()" title="Relancer l'interface">
+                        <span class="material-symbols-outlined">refresh</span>
+                    </button>
+                    <button class="btn-icon btn-icon-danger" onclick="systemAction('shutdown')" title="Éteindre le système">
+                        <span class="material-symbols-outlined">power_settings_new</span>
+                    </button>
                 </div>
             </div>
         </div>
     </header>
 
     <div class="app-container">
-        <!-- Injection de la poupée russe Navigation -->
+        <!-- Sidebar Navigation -->
         ${nav}
 
-        <main>
+        <main class="main-content">
             <!-- Bannière de blocage si chantier provisoire -->
-            <div id="subt_is_provisional" style="display:none; background: #c62828; color: white; padding: 15px; margin: 15px; border-radius: 8px; text-align: center; font-weight: bold; border: 2px solid #ffeb3b; box-shadow: 0 4px 6px rgba(0,0,0,0.2);">
-                <div style="margin-bottom: 10px;">
-                    ⚠️ CHANTIER PROVISOIRE : Les services d'enregistrement et de synchronisation sont désactivés.
+            <div id="subt_is_provisional" class="provisional-banner" style="display:none;">
+                <div class="provisional-title">
+                    <span class="material-symbols-outlined">warning</span>
+                    <span>CHANTIER PROVISOIRE : Services d'enregistrement et de synchronisation désactivés.</span>
                 </div>
                 
-                <div id="site-selector" style="background: rgba(255,255,255,0.1); padding: 10px; border-radius: 5px;">
-                    <div id="fleet-unregistered-warning" style="display:none; margin-bottom: 10px; font-size: 0.85em; background: rgba(0,0,0,0.2); padding: 5px; border-radius: 4px;">
+                <div id="site-selector" class="site-selector-box">
+                    <div id="fleet-unregistered-warning" style="display:none;" class="fleet-warn">
                         Note : Boîtier non enregistré sur la flotte. Recherche distante désactivée.
                     </div>
-                    <label for="site-search" style="display: block; margin-bottom: 5px; font-size: 0.9em;">Rechercher un chantier existant ou en créer un :</label>
-                    <div style="display: flex; gap: 10px; justify-content: center;">
-                        <input type="text" id="site-search" placeholder="Nom du chantier..." style="padding: 8px; border-radius: 4px; border: none; width: 60%; max-width: 300px; color: #333;">
-                        <button onclick="confirmNewSite()" style="padding: 8px 15px; background: #2ecc71; border: none; border-radius: 4px; color: white; cursor: pointer;">Valider</button>
+                    <label for="site-search">Rechercher un chantier existant ou en créer un :</label>
+                    <div class="site-search-row">
+                        <input type="text" id="site-search" placeholder="Nom du chantier..." class="input-dark">
+                        <button onclick="confirmNewSite()" class="btn-primary-sm">Valider</button>
                     </div>
-                    <div id="site-results" style="margin-top: 10px; display: none; text-align: left; max-width: 400px; margin-left: auto; margin-right: auto; background: white; color: #333; border-radius: 4px; overflow: hidden; box-shadow: 0 2px 10px rgba(0,0,0,0.3);">
+                    <div id="site-results" class="site-results-dropdown" style="display: none;">
                         <!-- Résultats de recherche ici -->
                     </div>
                 </div>
             </div>
 
-            <!-- Injection "poupée russe" du contenu de la page -->
+            <!-- Injection du contenu de la page -->
             ${content}
         </main>
     </div>

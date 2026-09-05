@@ -1,74 +1,103 @@
 <nav class="sidebar">
+    <div class="sidebar-header">
+        <div class="system-badge">
+            <span class="material-symbols-outlined text-primary">router</span>
+            <div>
+                <div class="system-title">rpi01-gateway</div>
+                <div class="system-version">v2.4.0-stable</div>
+            </div>
+        </div>
+    </div>
     <ul class="nav-list">
         <li>
-            <a href="${base_url}/" class="nav-item">Dashboard</a>
+            <a href="${base_url}/" class="nav-item">
+                <span class="material-symbols-outlined">dashboard</span>
+                <span>Dashboard</span>
+            </a>
         </li>
 
         <li class="nav-group">
-            <span class="nav-label">Réseau</span>
+            <span class="nav-label">
+                <span class="material-symbols-outlined icon-label">lan</span> Réseau
+            </span>
             <ul class="sub-nav">
-                <li><a href="${base_url}/network/overview">Vue d'ensemble</a></li>
-                <li><a href="${base_url}/network/interfaces">Interfaces</a></li>
+                <li><a href="${base_url}/network/overview"><span class="material-symbols-outlined">hub</span> Vue d'ensemble</a></li>
+                <li><a href="${base_url}/network/interfaces"><span class="material-symbols-outlined">settings_ethernet</span> Interfaces</a></li>
             </ul>
         </li>
 
         <li class="nav-group">
-            <span class="nav-label">Inventaire</span>
+            <span class="nav-label">
+                <span class="material-symbols-outlined icon-label">travel_explore</span> Inventaire
+            </span>
             <ul class="sub-nav">
-                <li><a href="${base_url}/scan/ip">Scanner le réseau</a></li>
+                <li><a href="${base_url}/scan/ip"><span class="material-symbols-outlined">search</span> Scanner le réseau</a></li>
             </ul>
         </li>
 
         <li class="nav-group">
-            <span class="nav-label">Modbus</span>
+            <span class="nav-label">
+                <span class="material-symbols-outlined icon-label">settings_input_component</span> Modbus
+            </span>
             <ul class="sub-nav">
-                <li><a href="${base_url}/modbus/suivi">Points suivis (Live)</a></li>
-                <li><a href="${base_url}/modbus/devices">Appareils du chantier</a></li>
-                <li><a href="${base_url}/modbus/templates">Templates & Modèles</a></li>
-                <li><a href="${base_url}/modbus/tools">Outils d'investigation</a></li>
+                <li><a href="${base_url}/modbus/suivi"><span class="material-symbols-outlined">show_chart</span> Points suivis (Live)</a></li>
+                <li><a href="${base_url}/modbus/devices"><span class="material-symbols-outlined">developer_board</span> Appareils du chantier</a></li>
+                <li><a href="${base_url}/modbus/templates"><span class="material-symbols-outlined">library_books</span> Templates & Modèles</a></li>
+                <li><a href="${base_url}/modbus/tools"><span class="material-symbols-outlined">build</span> Outils d'investigation</a></li>
             </ul>
         </li>
 
         <li class="nav-group">
-            <span class="nav-label">BACnet</span>
+            <span class="nav-label">
+                <span class="material-symbols-outlined icon-label">hub</span> BACnet
+            </span>
             <ul class="sub-nav">
-                <li><a href="${base_url}/bacnet/suivi">Points suivis (Live)</a></li>
-                <li><a href="${base_url}/bacnet/devices">Appareils du chantier</a></li>
-                <li><a href="${base_url}/bacnet/templates">Templates & Modèles</a></li>
-                <li><a href="${base_url}/bacnet/tools">Outils d'investigation</a></li>
+                <li><a href="${base_url}/bacnet/suivi"><span class="material-symbols-outlined">show_chart</span> Points suivis (Live)</a></li>
+                <li><a href="${base_url}/bacnet/devices"><span class="material-symbols-outlined">developer_board</span> Appareils du chantier</a></li>
+                <li><a href="${base_url}/bacnet/templates"><span class="material-symbols-outlined">library_books</span> Templates & Modèles</a></li>
+                <li><a href="${base_url}/bacnet/tools"><span class="material-symbols-outlined">build</span> Outils d'investigation</a></li>
             </ul>
         </li>
 
         <li class="nav-group">
-            <span class="nav-label">Matériel & Périphériques</span>
+            <span class="nav-label">
+                <span class="material-symbols-outlined icon-label">devices</span> Matériel
+            </span>
             <ul class="sub-nav">
-                <li><a href="${base_url}/devices">Périphériques & Passerelles</a></li>
+                <li><a href="${base_url}/devices"><span class="material-symbols-outlined">usb</span> Périphériques & Passerelles</a></li>
             </ul>
         </li>
 
         <li class="nav-group">
-            <span class="nav-label">Monitoring</span>
+            <span class="nav-label">
+                <span class="material-symbols-outlined icon-label">monitoring</span> Monitoring
+            </span>
             <ul class="sub-nav">
-                <li><a href="${base_url}/monitor/suivi">Suivi des points</a></li>
-                <li><a href="${base_url}/monitor/system">État système</a></li>
-                <li><a href="${base_url}/monitor/logs">Journaux</a></li>
+                <li><a href="${base_url}/monitor/suivi"><span class="material-symbols-outlined">analytics</span> Suivi des points</a></li>
+                <li><a href="${base_url}/monitor/system"><span class="material-symbols-outlined">speed</span> État système</a></li>
+                <li><a href="${base_url}/monitor/logs"><span class="material-symbols-outlined">description</span> Journaux</a></li>
             </ul>
         </li>
 
         <li class="nav-group">
-            <span class="nav-label">Configuration</span>
+            <span class="nav-label">
+                <span class="material-symbols-outlined icon-label">settings</span> Configuration
+            </span>
             <ul class="sub-nav">
-                <li><a href="${base_url}/configuration/logger">Enregistreurs</a></li>
-                <li><a href="${base_url}/configuration/mqtt">Moniteur MQTT</a></li>
-                <li><a href="${base_url}/configuration/sse">Moniteur SSE</a></li>
+                <li><a href="${base_url}/configuration/logger"><span class="material-symbols-outlined">save</span> Enregistreurs</a></li>
+                <li><a href="${base_url}/configuration/mqtt"><span class="material-symbols-outlined">sensors</span> Moniteur MQTT</a></li>
+                <li><a href="${base_url}/configuration/sse"><span class="material-symbols-outlined">stream</span> Moniteur SSE</a></li>
             </ul>
         </li>
-        <li class="nav-group">
-            <span class="nav-label">Système</span>
+
+        <li class="nav-group nav-group-system">
+            <span class="nav-label">
+                <span class="material-symbols-outlined icon-label">power_settings_new</span> Système
+            </span>
             <ul class="sub-nav">
-                <li><a href="#" onclick="restartServer(); return false;">Relancer Interface</a></li>
-                <li><a href="#" onclick="systemAction('reboot'); return false;">Reboot Système</a></li>
-                <li><a href="#" onclick="systemAction('shutdown'); return false;">Arrêter Système</a></li>
+                <li><a href="#" onclick="restartServer(); return false;"><span class="material-symbols-outlined">refresh</span> Relancer Interface</a></li>
+                <li><a href="#" onclick="systemAction('reboot'); return false;"><span class="material-symbols-outlined">restart_alt</span> Reboot Système</a></li>
+                <li><a href="#" onclick="systemAction('shutdown'); return false;" class="text-danger"><span class="material-symbols-outlined">power_settings_new</span> Arrêter Système</a></li>
             </ul>
         </li>
     </ul>

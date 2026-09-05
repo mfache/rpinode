@@ -59,7 +59,7 @@ fi
 if systemctl is-enabled rpinode.service >/dev/null 2>&1; then
     sudo systemctl restart rpinode.service
 else
-    nohup sudo python3 -u src/main.py > /tmp/rpinode/log/stdout.log 2>&1 &
+    nohup sudo PYTHONPATH=/home/marc/rpinode/src python3 -u /home/marc/rpinode/src/main.py > /tmp/rpinode/log/stdout.log 2>&1 &
 fi
 step_done
 
