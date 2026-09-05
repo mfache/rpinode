@@ -83,9 +83,9 @@
                 <span>Fichier : <code>rpinode.log</code> (<span id="log-file-size">${log_file_size}</span>)</span>
             </div>
             <div class="filter-toggles">
-                <label class="toggle-label" title="Faire défiler automatiquement vers les logs les plus récents">
+                <label class="toggle-label" title="Faire défiler automatiquement vers les logs les plus récents (en haut)">
                     <input type="checkbox" id="cb-autoscroll" checked>
-                    <span>Auto-scroll en bas</span>
+                    <span>Auto-scroll en haut</span>
                 </label>
                 <button type="button" class="btn-small-ghost" onclick="clearLogConsole()">Vider l'écran</button>
             </div>
@@ -595,10 +595,10 @@ function renderLogs(logs) {
 
     consoleEl.innerHTML = html;
 
-    // Auto-scroll en bas
+    // Auto-scroll en haut
     const autoScroll = document.getElementById('cb-autoscroll');
     if (autoScroll && autoScroll.checked) {
-        consoleEl.scrollTop = consoleEl.scrollHeight;
+        consoleEl.scrollTop = 0;
     }
 }
 

@@ -211,6 +211,29 @@ class TestServer(unittest.TestCase):
         except Exception as e:
             self.fail(f"L'API /api/monitor/suivi/values n'a pas répondu : {e}")
 
+    def test_monitor_logs_page(self):
+        """Vérifie que la page /monitor/logs est servie."""
+        url = f"http://localhost:{self.test_port}/monitor/logs"
+        try:
+            response = urllib.request.urlopen(url, timeout=5)
+            self.assertEqual(response.getcode(), 200)
+            content = response.read().decode('utf-8')
+            self.assertIn("logs-container", content)
+        except Exception as e:
+            self.fail(f"La page /monitor/logs n'a pas répondu : {e}")
+
+    def test_monitor_logs_api(self):
+        """Vérifie que l'API /api/monitor/logs répond en JSON."""
+        url = f"http://localhost:{self.test_port}/api/monitor/logs"
+        try:
+            response = urllib.request.urlopen(url, timeout=5)
+            self.assertEqual(response.getcode(), 200)
+            data = json.loads(response.read().decode('utf-8'))
+            self.assertEqual(data["status"], "ok")
+            self.assertIn("logs", data)
+        except Exception as e:
+            self.fail(f"L'API /api/monitor/logs n'a pas répondu : {e}")
+
     def test_configuration_logger_page(self):
         """Vérifie que la page /configuration/logger est servie."""
         url = f"http://localhost:{self.test_port}/configuration/logger"

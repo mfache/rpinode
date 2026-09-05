@@ -2851,7 +2851,9 @@ class WebAdminHandler(BaseHTTPRequestHandler):
                     if len(parsed_logs) >= limit:
                         break
 
-                parsed_logs.reverse()
+                order = query.get("order", ["desc"])[0].lower()
+                if order == "asc":
+                    parsed_logs.reverse()
             except Exception as e:
                 logger.error(f"Erreur lecture logs: {e}")
 
