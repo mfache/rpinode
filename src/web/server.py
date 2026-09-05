@@ -32,7 +32,7 @@ class ThreadingHTTPServer(ThreadingMixIn, HTTPServer):
 
 class WebAdminHandler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
-        logger.info(f"{self.address_string()} - - [{self.log_date_time_string()}] {format%args}")
+        logger.debug(f"{self.address_string()} - - [{self.log_date_time_string()}] {format%args}")
 
     def log_error(self, format, *args):
         logger.error(f"{self.address_string()} - - [{self.log_date_time_string()}] {format%args}")
@@ -54,7 +54,7 @@ class WebAdminHandler(BaseHTTPRequestHandler):
         if len(path) > 1 and path.endswith("/"):
             path = path[:-1]
 
-        logger.info(f"GET Request: {path} (original: {self.path})")
+        logger.debug(f"GET Request: {path} (original: {self.path})")
         
         if path == "/sw.js":
             return self.serve_static("/static/sw.js")
