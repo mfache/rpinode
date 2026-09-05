@@ -324,61 +324,75 @@ document.addEventListener("DOMContentLoaded", () => {
                         updateElement(el, value, key);
                     }
 
-                    // Traitement spécial pour les états actifs (couleurs des nodes et pills)
-                    if (key.endsWith('_active') || key.startsWith('net_eth0_')) {
-                        
-                        // Stockage global de l'état eth0
-                        if (key.startsWith('net_eth0_')) {
-                            window.eth0State = window.eth0State || {};
-                            window.eth0State[key.replace('net_eth0_', '')] = value;
-                        }
-                        
-                        const isEth0Event = key.startsWith('net_eth0_') || key === 'net_eth0_active';
-                        
-                        if (isEth0Event) {
-                            const node = document.getElementById('node-eth0');
-                            const pill = document.getElementById('pill-eth0');
-                            const s = window.eth0State || {};
-                            
-                            const isActive = (s.active === true || s.active === "true");
-                            const hasCable = (s.cable === true || s.cable === "true");
-                            const isDhcp = (s.dhcp === true || s.dhcp === "true");
-                            const hasIp = (s.has_ip === true || s.has_ip === "true");
-                            
-                            if (node && pill) {
-                                if (!hasCable) {
-                                    node.classList.remove('active');
-                                    pill.textContent = 'Débranché';
-                                    pill.className = 'status-pill inactive';
-                                } else if (isActive && hasIp) {
-                                    node.classList.add('active');
-                                    pill.textContent = 'Connecté';
-                                    pill.className = 'status-pill active';
-                                } else if (isDhcp && !hasIp) {
-                                    node.classList.remove('active');
-                                    pill.textContent = "En attente";
-                                    pill.className = 'status-pill inactive';
-                                } else {
-                                    node.classList.remove('active');
-                                    pill.textContent = 'Coupé';
-                                    pill.className = 'status-pill inactive';
-                                }
+                    // Traitement spécial pour les états actifs (couleurs des nodes, pills et indicateurs)
+                    if (key.endsWith('_active') || key.startsWith('net_eth0_') || key.startsWith('net_wlan0_') || key.startsWith('net_wwan0_')) {
+                        let iface = null;
+                        if (key.startsWith('net_eth0_')) iface = 'eth0';
+                        else if (key.startsWith('net_wlan0_')) iface = 'wlan0';
+                        else if (key.startsWith('net_wwan0_')) iface = 'wwan0';
+                        else if (key.endsWith('_active')) iface = key.replace('net_', '').replace('_active', '');
+
+                        if (iface) {
+                            window.ifaceState = window.ifaceState || {};
+                            window.ifaceState[iface] = window.ifaceState[iface] || {};
+
+                            if (key.startsWith(`net_${iface}_`)) {
+                                window.ifaceState[iface][key.replace(`net_${iface}_`, '')] = value;
+                            } else if (key.endsWith('_active')) {
+                                window.ifaceState[iface]['active'] = value;
                             }
-                        } else if (key.endsWith('_active')) {
-                            const iface = key.replace('net_', '').replace('_active', '');
+
                             const node = document.getElementById(`node-${iface}`);
                             const pill = document.getElementById(`pill-${iface}`);
-                            
-                            const isActive = (value === true || value === "true");
-                            
-                            if (node) {
-                                if (isActive) node.classList.add('active');
-                                else node.classList.remove('active');
+                            const indicator = document.getElementById(`status-indicator-${iface}`);
+                            const statusLabel = document.getElementById(`status-text-${iface}`);
+
+                            const s = window.ifaceState[iface] || {};
+                            const isActive = (s.active === true || s.active === "true");
+                            const hasCable = s.cable !== undefined ? (s.cable === true || s.cable === "true") : true;
+                            const isDhcp = (s.dhcp === true || s.dhcp === "true");
+                            const hasIp = (s.has_ip === true || s.has_ip === "true");
+
+                            let pillText = 'Inactif';
+                            let indicatorText = 'Inactif';
+                            let isOnline = false;
+
+                            if (!hasCable && iface === 'eth0') {
+                                pillText = 'Débranché';
+                                indicatorText = 'Câble débranché';
+                                isOnline = false;
+                            } else if (isActive && hasIp) {
+                                pillText = 'Connecté';
+                                indicatorText = 'En ligne';
+                                isOnline = true;
+                            } else if (isDhcp && !hasIp && hasCable) {
+                                pillText = 'En attente';
+                                indicatorText = 'En attente DHCP';
+                                isOnline = false;
+                            } else if (isActive) {
+                                pillText = 'Connecté';
+                                indicatorText = 'En ligne';
+                                isOnline = true;
+                            } else {
+                                pillText = 'Coupé';
+                                indicatorText = 'Inactif';
+                                isOnline = false;
                             }
-                            
-                            if (pill) {
-                                pill.textContent = isActive ? 'Connecté' : 'Coupé';
-                                pill.className = `status-pill ${isActive ? 'active' : 'inactive'}`;
+
+                            if (node && pill) {
+                                if (isOnline) {
+                                    node.classList.add('active');
+                                    pill.className = 'status-pill active';
+                                } else {
+                                    node.classList.remove('active');
+                                    pill.className = 'status-pill inactive';
+                                }
+                                pill.textContent = pillText;
+                            }
+
+                            if (indicator && statusLabel) {
+                                indicator.className = `status-indicator ${isOnline ? 'status-online' : 'status-offline'}`;
+                                statusLabel.textContent = indicatorText;
                             }
                         }
                     }

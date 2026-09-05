@@ -83,7 +83,10 @@ def get_interface_status(iface):
         elif not cable and is_dhcp and not has_ip:
             ip = "DHCP (Auto)"
 
-        is_up = (operstate == "UP") or ("UP" in flags and has_ip)
+        if not cable:
+            is_up = False
+        else:
+            is_up = (operstate == "UP") or ("UP" in flags and has_ip)
         
         # 2. Infos de routage
         routes = []

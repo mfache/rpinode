@@ -36,9 +36,9 @@
                         <div class="iface-sub">Liaison Ethernet locale / Automates & Réseau</div>
                     </div>
                 </div>
-                <div class="status-indicator ${eth0_status_class}" title="État actuel de la liaison physique">
+                <div id="status-indicator-eth0" class="status-indicator ${eth0_status_class}" title="État actuel de la liaison physique">
                     <span class="dot"></span>
-                    <span class="status-label">${eth0_status_text}</span>
+                    <span id="status-text-eth0" class="status-label">${eth0_status_text}</span>
                 </div>
             </div>
 
@@ -46,11 +46,11 @@
             <div class="live-status-bar">
                 <div class="status-item">
                     <span class="label">IP actuelle :</span>
-                    <span class="value font-mono">${eth0_live_ip}</span>
+                    <span class="value font-mono subt_net_eth0_ip">${eth0_live_ip}</span>
                 </div>
                 <div class="status-item">
                     <span class="label">MAC :</span>
-                    <span class="value font-mono">${eth0_live_mac}</span>
+                    <span class="value font-mono subt_net_eth0_mac">${eth0_live_mac}</span>
                 </div>
             </div>
 
@@ -130,9 +130,9 @@
                         <div class="iface-sub">Liaison WiFi Chantier / Point d'accès de secours</div>
                     </div>
                 </div>
-                <div class="status-indicator ${wlan0_status_class}" title="État actuel de la liaison WiFi">
+                <div id="status-indicator-wlan0" class="status-indicator ${wlan0_status_class}" title="État actuel de la liaison WiFi">
                     <span class="dot"></span>
-                    <span class="status-label">${wlan0_status_text}</span>
+                    <span id="status-text-wlan0" class="status-label">${wlan0_status_text}</span>
                 </div>
             </div>
 
@@ -140,11 +140,11 @@
             <div class="live-status-bar">
                 <div class="status-item">
                     <span class="label">IP actuelle :</span>
-                    <span class="value font-mono">${wlan0_live_ip}</span>
+                    <span class="value font-mono subt_net_wlan0_ip">${wlan0_live_ip}</span>
                 </div>
                 <div class="status-item">
                     <span class="label">MAC :</span>
-                    <span class="value font-mono">${wlan0_live_mac}</span>
+                    <span class="value font-mono subt_net_wlan0_mac">${wlan0_live_mac}</span>
                 </div>
             </div>
 

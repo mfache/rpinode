@@ -435,7 +435,25 @@ class WebAdminHandler(BaseHTTPRequestHandler):
                 </div>
                 """
             is_active = status.get("active", False)
-            status_text = "En ligne" if is_active else ("Câble débranché" if not status.get("cable", True) and iface == "eth0" else "Inactif")
+            cable = status.get("cable", True)
+            has_ip = status.get("has_ip", False)
+            is_dhcp = status.get("dhcp", False)
+
+            if not cable and iface == "eth0":
+                status_text = "Câble débranché"
+                status_class = "status-offline"
+            elif is_active and has_ip:
+                status_text = "En ligne"
+                status_class = "status-online"
+            elif is_dhcp and not has_ip and cable:
+                status_text = "En attente DHCP"
+                status_class = "status-offline"
+            elif is_active:
+                status_text = "En ligne"
+                status_class = "status-online"
+            else:
+                status_text = "Inactif"
+                status_class = "status-offline"
 
             return {
                 f"{iface}_method_auto_selected": 'selected' if method == "auto" else '',
@@ -451,7 +469,7 @@ class WebAdminHandler(BaseHTTPRequestHandler):
                 f"{iface}_psk": profile["psk"] if profile and "psk" in profile.keys() and profile["psk"] else "",
                 f"{iface}_live_ip": escape(status.get("ip", "--")),
                 f"{iface}_live_mac": escape(status.get("mac", "--")),
-                f"{iface}_status_class": "status-online" if is_active else "status-offline",
+                f"{iface}_status_class": status_class,
                 f"{iface}_status_text": status_text
             }
         eth0_profile = get_site_network_profile(site_id, "eth0") if site_id else None
