@@ -961,3 +961,43 @@ select option {
         height: 1px;
     }
 }
+
+@media (max-width: 480px) {
+    .header-content {
+        flex-wrap: wrap;
+        height: auto;
+        row-gap: 8px;
+        padding: 8px 12px;
+    }
+
+    .header-left {
+        gap: 10px;
+    }
+
+    .header-divider {
+        display: none;
+    }
+
+    .brand-logo {
+        height: 28px;
+    }
+
+    .host-name {
+        font-size: 1rem;
+    }
+
+    .host-telemetry {
+        font-size: 0.68rem;
+        gap: 4px;
+    }
+
+    .header-right {
+        width: 100%;
+        justify-content: flex-end;
+        gap: 10px;
+    }
+
+    .sidebar {
+        top: 92px;
+    }
+}
