@@ -8,6 +8,9 @@ description: Guidelines and architectural principles for developing the rpinode 
 Use this skill when modifying or extending the `rpinode` project to ensure consistency with its core architectural principles.
 
 ## 1. Path Management
+Project source paths is `/home/marc/rpinode/`.
+Base git project is `/home/marc/rpinode/`.
+Local url is `http://localhost:8082/`.
 All file paths must be derived from `src/core/paths.py`. Never hardcode relative or absolute paths directly in other modules.
 - Use `paths.SRC_DIR`, `paths.DATA_DIR`, `paths.TEMPLATES_DIR`, etc.
 - Example: `config_file = paths.DATA_DIR / "config.json"`
@@ -41,5 +44,8 @@ Always check for additional documentation files to understand specific workflows
 - Use `find . -type f -iname "*.md"` to locate all documentation files.
 - Files like `README.md` and `HOWTO.md` contain critical operational information.
 
-## 7. Shortcuts
+## 7. User exchange
+Marc speaks in french.
+
+## 8. Shortcuts
 When the user says "git" or "pousse" to you, you must perform a git and push.
