@@ -470,6 +470,26 @@ class WebAdminHandler(BaseHTTPRequestHandler):
                 status_text = "Inactif"
                 status_class = "status-offline"
 
+            if iface == "wlan0":
+                if method == "auto":
+                    mode_description = "Client DHCP"
+                elif method == "manual":
+                    mode_description = "Client IP Fixe"
+                elif method == "shared":
+                    mode_description = "AP avec serveur DHCP"
+                else:
+                    mode_description = "Mode Inconnu (Rescue?)" # Placeholder for rescue or unknown modes
+            else:
+                # For eth0 or other interfaces, maintain existing logic or default
+                if method == "auto":
+                    mode_description = "DHCP"
+                elif method == "manual":
+                    mode_description = "IP Fixe"
+                elif method == "shared":
+                    mode_description = "Partagé"
+                else:
+                    mode_description = "Inconnu"
+
             return {
                 f"{iface}_method_auto_selected": 'selected' if method == "auto" else '',
                 f"{iface}_method_manual_selected": 'selected' if method == "manual" else '',
@@ -485,7 +505,9 @@ class WebAdminHandler(BaseHTTPRequestHandler):
                 f"{iface}_live_ip": escape(status.get("ip", "--")),
                 f"{iface}_live_mac": escape(status.get("mac", "--")),
                 f"{iface}_status_class": status_class,
-                f"{iface}_status_text": status_text
+                f"{iface}_status_text": status_text,
+                f"{iface}_mode_description": mode_description,
+                f"{iface}_is_ap_mode": 'true' if method == "shared" else 'false'
             }
         eth0_profile = get_site_network_profile(site_id, "eth0") if site_id else None
         eth0_status = get_interface_status("eth0")

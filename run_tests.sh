@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# Change to the directory where the script is located
+cd "$(dirname "$0")"
+
 # Script pour exécuter les tests de bon fonctionnement de rpinode
 
 # Définition du PYTHONPATH pour inclure le dossier src
