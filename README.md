@@ -71,13 +71,16 @@ Ces tests vérifient :
 
 ## Pratique
 
-L'accès à sudo local est disponible.
-Lorsqu'une adaptation a eu lieu et qu'elle est fonctionnelle, il faut redémarrer le service pour que les modifications (notamment Python) soient prises en compte, puis pousser les changements sur GitHub.
-La commande suivante est ton amie :
+L'accès à `sudo` local est disponible.
+Lorsqu'une adaptation a été faite et qu'elle est fonctionnelle, il faut
+redémarrer le service pour que les modifications, notamment Python, soient
+prises en compte, puis pousser les changements sur GitHub.
+La commande suivante est utile :
 ```bash
 find . -type f -iname "*.md"
 ```
-Cette url est aussi ton amie : https://docs.deltathermic.be/reports/api/usage
+Cette URL de documentation est aussi utile :
+[documentation API distante](https://docs.deltathermic.be/reports/api/usage)
 
 ### Redémarrage sécurisé du service
 Un script est disponible pour vérifier le code et redémarrer proprement le processus en arrière-plan :
@@ -89,22 +92,34 @@ Ce script :
 2. **Interrompt le redémarrage** en cas d'échec (pour rester sur la dernière version stable).
 3. Tue l'ancienne instance et relance `main.py` avec `sudo` en cas de succès.
 
-## Gestion des Logs Distants
+## Gestion des logs distants
 
-Afin de préserver la durée de vie de la carte SD des boîtiers, les logs importants sont gérés de deux manières :
-1. **Localement (RAM)** : Les journaux sont désormais stockés en mémoire vive (`/tmp/rpinode/log/`) afin de supprimer totalement les écritures physiques sur la carte SD lors du logging.
-2. **À distance (Centralisation)** : Une tâche d'arrière-plan remonte par lots les journaux (logs) d'exécution vers le serveur maître.
+Afin de préserver la durée de vie de la carte SD des boîtiers, les logs
+importants sont gérés de deux manières :
+1. **Localement (RAM)** : les journaux sont stockés en mémoire vive
+   (`/tmp/rpinode/log/`) afin de supprimer totalement les écritures physiques
+   sur la carte SD lors du logging.
+2. **À distance (centralisation)** : une tâche d'arrière-plan remonte par lots
+   les journaux d'exécution vers le serveur maître.
    - Les envois sont **compressés avec GZIP**, ce qui réduit la consommation data sur le réseau cellulaire de plus de **90 %** (très utile pour des logs répétitifs).
    - Chaque log intègre dynamiquement : la date, le niveau (INFO, ERROR, etc.), le module concerné, le nom du `chantier` actuel, et la version du code Git exécuté, facilitant grandement le débogage de la flotte.
    - Une méthode `fleet.get_logs(limit=50, level="ERROR")` est disponible dans le client `FleetClient` pour récupérer ces logs depuis le serveur.
 
 ## Gestion de la flotte
 
-Le serveur de synchronisation est docs.deltathermic.be.
+Le serveur de synchronisation est `docs.deltathermic.be`.
 Ce serveur est une VM fournie par le service informatique.
-Nous avons les pleins pouvoir sur ce serveur pour y installer ce que nous voulons.
+Nous avons les pleins pouvoirs sur ce serveur pour y installer ce que nous
+voulons.
 Nous n'avons pas la main sur les ouvertures de ports.
-Un accès ssh est disponible avec le user mariadb derrière le port 9922.
-Il y a une base de donnés mariadb, les accès sont dans /etc/boitier-fleet/db.env sur le serveur distant.
-Le script api distant se trouve là : /var/www/reports/api.py
-Il y a un script de redémarrage des services là : /home/mariadb/bin/https
+
+Accès SSH de référence :
+
+```sh
+ssh -p 9922 mariadb@docs.deltathermic.be
+```
+
+Pour la documentation détaillée sur l’accès au serveur, les chemins utiles et
+les précautions d’intervention hors dépôt, voir :
+
+- [docs/DOCS_SERVER_ACCESS.md](docs/DOCS_SERVER_ACCESS.md)
