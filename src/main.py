@@ -10,7 +10,7 @@ from core.database import init_db
 from core.paths import DATA_DIR, LOG_FILE
 from services.logger import start_data_logger
 from services.reporter import reporter
-from services.tracker import start_tracker
+from services.tracker import check_and_update_site, start_tracker
 from services.wifi_mgr import run_wifi_manager
 from web.server import start_server
 
@@ -47,13 +47,18 @@ def main():
 
         logging.info("--- DEMARRAGE RPINODE ---")
 
-        # 1. On applique le profil réseau du chantier actuel
+        # 1. Résoudre immédiatement la localisation réelle avant de réappliquer un
+        # profil réseau persistant. Sans cela, un boîtier déplacé au repos peut
+        # redémarrer en croyant encore être sur le chantier précédent.
+        check_and_update_site()
+
+        # 2. On applique le profil réseau du chantier désormais courant
         current_site_id = get_current_site_id()
         if current_site_id:
             logging.info(f"Application du profil réseau pour le chantier actuel (ID: {current_site_id})")
             apply_site_network_profiles(current_site_id)
 
-        # 2. On publie les routes
+        # 3. On publie les routes
         publish_tailscale_routes()
     except Exception as e:
         logging.error(f"Erreur initialisation réseau : {e}")

@@ -45,7 +45,7 @@ def label_current_location(site_name, is_provisional=False, external_id=None):
             if row:
                 site_id = row["id"]
                 cursor.execute(
-                    "UPDATE sites SET external_id = COALESCE(?, external_id), is_provisional = ?, is_dirty = 1 WHERE id = ?",
+                    "UPDATE sites SET external_id = COALESCE(external_id, ?), is_provisional = ?, is_dirty = 1 WHERE id = ?",
                     (external_id, 1 if is_provisional else 0, site_id)
                 )
         
@@ -67,7 +67,7 @@ def label_current_location(site_name, is_provisional=False, external_id=None):
                 # On renomme le site provisoire existant pour conserver les configurations associées
                 site_id = curr_row["id"]
                 cursor.execute(
-                    "UPDATE sites SET name = ?, external_id = COALESCE(?, external_id), is_provisional = ?, is_dirty = 1 WHERE id = ?",
+                    "UPDATE sites SET name = ?, external_id = COALESCE(external_id, ?), is_provisional = ?, is_dirty = 1 WHERE id = ?",
                     (site_name, external_id, 1 if is_provisional else 0, site_id)
                 )
             else:
