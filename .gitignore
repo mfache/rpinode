@@ -10,6 +10,7 @@ data/*.sqlite
 data/*.db-journal
 data/*.tmp
 data/*.json
+data/*.bak
 data/config.json
 
 # Logs
@@ -22,6 +23,7 @@ log/
 .vscode/
 .idea/
 /test_*.py
+/tools/local/
 
 # Rust
 target/

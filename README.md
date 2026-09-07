@@ -11,6 +11,8 @@ Toute l'organisation du projet repose sur un fichier central : `src/core/paths.p
 - `data/` : C'est le **dossier de persistance**. Tous les fichiers de configuration (JSON, YAML), les bases de données (SQLite) et les logs sont stockés ici. Le système a été pensé pour ne jamais polluer d'autres dossiers avec de l'état local. (Cf: `src/core/config.py`).
 - `templates/` : Les composants HTML purs avec marqueurs de variables.
 - `static/` : Fichiers statiques (JS, CSS, images).
+- `docs/` : Documentation technique, notes d'investigation et comptes-rendus d'incident.
+- `tools/maintenance/` : Scripts ponctuels de migration, diagnostic ou patch, séparés du code applicatif principal.
 
 ## Le système de Template "À la Poupée Russe"
 
