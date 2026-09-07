@@ -141,6 +141,107 @@
 /* Styles pour le tri */
 th.sort-asc::after { content: " ▲"; font-size: 0.7em; }
 th.sort-desc::after { content: " ▼"; font-size: 0.7em; }
+
+.ip-scan {
+    --legacy-panel: rgba(44, 62, 80, 0.88);
+    --legacy-panel-soft: rgba(52, 73, 94, 0.78);
+    --legacy-panel-deep: rgba(28, 41, 56, 0.92);
+    --legacy-border: rgba(148, 163, 184, 0.32);
+    --legacy-border-strong: rgba(191, 219, 254, 0.26);
+    --legacy-text: #ecf3f9;
+    --legacy-muted: #c7d3df;
+    --legacy-primary: #3498db;
+    --legacy-primary-hover: #2980b9;
+}
+
+.ip-scan .header-with-actions {
+    border-bottom: 1px solid var(--legacy-border);
+    padding-bottom: 14px;
+}
+
+.ip-scan .card {
+    background: linear-gradient(180deg, rgba(52, 73, 94, 0.88), rgba(44, 62, 80, 0.92));
+    border: 1px solid var(--legacy-border);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.22);
+}
+
+.ip-scan .help-text,
+.ip-scan .scan-info p,
+.ip-scan .dropdown-content label {
+    color: var(--legacy-muted);
+}
+
+.ip-scan .status-badge.idle {
+    background: rgba(28, 41, 56, 0.82);
+    color: var(--legacy-muted);
+    border: 1px solid var(--legacy-border);
+}
+
+.ip-scan .status-badge.running {
+    background: rgba(52, 152, 219, 0.18);
+    color: #dff1fd;
+    border: 1px solid rgba(52, 152, 219, 0.34);
+}
+
+.ip-scan #inventory-search {
+    background: rgba(28, 41, 56, 0.82) !important;
+    border: 1px solid var(--legacy-border) !important;
+    color: var(--legacy-text) !important;
+}
+
+.ip-scan #inventory-search::placeholder {
+    color: var(--legacy-muted);
+}
+
+.ip-scan .data-table th,
+.ip-scan .data-table td {
+    border-bottom-color: var(--legacy-border);
+}
+
+.ip-scan .data-table th {
+    color: var(--legacy-muted);
+    background: var(--legacy-panel-deep);
+}
+
+.ip-scan .data-table td {
+    color: var(--legacy-text);
+}
+
+.ip-scan .data-table tr:hover {
+    background: rgba(255,255,255,0.04);
+}
+
+.ip-scan .editable:hover {
+    background: rgba(52, 152, 219, 0.12);
+}
+
+.ip-scan .editable:hover::after {
+    color: #dff1fd;
+}
+
+.ip-scan .port-tag {
+    background: rgba(28, 41, 56, 0.82);
+    border: 1px solid var(--legacy-border);
+    color: var(--legacy-muted);
+}
+
+.ip-scan .btn-icon-sm {
+    color: #c7d3df;
+}
+
+.ip-scan .btn-icon-sm:hover {
+    color: #ffb4ab;
+}
+
+.ip-scan .dropdown-content {
+    background-color: rgba(44, 62, 80, 0.98);
+    border: 1px solid var(--legacy-border);
+    box-shadow: 0 10px 28px rgba(0,0,0,0.28);
+}
+
+.ip-scan .dropdown-content label:hover {
+    background: rgba(255,255,255,0.06);
+}
 </style>
 
 <script>

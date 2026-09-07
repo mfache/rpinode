@@ -13,11 +13,11 @@
     </div>
 
     <div class="card">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 10px;">
-            <div style="font-size: 0.9em; color: #555;">
+        <div class="suivi-toolbar">
+            <div class="suivi-help">
                 Cochez <strong>Enregistrer</strong> pour historiser les données dans les tendances (Trends).
             </div>
-            <div style="display: flex; gap: 8px;">
+            <div class="suivi-bulk-actions">
                 <button type="button" class="btn-secondary btn-sm" onclick="toggleAllRecords(true)">Tout cocher</button>
                 <button type="button" class="btn-secondary btn-sm" onclick="toggleAllRecords(false)">Tout décocher</button>
             </div>
@@ -42,34 +42,148 @@
 </section>
 
 <style>
-.card { background: white; padding: 15px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
-.hint { font-size: 0.9em; color: #666; margin: 5px 0 0 0; }
-.data-table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-.data-table th, .data-table td { padding: 10px 12px; border-bottom: 1px solid #eee; text-align: left; vertical-align: middle; }
-.data-table th { background: #fafafa; font-size: 0.85em; color: #555; text-transform: uppercase; }
-.badge-gray { background: #eee; color: #555; padding: 4px 8px; border-radius: 4px; font-family: monospace; font-size: 0.95em; }
-.badge-success { background: #e8f8f5; color: #16a085; padding: 4px 8px; border-radius: 4px; font-family: monospace; font-weight: bold; font-size: 0.95em; }
-.badge-error { background: #fdedec; color: #c0392b; padding: 4px 8px; border-radius: 4px; font-family: monospace; font-size: 0.9em; }
-.suivi-flash { animation: flashHighlight 1s ease-out; }
+.modbus-suivi-view {
+    --legacy-panel: rgba(44, 62, 80, 0.88);
+    --legacy-panel-soft: rgba(52, 73, 94, 0.78);
+    --legacy-panel-deep: rgba(28, 41, 56, 0.92);
+    --legacy-border: rgba(148, 163, 184, 0.32);
+    --legacy-border-strong: rgba(191, 219, 254, 0.26);
+    --legacy-text: #ecf3f9;
+    --legacy-muted: #c7d3df;
+    --legacy-primary: #3498db;
+    --legacy-primary-hover: #2980b9;
+}
+
+.modbus-suivi-view .header-with-actions {
+    border-bottom-color: var(--legacy-border);
+}
+
+.modbus-suivi-view .card {
+    background: linear-gradient(180deg, rgba(52, 73, 94, 0.88), rgba(44, 62, 80, 0.92));
+    border: 1px solid var(--legacy-border);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+}
+
+.modbus-suivi-view .data-table th,
+.modbus-suivi-view .data-table td {
+    border-bottom-color: var(--legacy-border);
+}
+
+.modbus-suivi-view .data-table th {
+    background: var(--legacy-panel-deep);
+    color: var(--legacy-muted);
+}
+
+.modbus-suivi-view .data-table tbody tr:hover {
+    background: rgba(255, 255, 255, 0.04);
+}
+
+.modbus-suivi-view .btn-primary {
+    background: var(--legacy-primary);
+    color: #f7fbff;
+    box-shadow: 0 0 12px rgba(52, 152, 219, 0.22);
+}
+
+.modbus-suivi-view .btn-primary:hover {
+    background: var(--legacy-primary-hover);
+}
+
+.modbus-suivi-view .btn-secondary {
+    background: var(--legacy-panel-soft);
+    color: var(--legacy-text);
+    border-color: var(--legacy-border);
+}
+
+.modbus-suivi-view .btn-secondary:hover {
+    background: rgba(67, 89, 110, 0.92);
+    color: #ffffff;
+    border-color: var(--legacy-border-strong);
+}
+
+.suivi-toolbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.suivi-help {
+    font-size: 0.9em;
+    color: var(--legacy-muted);
+}
+
+.suivi-bulk-actions {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.badge-gray {
+    background: var(--legacy-panel-deep);
+    color: var(--legacy-muted);
+    border: 1px solid var(--legacy-border);
+    padding: 4px 8px;
+    border-radius: var(--radius);
+    font-family: var(--font-mono);
+    font-size: 0.95em;
+}
+
+.badge-success {
+    background: rgba(39, 174, 96, 0.2);
+    color: #d7f8e6;
+    border: 1px solid rgba(125, 206, 160, 0.34);
+    padding: 4px 8px;
+    border-radius: var(--radius);
+    font-family: var(--font-mono);
+    font-weight: 700;
+    font-size: 0.95em;
+}
+
+.badge-error {
+    background: rgba(192, 57, 43, 0.22);
+    color: #ffd4cf;
+    border: 1px solid rgba(255, 180, 171, 0.28);
+    padding: 4px 8px;
+    border-radius: var(--radius);
+    font-family: var(--font-mono);
+    font-size: 0.9em;
+}
+
+.suivi-flash {
+    animation: flashHighlight 1s ease-out;
+}
+
 @keyframes flashHighlight {
-    0% { background-color: #d4edda; }
+    0% { background-color: rgba(52, 152, 219, 0.24); }
     100% { background-color: transparent; }
 }
+
 .btn-icon-del {
     background: none;
     border: none;
-    color: #e74c3c;
+    color: #ffb4ab;
     font-size: 1.1em;
     cursor: pointer;
     padding: 4px 8px;
-    border-radius: 4px;
+    border-radius: var(--radius);
 }
-.btn-icon-del:hover { background: #fdedec; }
+
+.btn-icon-del:hover {
+    background: rgba(192, 57, 43, 0.22);
+}
+
 .cadence-select {
+    width: auto;
+    min-width: 78px;
     padding: 3px 6px;
-    border: 1px solid #ccc;
-    border-radius: 4px;
+    border: 1px solid var(--legacy-border);
+    border-radius: var(--radius);
     font-size: 0.85em;
+    background: var(--legacy-panel-deep);
+    color: var(--legacy-text);
+    font-family: var(--font-mono);
 }
 </style>
 

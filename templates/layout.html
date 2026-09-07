@@ -45,15 +45,15 @@
                 <div class="header-divider"></div>
                 <div class="host-info">
                     <div class="host-title-row">
-                        <h2 class="host-name">${hostname}</h2>
+                        <h2 class="host-name">${site_name}</h2>
                         <span id="heartbeat-dot" title="Flux de données actif" class="pulse-dot"></span>
                         <a href="${base_url}/monitor/system" id="subt_sync_ok" title="⚠️ Problème de synchronisation (Cliquez pour voir l'état)" class="sync-warn-dot"></a>
                         <span id="heartbeat-timer" class="heartbeat-timer"></span>
                     </div>
                     <div class="host-telemetry">
-                        <span class="telemetry-item"><span class="material-symbols-outlined icon-inline">thermostat</span> CPU: <span id="subt_cpu_temp" class="data-val">--°C</span></span>
+                        <span class="telemetry-item"><span id="subt_cpu_temp" class="data-val">--°C</span>
                         <span class="telemetry-sep">•</span>
-                        <span class="telemetry-item"><span class="material-symbols-outlined icon-inline">schedule</span> Uptime: <span id="subt_uptime" class="data-val">--</span></span>
+                        <span class="telemetry-item"><span id="subt_uptime" class="data-val">--</span>
                     </div>
                 </div>
             </div>
@@ -62,15 +62,10 @@
             <div class="header-right">
                 <div class="user-badge">
                     <span class="material-symbols-outlined icon-sm">account_circle</span>
-                    <span class="user-name">marc@fache.be</span>
+                    <span class="user-name">unknown</span>
                 </div>
                 <div class="header-actions">
-                    <button class="btn-icon" onclick="restartServer()" title="Relancer l'interface">
-                        <span class="material-symbols-outlined">refresh</span>
-                    </button>
-                    <button class="btn-icon btn-icon-danger" onclick="systemAction('shutdown')" title="Éteindre le système">
-                        <span class="material-symbols-outlined">power_settings_new</span>
-                    </button>
+
                 </div>
             </div>
         </div>
@@ -87,7 +82,7 @@
                     <span class="material-symbols-outlined">warning</span>
                     <span>CHANTIER PROVISOIRE : Services d'enregistrement et de synchronisation désactivés.</span>
                 </div>
-                
+
                 <div id="site-selector" class="site-selector-box">
                     <div id="fleet-unregistered-warning" style="display:none;" class="fleet-warn">
                         Note : Boîtier non enregistré sur la flotte. Recherche distante désactivée.

@@ -218,32 +218,58 @@ const FALLBACK_HTML: &str = r#"<!DOCTYPE html>
             terminal.scrollTop = terminal.scrollHeight;
         }
 
-        // Connexion SSE vers le superviseur Rust
-        const evtSource = new EventSource('/supervisor/stream');
+        let evtSource = new EventSource('/supervisor/stream');
 
-        evtSource.onmessage = (event) => {
-            if (!event.data) return;
+        function setupSSE() {
+            evtSource.onmessage = (event) => {
+                if (!event.data) return;
+                try {
+                    const payload = JSON.parse(event.data);
+                    if (payload.type === 'log') {
+                        appendLog(payload.message);
+                    } else if (payload.type === 'status') {
+                        statusDesc.textContent = payload.message;
+                        if (payload.ready) {
+                            statusDesc.textContent = "✅ Serveur rpinode prêt ! Rechargement...";
+                            setTimeout(() => {
+                                window.location.reload();
+                            }, 600);
+                        }
+                    }
+                } catch (e) {
+                    appendLog(event.data);
+                }
+            };
+
+            evtSource.onerror = () => {
+                statusDesc.textContent = "Tentative de reconnexion au superviseur...";
+            };
+        }
+
+        setupSSE();
+
+        // Fallback de polling robuste (contourne la perte d'état du SSE lors du reboot réseau)
+        setInterval(async () => {
             try {
-                const payload = JSON.parse(event.data);
-                if (payload.type === 'log') {
-                    appendLog(payload.message);
-                } else if (payload.type === 'status') {
-                    statusDesc.textContent = payload.message;
-                    if (payload.ready) {
+                const res = await fetch('/supervisor/status', { cache: 'no-cache' });
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data.ready) {
                         statusDesc.textContent = "✅ Serveur rpinode prêt ! Rechargement...";
                         setTimeout(() => {
                             window.location.reload();
                         }, 600);
+                    } else if (evtSource.readyState === EventSource.CLOSED) {
+                        // Le réseau est revenu mais SSE est fermé, on le relance pour ravoir les logs
+                        evtSource = new EventSource('/supervisor/stream');
+                        setupSSE();
                     }
                 }
             } catch (e) {
-                appendLog(event.data);
+                // Ignoré : le réseau est probablement temporairement down
+                // Ne surtout pas faire de location.reload() ici, sinon le navigateur affiche "Hors ligne"
             }
-        };
-
-        evtSource.onerror = () => {
-            statusDesc.textContent = "Tentative de reconnexion au superviseur...";
-        };
+        }, 2500);
     </script>
 </body>
 </html>"#;
@@ -310,6 +336,7 @@ async fn main() {
 
     let app = Router::new()
         .route("/supervisor/stream", get(handle_supervisor_stream))
+        .route("/supervisor/status", get(handle_supervisor_status))
         .fallback(handle_proxy_or_fallback)
         .with_state(state);
 
@@ -394,6 +421,12 @@ async fn handle_supervisor_stream(
     });
 
     Sse::new(ReceiverStream::new(rx)).keep_alive(KeepAlive::default())
+}
+
+/// Endpoint de secours pour vérifier le statut sans SSE (utile si le réseau coupe)
+async fn handle_supervisor_status(State(state): State<AppState>) -> impl IntoResponse {
+    let is_alive = *state.backend_alive.borrow();
+    axum::Json(serde_json::json!({ "ready": is_alive }))
 }
 
 /// Handler principal : proxy vers le backend Python ou affichage de la page de boot

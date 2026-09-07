@@ -99,28 +99,56 @@
 </section>
 
 <style>
-.card { background: white; padding: 15px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); margin-bottom: 20px; }
-.hint { font-size: 0.85em; color: #666; margin-bottom: 10px; }
+.modbus-tools {
+    --legacy-panel: rgba(44, 62, 80, 0.88);
+    --legacy-panel-soft: rgba(52, 73, 94, 0.78);
+    --legacy-panel-deep: rgba(28, 41, 56, 0.92);
+    --legacy-border: rgba(148, 163, 184, 0.32);
+    --legacy-border-strong: rgba(191, 219, 254, 0.26);
+    --legacy-text: #ecf3f9;
+    --legacy-muted: #c7d3df;
+    --legacy-primary: #3498db;
+    --legacy-primary-hover: #2980b9;
+}
+
+.modbus-tools .header-with-actions {
+    border-bottom-color: var(--legacy-border);
+}
+
+.modbus-tools .card {
+    background: linear-gradient(180deg, rgba(52, 73, 94, 0.88), rgba(44, 62, 80, 0.92));
+    border: 1px solid var(--legacy-border);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.22);
+    margin-bottom: 20px;
+}
+
+.modbus-tools .params-card {
+    background: linear-gradient(180deg, rgba(52, 73, 94, 0.92), rgba(44, 62, 80, 0.96));
+}
+
+.hint { font-size: 0.85em; color: var(--legacy-muted); margin-bottom: 10px; }
 .tools-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
 @media (max-width: 800px) { .tools-grid { grid-template-columns: 1fr; } }
-form label { display: block; font-size: 0.9em; font-weight: bold; margin-bottom: 2px; }
-form input, form select { width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
-form input[type="checkbox"] { width: auto; margin-right: 5px; }
+form label { display: block; font-size: 0.9em; font-weight: bold; margin-bottom: 2px; color: var(--legacy-muted); }
+form input[type="checkbox"] { width: auto; margin-right: 5px; accent-color: var(--legacy-primary); }
+.modbus-tools .btn-primary { background: var(--legacy-primary); color: #fff; border-color: transparent; }
+.modbus-tools .btn-primary:hover { background: var(--legacy-primary-hover); }
+.modbus-tools .btn-secondary { background: var(--legacy-panel-soft); color: var(--legacy-text); border: 1px solid var(--legacy-border); }
+.modbus-tools .btn-secondary:hover { background: rgba(67, 89, 110, 0.92); }
 
-/* Styles pour les résultats de Probe */
-.probe-func-result { margin-bottom: 15px; padding: 10px; border-left: 4px solid #3498db; background: #f8fbfe; border-radius: 4px; }
-.probe-func-result h4 { margin: 0 0 5px 0; color: #333; }
-.probe-summary { font-size: 0.85em; color: #666; margin-bottom: 10px; }
-.probe-table { width: 100%; border-collapse: collapse; font-family: monospace; font-size: 0.9em; background: white; }
-.probe-table th, .probe-table td { padding: 5px; border: 1px solid #ddd; text-align: left; }
-.probe-table th { background: #eee; }
+.probe-func-result { margin-bottom: 15px; padding: 10px; border-left: 4px solid var(--legacy-primary); background: rgba(28, 41, 56, 0.78); border-radius: 4px; color: var(--legacy-text); }
+.probe-func-result h4 { margin: 0 0 5px 0; color: var(--legacy-text); }
+.probe-summary { font-size: 0.85em; color: var(--legacy-muted); margin-bottom: 10px; }
+.probe-table { width: 100%; border-collapse: collapse; font-family: var(--font-mono); font-size: 0.9em; background: rgba(28, 41, 56, 0.82); color: var(--legacy-text); }
+.probe-table th, .probe-table td { padding: 5px; border: 1px solid var(--legacy-border); text-align: left; }
+.probe-table th { background: var(--legacy-panel-deep); color: var(--legacy-muted); }
 
-.font-mono { font-family: monospace; }
+.font-mono { font-family: var(--font-mono); }
 .read-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; margin-top: 10px; }
-.val-box { background: #fff; border: 1px solid #ddd; padding: 8px; border-radius: 4px; text-align: center; }
-.val-box .addr { font-size: 0.8em; color: #888; display: block; }
+.val-box { background: rgba(28, 41, 56, 0.82); border: 1px solid var(--legacy-border); padding: 8px; border-radius: 4px; text-align: center; color: var(--legacy-text); }
+.val-box .addr { font-size: 0.8em; color: var(--legacy-muted); display: block; }
 .val-box .val { font-size: 1.1em; font-weight: bold; display: block; margin-top: 5px; }
-.val-box .hex { font-size: 0.8em; color: #2980b9; display: block; }
+.val-box .hex { font-size: 0.8em; color: #9fd3f4; display: block; }
 </style>
 
 <script>

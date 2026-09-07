@@ -6,7 +6,7 @@
         </div>
     </div>
 
-    <div class="config-card" style="background: white; padding: 24px; border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,0.05); max-width: 600px;">
+    <div class="config-card">
         <form id="general-config-form" onsubmit="saveGeneralConfig(event)">
             <div class="form-group">
                 <label for="fleet_sync_interval">Fréquence de synchronisation globale (secondes)</label>
@@ -36,36 +36,49 @@
 </section>
 
 <style>
-.form-group label { display: block; font-size: 0.9rem; font-weight: 600; color: #334155; margin-bottom: 8px; }
+.configuration-general {
+    --legacy-panel: rgba(44, 62, 80, 0.88);
+    --legacy-panel-soft: rgba(52, 73, 94, 0.78);
+    --legacy-border: rgba(148, 163, 184, 0.32);
+    --legacy-text: #ecf3f9;
+    --legacy-muted: #c7d3df;
+    --legacy-primary: #3498db;
+    --legacy-primary-hover: #2980b9;
+}
+
+.configuration-general .header-with-actions {
+    border-bottom-color: var(--legacy-border);
+}
+
+.configuration-general .config-card {
+    background: linear-gradient(180deg, rgba(52, 73, 94, 0.92), rgba(44, 62, 80, 0.96));
+    border: 1px solid var(--legacy-border);
+    padding: 24px;
+    border-radius: 12px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.22);
+    max-width: 600px;
+}
+
+.form-group label { display: block; font-size: 0.9rem; font-weight: 600; color: var(--legacy-muted); margin-bottom: 8px; }
 .form-group input {
     width: 100%;
     padding: 10px 12px;
-    border: 1px solid #cbd5e1;
-    border-radius: 6px;
     font-size: 1rem;
     box-sizing: border-box;
-    outline: none;
-    transition: border-color 0.15s;
 }
-.form-group input:focus {
-    border-color: #3498db;
-    box-shadow: 0 0 0 3px rgba(52, 152, 219, 0.15);
-}
-.form-hint { font-size: 0.8rem; color: #64748b; margin-top: 4px; display: block; }
-.btn-primary {
-    background: #3498db;
+.form-hint { font-size: 0.8rem; color: var(--legacy-muted); margin-top: 4px; display: block; }
+.configuration-general .btn-primary {
+    background: var(--legacy-primary);
     color: white;
-    border: none;
+    border-color: transparent;
     padding: 10px 20px;
     border-radius: 6px;
     font-weight: bold;
-    cursor: pointer;
-    transition: background 0.2s;
 }
-.btn-primary:hover {
-    background: #2980b9;
+.configuration-general .btn-primary:hover {
+    background: var(--legacy-primary-hover);
 }
-.hint { color: #666; font-size: 0.9rem; margin: 0; }
+.hint { color: var(--legacy-muted); font-size: 0.9rem; margin: 0; }
 </style>
 
 <script>

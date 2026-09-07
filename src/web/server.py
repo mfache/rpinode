@@ -45,17 +45,17 @@ class WebAdminHandler(BaseHTTPRequestHandler):
         parsed_url = urlparse(self.path)
         path = parsed_url.path
         query = parse_qs(parsed_url.query)
-        
+
         if path.startswith("/rpinode/"):
             path = path[len("/rpinode"):]
         elif path == "/rpinode":
             path = "/"
-            
+
         if len(path) > 1 and path.endswith("/"):
             path = path[:-1]
 
         logger.debug(f"GET Request: {path} (original: {self.path})")
-        
+
         if path == "/sw.js":
             return self.serve_static("/static/sw.js")
         if path == "/manifest.json":
@@ -153,7 +153,7 @@ class WebAdminHandler(BaseHTTPRequestHandler):
             return self.serve_ip_scan()
         elif path == "/devices" or path == "/storage/devices":
             return self.serve_devices()
-            
+
         self.send_error(404, "Page non trouvée")
 
     def do_POST(self):
@@ -164,7 +164,7 @@ class WebAdminHandler(BaseHTTPRequestHandler):
             path = path[len("/rpinode"):]
         elif path == "/rpinode":
             path = "/"
-            
+
         if len(path) > 1 and path.endswith("/"):
             path = path[:-1]
 
@@ -275,7 +275,7 @@ class WebAdminHandler(BaseHTTPRequestHandler):
 
             if path.startswith("/"):
                 path = path[1:]
-                
+
             filepath = Path(path)
             if not filepath.exists() or not filepath.is_file():
                 self.send_error(404, "File Not Found")
@@ -305,7 +305,7 @@ class WebAdminHandler(BaseHTTPRequestHandler):
             post_data = self.rfile.read(content_len).decode("utf-8")
             data = json.loads(post_data)
             from services.modbus_tools import probe_range
-            
+
             protocol = data.get("protocol", "tcp")
             address = data.get("address", "")
             port = int(data.get("port", 502))
@@ -315,7 +315,7 @@ class WebAdminHandler(BaseHTTPRequestHandler):
             end = int(data.get("end", 100))
             block = int(data.get("block", 20))
             timeout = float(data.get("timeout", 1.0))
-            
+
             results = probe_range(protocol, address, port, unit, funcs, start, end, block, timeout)
             self.send_json({"status": "ok", "results": results})
         except Exception as e:
@@ -327,7 +327,7 @@ class WebAdminHandler(BaseHTTPRequestHandler):
             post_data = self.rfile.read(content_len).decode("utf-8")
             data = json.loads(post_data)
             from services.modbus_tools import read_registers, read_bits
-            
+
             protocol = data.get("protocol", "tcp")
             address = data.get("address", "")
             port = int(data.get("port", 502))
@@ -338,12 +338,12 @@ class WebAdminHandler(BaseHTTPRequestHandler):
             wire_addr = reg_addr - (1 if base == 1 else 0)
             count = int(data.get("count", 1))
             timeout = float(data.get("timeout", 1.5))
-            
+
             if func in (1, 2):
                 vals = read_bits(protocol, address, port, unit, func, wire_addr, count, timeout)
             else:
                 vals = read_registers(protocol, address, port, unit, func, wire_addr, count, timeout)
-                
+
             self.send_json({"status": "ok", "values": vals, "function": func})
         except Exception as e:
             self.send_json({"status": "error", "message": str(e)})
@@ -354,7 +354,7 @@ class WebAdminHandler(BaseHTTPRequestHandler):
             post_data = self.rfile.read(content_len).decode("utf-8")
             data = json.loads(post_data)
             from services.modbus_tools import write_single_register, write_single_coil
-            
+
             protocol = data.get("protocol", "tcp")
             address = data.get("address", "")
             port = int(data.get("port", 502))
@@ -363,12 +363,12 @@ class WebAdminHandler(BaseHTTPRequestHandler):
             reg_addr = int(data.get("address_start", 0))
             value = float(data.get("value", 0))
             timeout = float(data.get("timeout", 1.0))
-            
+
             if func == 5:
                 write_single_coil(protocol, address, port, unit, reg_addr, bool(value), timeout)
             else:
                 write_single_register(protocol, address, port, unit, reg_addr, int(value), timeout)
-                
+
             self.send_json({"status": "ok", "message": "Écriture effectuée avec succès."})
         except Exception as e:
             self.send_json({"status": "error", "message": str(e)})
@@ -378,18 +378,18 @@ class WebAdminHandler(BaseHTTPRequestHandler):
         base_url = config.get("base_url", "")
         hostname = socket.gethostname()
         version = str(int(time.time()))
-        
+
         from services.presence import get_current_site_name
         site_name = get_current_site_name()
-        
+
         widget_cpu = render("widget.html", widget_id="cpu", title="Statut Système", data="Chargement...")
         widget_net = render("widget.html", widget_id="net", title="Réseau / Chantier", data=site_name)
         all_widgets = f"{widget_cpu}\n{widget_net}"
-        
+
         nav_html = render("nav.html", base_url=base_url)
         content = render("home.html", user="Admin", widgets=all_widgets)
-        final_html = render("layout.html", title="Accueil", hostname=escape(hostname), base_url=escape(base_url), version=version, nav=nav_html, content=content)
-        
+        final_html = render("layout.html", title="Accueil", site_name=escape(site_name), base_url=escape(base_url), version=version, nav=nav_html, content=content)
+
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.end_headers()
@@ -555,18 +555,18 @@ class WebAdminHandler(BaseHTTPRequestHandler):
         from services.modbus_mgr import get_site_modbus_points
         from services.presence import get_current_site_name
         site_name = get_current_site_name()
-        
+
         with get_db_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT id FROM sites WHERE name = ?", (site_name,))
             site_row = cursor.fetchone()
             site_id = site_row["id"] if site_row else None
-            
+
         points = get_site_modbus_points(site_id, only_monitored=True) if site_id else []
-        
+
         rows_html = ""
         cadences = ["5s", "10s", "30s", "1m", "5m"]
-        
+
         for p in points:
             pid = p["id"]
             rec_checked = "checked" if p["is_recorded"] else ""
@@ -577,9 +577,9 @@ class WebAdminHandler(BaseHTTPRequestHandler):
             val_display = p["last_value"] if p["last_value"] is not None else "—"
             if p["unit"] and p["last_value"] is not None:
                 val_display += f" {p['unit']}"
-                
+
             unit_display = f"<code>{p['protocol']}://{p['address']}{':' + str(p['port']) if p['port'] and p['port'] != 502 else ''}</code>"
-            
+
             rows_html += f"""
                 <tr id="suivi-row-{pid}">
                     <td><strong>{escape(p['device_name'])}</strong><br><small style="color:#777;">{unit_display}</small></td>
@@ -602,14 +602,14 @@ class WebAdminHandler(BaseHTTPRequestHandler):
                     </td>
                 </tr>
             """
-            
+
         if not points:
             rows_html = "<tr><td colspan='7' style='text-align:center; padding:30px; color:#888;'>Aucun point sélectionné pour le suivi sur ce chantier.<br><a href='" + base_url + "/modbus/devices' class='btn-secondary btn-sm' style='margin-top:10px; display:inline-block;'>Sélectionner des points sur un appareil</a></td></tr>"
-            
+
         content = render("modbus_suivi.html", site_name=site_name, suivi_rows_html=rows_html, base_url=base_url)
         nav_html = render("nav.html", base_url=base_url)
         final_html = render("layout.html", title="Suivi Modbus (Live)", hostname=escape(hostname), base_url=escape(base_url), version=version, nav=nav_html, content=content)
-        
+
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.end_headers()
@@ -619,16 +619,16 @@ class WebAdminHandler(BaseHTTPRequestHandler):
         from services.modbus_mgr import read_site_monitored_points_live
         from services.presence import get_current_site_name
         site_name = get_current_site_name()
-        
+
         with get_db_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT id FROM sites WHERE name = ?", (site_name,))
             row = cursor.fetchone()
             site_id = row["id"] if row else None
-            
+
         if not site_id:
             return self.send_json({"status": "error", "message": "Aucun chantier actif", "values": {}})
-            
+
         values = read_site_monitored_points_live(site_id)
         self.send_json({"status": "ok", "values": values})
 
@@ -639,20 +639,20 @@ class WebAdminHandler(BaseHTTPRequestHandler):
             data = json.loads(post_data)
             device_id = int(data.get("device_id"))
             points = data.get("points", [])
-            
+
             from services.modbus_mgr import save_device_points_selection
             from services.presence import get_current_site_name
             site_name = get_current_site_name()
-            
+
             with get_db_connection() as conn:
                 cursor = conn.cursor()
                 cursor.execute("SELECT id FROM sites WHERE name = ?", (site_name,))
                 row = cursor.fetchone()
                 site_id = row["id"] if row else None
-                
+
             if not site_id:
                 return self.send_json({"status": "error", "message": "Aucun chantier actif"})
-                
+
             save_device_points_selection(device_id, site_id, points)
             self.send_json({"status": "ok", "message": "Sélection enregistrée"})
         except Exception as e:
@@ -668,7 +668,7 @@ class WebAdminHandler(BaseHTTPRequestHandler):
             is_monitored = data.get("is_monitored")
             is_recorded = data.get("is_recorded")
             cadence = data.get("cadence")
-            
+
             from services.modbus_mgr import update_point_settings
             success = update_point_settings(point_id, is_monitored=is_monitored, is_recorded=is_recorded, cadence=cadence)
             if success:
@@ -718,14 +718,14 @@ class WebAdminHandler(BaseHTTPRequestHandler):
             cursor.execute("SELECT id FROM sites WHERE name = ?", (site_name,))
             site_row = cursor.fetchone()
             site_id = site_row["id"] if site_row else None
-        
+
         templates = get_all_templates()
         devices = get_site_devices(site_id) if site_id else []
-        
+
         total_monitored_site = 0
         total_recorded_site = 0
         cards_html = []
-        
+
         with get_db_connection() as conn:
             cursor = conn.cursor()
             for d in devices:
@@ -740,7 +740,7 @@ class WebAdminHandler(BaseHTTPRequestHandler):
                 rec_count = stats["count_rec"] or 0
                 total_monitored_site += mon_count
                 total_recorded_site += rec_count
-                
+
                 # Nombre total de registres dans le template
                 total_tpl_regs = 0
                 cursor.execute("SELECT registers_json FROM modbus_templates WHERE id = ?", (d["template_id"],))
@@ -751,7 +751,7 @@ class WebAdminHandler(BaseHTTPRequestHandler):
                         total_tpl_regs = len(regs)
                     except Exception:
                         total_tpl_regs = 0
-                        
+
                 is_tcp = (d.get("protocol") == "tcp")
                 proto_label = "Modbus TCP" if is_tcp else "Modbus RTU"
                 proto_class = "proto-modbus-tcp" if is_tcp else "proto-modbus-mstp"
@@ -761,9 +761,9 @@ class WebAdminHandler(BaseHTTPRequestHandler):
                     addr_display = f"{d['protocol']}://{d['address']}{port_str} (Esclave {slave_unit})"
                 else:
                     addr_display = f"Modbus RTU (Esclave {slave_unit})"
-                
+
                 manu = d.get('template_manufacturer') or 'Générique'
-                
+
                 cards_html.append(f"""
                 <div class="device-card" id="device-card-{dev_id}">
                     <div class="device-card-header">
@@ -817,7 +817,7 @@ class WebAdminHandler(BaseHTTPRequestHandler):
                     </div>
                 </div>
                 """)
-        
+
         devices_html = "".join(cards_html)
         if not devices:
             devices_html = f"""
@@ -828,9 +828,9 @@ class WebAdminHandler(BaseHTTPRequestHandler):
                 <button class="btn-primary" onclick="showAddDeviceModal()" style="margin-top: 15px;">➕ Ajouter un premier appareil</button>
             </div>
             """
-        
+
         options_html = "".join([f"<option value='{t['id']}'>{t['name']} ({t.get('manufacturer') or 'Générique'})</option>" for t in templates])
-        
+
         content = render(
             "modbus_devices.html",
             site_name=site_name,
@@ -843,7 +843,7 @@ class WebAdminHandler(BaseHTTPRequestHandler):
         )
         nav_html = render("nav.html", base_url=base_url)
         final_html = render("layout.html", title="Appareils Modbus", hostname=escape(hostname), base_url=escape(base_url), version=version, nav=nav_html, content=content)
-        
+
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.end_headers()
@@ -854,12 +854,12 @@ class WebAdminHandler(BaseHTTPRequestHandler):
         if not device_id.isdigit():
             self.send_error(400, "ID d'appareil invalide")
             return
-            
+
         config = load_config()
         base_url = config.get("base_url", "")
         hostname = socket.gethostname()
         version = str(int(time.time()))
-        
+
         with get_db_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
@@ -869,38 +869,38 @@ class WebAdminHandler(BaseHTTPRequestHandler):
                 WHERE d.id = ?
             """, (int(device_id),))
             device = cursor.fetchone()
-            
+
         if not device:
             self.send_error(404, "Appareil non trouvé")
             return
-            
+
         device = dict(device)
         registers = json.loads(device.get("registers_json") or "[]")
-        
+
         from services.modbus_mgr import get_device_points
         existing_points = get_device_points(int(device_id))
         monitored_keys = {f"{p['function']}:{p['reg']}": p for p in existing_points if p.get("is_monitored")}
-        
+
         rows_html = ""
         for i, reg in enumerate(registers):
             func_val = reg.get("function", 3)
             # Normaliser la fonction (si texte)
-            if str(func_val).lower().startswith("fc"): 
+            if str(func_val).lower().startswith("fc"):
                 func_val = int(func_val[2:])
             elif isinstance(func_val, str) and func_val.isdigit():
                 func_val = int(func_val)
-                
+
             reg_num = int(reg.get('reg'))
             base_val = int(reg.get('base', 0))
             scale = reg.get("scale", 1.0)
             if scale is None: scale = 1.0
-            
+
             is_mon = f"{func_val}:{reg_num}" in monitored_keys
             chk_attr = "checked" if is_mon else ""
-            
+
             # Attributs de données pour le JS
             data_attrs = f"data-reg='{reg_num}' data-base='{base_val}' data-func='{func_val}' data-type='{reg.get('type', 'int16')}' data-scale='{scale}' data-name='{escape(reg.get('name', ''))}' data-unit='{escape(reg.get('unit', ''))}'"
-            
+
             rows_html += f"""
                 <tr class="point-row" {data_attrs} id="row-{i}">
                     <td style="text-align:center;">
@@ -916,10 +916,10 @@ class WebAdminHandler(BaseHTTPRequestHandler):
                     </td>
                 </tr>
             """
-            
+
         if not registers:
             rows_html = "<tr><td colspan='7'>Aucun point défini dans ce template.</td></tr>"
-            
+
         is_tcp = (device.get("protocol") == "tcp")
         slave_unit = device.get("slave_unit") or 1
         port_val = device["port"] or 502
@@ -936,8 +936,8 @@ class WebAdminHandler(BaseHTTPRequestHandler):
             "port": port_val,
             "unit": slave_unit,
         })
-            
-        content = render("modbus_device_view.html", 
+
+        content = render("modbus_device_view.html",
                          device_name=device["name"],
                          modbus_template_name=device["template_name"],
                          protocol=device["protocol"],
@@ -948,10 +948,10 @@ class WebAdminHandler(BaseHTTPRequestHandler):
                          rows_html=rows_html,
                          device_json=device_json,
                          base_url=base_url)
-                         
+
         nav_html = render("nav.html", base_url=base_url)
         final_html = render("layout.html", title=device["name"], hostname=escape(hostname), base_url=escape(base_url), version=version, nav=nav_html, content=content)
-        
+
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.end_headers()
@@ -963,9 +963,9 @@ class WebAdminHandler(BaseHTTPRequestHandler):
         hostname = socket.gethostname()
         version = str(int(time.time()))
         from services.modbus_mgr import get_templates_overview
-        
+
         local_templates, fleet_templates = get_templates_overview()
-        
+
         local_html = ""
         for t in local_templates:
             t_json = json.dumps(dict(t)).replace("'", "\\'")
@@ -975,7 +975,7 @@ class WebAdminHandler(BaseHTTPRequestHandler):
                 reg_count = len(regs)
             except Exception:
                 reg_count = 0
-                
+
             version_badge = f"<span style='background:#e8f4fd; color:#2980b9; padding:2px 6px; border-radius:10px; font-size:0.75em; font-weight:bold; margin-left:5px;'>v{t.get('version', 1)}</span>"
             if t.get('is_shared') == 1:
                 status_badge = "<span style='background:#e8f8f5; color:#16a085; padding:2px 6px; border-radius:10px; font-size:0.75em; margin-left:4px;'>🌐 Partagé</span>"
@@ -996,7 +996,7 @@ class WebAdminHandler(BaseHTTPRequestHandler):
             )
         if not local_templates:
             local_html = "<tr><td colspan='4' style='text-align:center; color:#888; padding:25px;'>Aucun template installé localement.<br><small>Installez-en depuis la bibliothèque de la flotte à droite ou créez-en un nouveau !</small></td></tr>"
-            
+
         fleet_html = ""
         for f in fleet_templates:
             escaped_name = f['name'].replace("'", "\\'")
@@ -1014,7 +1014,7 @@ class WebAdminHandler(BaseHTTPRequestHandler):
                 status_action = (
                     f"<button class='btn-primary btn-sm' onclick='importFromFleet(\"{escaped_name}\", false)'>⬇️ Installer (v{f['version']})</button>"
                 )
-                
+
             fleet_html += (
                 f"<tr data-name='{escape(f['name']).lower()}'>"
                 f"<td><strong>{escape(f['name'])}</strong></td>"
@@ -1025,7 +1025,7 @@ class WebAdminHandler(BaseHTTPRequestHandler):
             )
         if not fleet_templates:
             fleet_html = "<tr><td colspan='4' style='text-align:center; color:#888; padding:25px;'>Bibliothèque de la flotte inaccessible (ou 0 template disponible).</td></tr>"
-            
+
         content = render(
             "modbus_templates.html",
             local_templates_html=local_html,
@@ -1036,7 +1036,7 @@ class WebAdminHandler(BaseHTTPRequestHandler):
         )
         nav_html = render("nav.html", base_url=base_url)
         final_html = render("layout.html", title="Templates Modbus", hostname=escape(hostname), base_url=escape(base_url), version=version, nav=nav_html, content=content)
-        
+
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.end_headers()
@@ -1291,18 +1291,18 @@ class WebAdminHandler(BaseHTTPRequestHandler):
         from services.bacnet_mgr import get_site_bacnet_points
         from services.presence import get_current_site_name
         site_name = get_current_site_name()
-        
+
         with get_db_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT id FROM sites WHERE name = ?", (site_name,))
             site_row = cursor.fetchone()
             site_id = site_row["id"] if site_row else None
-            
+
         points = get_site_bacnet_points(site_id, only_monitored=True) if site_id else []
-        
+
         rows_html = ""
         cadences = ["5s", "10s", "30s", "1m", "5m"]
-        
+
         for p in points:
             pid = p["id"]
             rec_checked = "checked" if p["is_recorded"] else ""
@@ -1312,7 +1312,7 @@ class WebAdminHandler(BaseHTTPRequestHandler):
             ])
             val_display = p["last_value"] if p["last_value"] is not None else "—"
             unit_display = f"<code>bacnet://{p['network_address']} (Inst: {p['device_instance']})</code>"
-            
+
             rows_html += f"""
                 <tr id="suivi-row-{pid}">
                     <td><strong>{escape(p['device_name'])}</strong><br><small style="color:#777;">{unit_display}</small></td>
@@ -1335,14 +1335,14 @@ class WebAdminHandler(BaseHTTPRequestHandler):
                     </td>
                 </tr>
             """
-            
+
         if not points:
             rows_html = "<tr><td colspan='7' style='text-align:center; padding:30px; color:#888;'>Aucun point BACnet sélectionné pour le suivi sur ce chantier.<br><a href='" + base_url + "/bacnet/devices' class='btn-secondary btn-sm' style='margin-top:10px; display:inline-block;'>Sélectionner des points sur un appareil</a></td></tr>"
-            
+
         content = render("bacnet_suivi.html", site_name=site_name, suivi_rows_html=rows_html, base_url=base_url)
         nav_html = render("nav.html", base_url=base_url)
         final_html = render("layout.html", title="Suivi BACnet (Live)", hostname=escape(hostname), base_url=escape(base_url), version=version, nav=nav_html, content=content)
-        
+
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.end_headers()
@@ -1352,16 +1352,16 @@ class WebAdminHandler(BaseHTTPRequestHandler):
         from services.bacnet_mgr import read_site_monitored_points_live
         from services.presence import get_current_site_name
         site_name = get_current_site_name()
-        
+
         with get_db_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT id FROM sites WHERE name = ?", (site_name,))
             row = cursor.fetchone()
             site_id = row["id"] if row else None
-            
+
         if not site_id:
             return self.send_json({"status": "error", "message": "Aucun chantier actif", "values": {}})
-            
+
         values = read_site_monitored_points_live(site_id)
         self.send_json({"status": "ok", "values": values})
 
@@ -1370,12 +1370,12 @@ class WebAdminHandler(BaseHTTPRequestHandler):
         if not device_id.isdigit():
             self.send_error(400, "ID d'appareil invalide")
             return
-            
+
         config = load_config()
         base_url = config.get("base_url", "")
         hostname = socket.gethostname()
         version = str(int(time.time()))
-        
+
         with get_db_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
@@ -1385,28 +1385,28 @@ class WebAdminHandler(BaseHTTPRequestHandler):
                 WHERE d.id = ?
             """, (int(device_id),))
             device = cursor.fetchone()
-            
+
         if not device:
             self.send_error(404, "Appareil non trouvé")
             return
-            
+
         device = dict(device)
         objects = json.loads(device.get("objects_json") or "[]")
-        
+
         from services.bacnet_mgr import get_device_points
         existing_points = get_device_points(int(device_id))
         monitored_keys = {p['object_id']: p for p in existing_points if p.get("is_monitored")}
-        
+
         rows_html = ""
         for i, obj in enumerate(objects):
             obj_id = obj.get("obj", "")
             obj_name = obj.get("name", "") or obj_id
-            
+
             is_mon = obj_id in monitored_keys
             chk_attr = "checked" if is_mon else ""
-            
+
             data_attrs = f"data-obj='{escape(obj_id)}' data-name='{escape(obj_name)}'"
-            
+
             rows_html += f"""
                 <tr class="point-row" {data_attrs} id="row-{i}">
                     <td style="text-align:center;">
@@ -1420,19 +1420,19 @@ class WebAdminHandler(BaseHTTPRequestHandler):
                     </td>
                 </tr>
             """
-            
+
         if not objects:
             rows_html = "<tr><td colspan='5' style='text-align:center; padding:20px; color:#888;'>Aucun objet défini dans le modèle de cet appareil.</td></tr>"
-            
+
         device_json = json.dumps({
             "id": device["id"],
             "name": device["name"],
             "network_address": device["network_address"],
             "device_instance": device["device_instance"]
         })
-        
+
         conn_display = f"{device['network_address']} (Instance {device['device_instance']})"
-        
+
         content = render(
             "bacnet_device_view.html",
             device_name=escape(device["name"]),
@@ -1444,7 +1444,7 @@ class WebAdminHandler(BaseHTTPRequestHandler):
         )
         nav_html = render("nav.html", base_url=base_url)
         final_html = render("layout.html", title=f"Points BACnet - {escape(device['name'])}", hostname=escape(hostname), base_url=escape(base_url), version=version, nav=nav_html, content=content)
-        
+
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.end_headers()
@@ -1457,20 +1457,20 @@ class WebAdminHandler(BaseHTTPRequestHandler):
             data = json.loads(post_data)
             device_id = int(data.get("device_id"))
             points = data.get("points", [])
-            
+
             from services.bacnet_mgr import save_device_points_selection
             from services.presence import get_current_site_name
             site_name = get_current_site_name()
-            
+
             with get_db_connection() as conn:
                 cursor = conn.cursor()
                 cursor.execute("SELECT id FROM sites WHERE name = ?", (site_name,))
                 row = cursor.fetchone()
                 site_id = row["id"] if row else None
-                
+
             if not site_id:
                 return self.send_json({"status": "error", "message": "Aucun chantier actif"})
-                
+
             save_device_points_selection(device_id, site_id, points)
             self.send_json({"status": "ok", "message": "Sélection enregistrée"})
         except Exception as e:
@@ -1486,7 +1486,7 @@ class WebAdminHandler(BaseHTTPRequestHandler):
             is_monitored = data.get("is_monitored")
             is_recorded = data.get("is_recorded")
             cadence = data.get("cadence")
-            
+
             from services.bacnet_mgr import update_point_settings
             success = update_point_settings(point_id, is_monitored=is_monitored, is_recorded=is_recorded, cadence=cadence)
             if success:
@@ -1518,10 +1518,10 @@ class WebAdminHandler(BaseHTTPRequestHandler):
             ip = data.get("address") or data.get("ip")
             obj_id = data.get("object_id") or data.get("obj")
             device_id = data.get("device_id") or data.get("device_instance")
-            
+
             if not ip or not obj_id:
                 return self.send_json({"status": "error", "message": "Adresse IP et Object ID requis"})
-                
+
             job_id = str(uuid.uuid4())
             res_queue = queue.Queue()
 
@@ -2062,19 +2062,19 @@ class WebAdminHandler(BaseHTTPRequestHandler):
         from services.bacnet_mgr import get_site_bacnet_points
         from services.presence import get_current_site_name
         site_name = get_current_site_name()
-        
+
         with get_db_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT id FROM sites WHERE name = ?", (site_name,))
             site_row = cursor.fetchone()
             site_id = site_row["id"] if site_row else None
-            
+
         modbus_points = get_site_modbus_points(site_id, only_monitored=True) if site_id else []
         bacnet_points = get_site_bacnet_points(site_id, only_monitored=True) if site_id else []
-        
+
         rows_html = ""
         cadences = ["5s", "10s", "30s", "1m", "5m"]
-        
+
         for p in modbus_points:
             pid = p["id"]
             rec_checked = "checked" if p["is_recorded"] else ""
@@ -2085,13 +2085,13 @@ class WebAdminHandler(BaseHTTPRequestHandler):
             val_display = p["last_value"] if p["last_value"] is not None else "—"
             if p["unit"] and p["last_value"] is not None:
                 val_display += f" {p['unit']}"
-                
+
             unit_display = f"<code>{p['protocol']}://{p['address']}{':' + str(p['port']) if p['port'] and p['port'] != 502 else ''}</code>"
             is_tcp = (p.get("protocol") == "tcp")
             proto_key = "modbus-tcp" if is_tcp else "modbus-mstp"
             proto_badge = "proto-modbus-tcp" if is_tcp else "proto-modbus-mstp"
             proto_label = "MODBUS TCP" if is_tcp else "MODBUS RTU"
-            
+
             rows_html += f"""
                 <tr id="suivi-row-{pid}" data-proto="{proto_key}">
                     <td><span class="badge-protocol {proto_badge}">{proto_label}</span></td>
@@ -2115,7 +2115,7 @@ class WebAdminHandler(BaseHTTPRequestHandler):
                     </td>
                 </tr>
             """
-            
+
         for p in bacnet_points:
             pid = p["id"]
             rec_checked = "checked" if p["is_recorded"] else ""
@@ -2125,7 +2125,7 @@ class WebAdminHandler(BaseHTTPRequestHandler):
             ])
             val_display = p["last_value"] if p["last_value"] is not None else "—"
             unit_display = f"<code>bacnet://{p['network_address']} (Inst: {p['device_instance']})</code>"
-            
+
             rows_html += f"""
                 <tr id="suivi-row-bac-{pid}" data-proto="bacnet-ip">
                     <td><span class="badge-protocol proto-bacnet-ip">BACNET/IP</span></td>
@@ -2149,14 +2149,14 @@ class WebAdminHandler(BaseHTTPRequestHandler):
                     </td>
                 </tr>
             """
-            
+
         if not modbus_points and not bacnet_points:
             rows_html = "<tr><td colspan='8' style='text-align:center; padding:30px; color:#888;'>Aucun point sélectionné pour le suivi sur ce chantier.<br><a href='" + base_url + "/modbus/devices' class='btn-secondary btn-sm' style='margin-top:10px; display:inline-block; margin-right: 8px;'>Appareils Modbus</a><a href='" + base_url + "/bacnet/devices' class='btn-secondary btn-sm' style='margin-top:10px; display:inline-block;'>Appareils BACnet</a></td></tr>"
-            
+
         content = render("trends.html", site_name=site_name, trends_rows_html=rows_html, base_url=base_url)
         nav_html = render("nav.html", base_url=base_url)
         final_html = render("layout.html", title="Suivi Global des Points", hostname=escape(hostname), base_url=escape(base_url), version=version, nav=nav_html, content=content)
-        
+
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.end_headers()
@@ -2167,16 +2167,16 @@ class WebAdminHandler(BaseHTTPRequestHandler):
         from services.bacnet_mgr import read_site_monitored_points_live as read_bacnet_live
         from services.presence import get_current_site_name
         site_name = get_current_site_name()
-        
+
         with get_db_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT id FROM sites WHERE name = ?", (site_name,))
             row = cursor.fetchone()
             site_id = row["id"] if row else None
-            
+
         if not site_id:
             return self.send_json({"status": "error", "message": "Aucun chantier actif", "values": {}})
-            
+
         mb_values = read_modbus_live(site_id)
         bac_values = read_bacnet_live(site_id)
         combined = {}
@@ -2196,19 +2196,19 @@ class WebAdminHandler(BaseHTTPRequestHandler):
             custom_columns = [dict(r) for r in rows]
         devices_rows = ""
         global_scanned_at = results.get("scanned_at", "Jamais")
-        
+
         if results and results.get("devices"):
             for d in results["devices"]:
                 mac = d.get('mac', '').lower()
                 vendor = d.get("vendor") or "Inconnu"
                 is_dirty = d.get("is_dirty", 0)
-                
+
                 # Détermination En ligne / Hors ligne
                 is_offline = (d.get("last_seen") != global_scanned_at)
                 row_class = "row-offline" if is_offline else ""
                 status_dot = "<span title='Hors ligne (historique)' style='color: #e74c3c; font-size: 0.8em; margin-right: 5px;'>🔴</span>" if is_offline else "<span title='En ligne' style='color: #2ecc71; font-size: 0.8em; margin-right: 5px;'>🟢</span>"
                 ip_style = "opacity: 0.5; text-decoration: line-through;" if is_offline else "font-weight: bold;"
-                
+
                 ports = d.get("ports", [])
                 formatted_ports = []
                 for p in ports:
@@ -2218,7 +2218,7 @@ class WebAdminHandler(BaseHTTPRequestHandler):
                     elif p == 47808:
                         bacnet_info = []
                         inst_param = ""
-                        if d.get("bacnet_instance"): 
+                        if d.get("bacnet_instance"):
                             bacnet_info.append(f"Inst: {d['bacnet_instance']}")
                             inst_param = f"&instance={d['bacnet_instance']}"
                         if d.get("bacnet_name") and d.get("bacnet_name") != "Automate BACnet": bacnet_info.append(d["bacnet_name"])
@@ -2255,9 +2255,9 @@ class WebAdminHandler(BaseHTTPRequestHandler):
         hostname = socket.gethostname()
         version = str(int(time.time()))
         from services.ipscan import load_ipscan_results, is_ipscan_running
-        
+
         devices_rows, scanned_at, custom_columns = self._render_ip_scan_rows(base_url)
-        
+
         custom_headers = ""
         for col in custom_columns:
             custom_headers += f"<th><div style='display:flex; align-items:center; justify-content:space-between;'>{escape(col['column_label'])}<button class='btn-icon-sm' onclick=\"deleteColumn('{col['column_key']}', '{escape(col['column_label'])}')\">×</button></div></th>"
@@ -2391,17 +2391,17 @@ class WebAdminHandler(BaseHTTPRequestHandler):
             types = data.get("reg_type[]", [])
             scales = data.get("reg_scale[]", [])
             units = data.get("reg_unit[]", [])
-            
-            if isinstance(addrs, str): 
+
+            if isinstance(addrs, str):
                 addrs, funcs, bases, names, types, scales, units = [addrs], [funcs], [bases], [names], [types], [scales], [units]
-                
+
             for i in range(len(addrs)):
-                if addrs[i] and names[i]: 
+                if addrs[i] and names[i]:
                     registers.append({
-                        "reg": int(addrs[i]), 
+                        "reg": int(addrs[i]),
                         "function": int(funcs[i]) if i < len(funcs) and funcs[i] else 3,
                         "base": int(bases[i]) if i < len(bases) and bases[i] else 0,
-                        "name": names[i], 
+                        "name": names[i],
                         "type": types[i] if i < len(types) else "int16",
                         "scale": float(scales[i]) if i < len(scales) and scales[i] else 1.0,
                         "unit": units[i] if i < len(units) and units[i] else ""
@@ -2713,18 +2713,18 @@ class WebAdminHandler(BaseHTTPRequestHandler):
         base_url = config.get("base_url", "")
         hostname = socket.gethostname()
         version = config.get("version", str(int(time.time())))
-        
+
         logger_retries = config.get("logger_retries", 3)
         modbus_timeout = config.get("modbus_timeout", 1.2)
         bacnet_timeout = config.get("bacnet_timeout", 45)
-        
+
         nav_html = render("nav.html", base_url=base_url)
-        content = render("configuration_logger.html", 
+        content = render("configuration_logger.html",
                          logger_retries=logger_retries,
                          modbus_timeout=modbus_timeout,
                          bacnet_timeout=bacnet_timeout)
         final_html = render("layout.html", title="Configuration Enregistreurs", hostname=escape(hostname), base_url=escape(base_url), version=version, nav=nav_html, content=content)
-        
+
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.end_headers()
@@ -2735,11 +2735,11 @@ class WebAdminHandler(BaseHTTPRequestHandler):
         base_url = config.get("base_url", "")
         hostname = socket.gethostname()
         version = config.get("version", str(int(time.time())))
-        
+
         nav_html = render("nav.html", base_url=base_url)
         content = render("configuration_mqtt.html")
         final_html = render("layout.html", title="Moniteur MQTT", hostname=escape(hostname), base_url=escape(base_url), version=version, nav=nav_html, content=content)
-        
+
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.end_headers()
@@ -2750,11 +2750,11 @@ class WebAdminHandler(BaseHTTPRequestHandler):
         base_url = config.get("base_url", "")
         hostname = socket.gethostname()
         version = config.get("version", str(int(time.time())))
-        
+
         nav_html = render("nav.html", base_url=base_url)
         content = render("configuration_sse.html")
         final_html = render("layout.html", title="Moniteur SSE", hostname=escape(hostname), base_url=escape(base_url), version=version, nav=nav_html, content=content)
-        
+
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.end_headers()
@@ -2769,15 +2769,15 @@ class WebAdminHandler(BaseHTTPRequestHandler):
             content_length = int(self.headers["Content-Length"])
             post_data = self.rfile.read(content_length)
             params = json.loads(post_data)
-            
+
             config = load_config()
             config["logger_retries"] = int(params.get("logger_retries", 3))
             config["modbus_timeout"] = float(params.get("modbus_timeout", 1.2))
             config["bacnet_timeout"] = int(params.get("bacnet_timeout", 45))
-            
+
             from core.config import save_config
             save_config(config)
-            
+
             self.send_json({"status": "ok"})
         except Exception as e:
             logger.error(f"Erreur lors de la sauvegarde de la configuration logger : {e}")
@@ -2930,7 +2930,7 @@ class WebAdminHandler(BaseHTTPRequestHandler):
             with get_db_connection() as conn:
                 # 1. Supprimer la définition
                 conn.execute("DELETE FROM custom_column_definitions WHERE table_id = ? AND column_key = ?", (table_id, column_key))
-                
+
                 # 2. Nettoyer les données dans discovered_devices si c'est pour l'IP scan
                 if table_id == 'ip_scan':
                     rows = conn.execute("SELECT mac, annotations_json FROM discovered_devices WHERE annotations_json LIKE ?", (f'%"{column_key}":%',)).fetchall()
@@ -2941,9 +2941,9 @@ class WebAdminHandler(BaseHTTPRequestHandler):
                                 del annots[column_key]
                                 conn.execute("UPDATE discovered_devices SET annotations_json = ?, is_dirty = 1 WHERE mac = ?", (json.dumps(annots), row["mac"]))
                         except: continue
-                
+
                 conn.commit()
-            
+
             # Déclenchement synchro pour propager la suppression au serveur docs
             if fleet.is_registered():
                 fleet.delete_table_column(table_id, column_key)
@@ -2962,18 +2962,18 @@ class WebAdminHandler(BaseHTTPRequestHandler):
             mac = data.get('mac', '').lower()
             vendor = data.get('vendor')
             annotations = data.get('annotations')
-            
+
             logger.info(f"handle_ip_annotate: mac={mac}, vendor={vendor}, annotations={annotations}")
-            
+
             if not mac:
                 return self.send_json({"status": "error", "message": "MAC manquante"})
-                
+
             from services.presence import get_current_site_id
             site_id = get_current_site_id()
             logger.info(f"handle_ip_annotate: site_id={site_id}")
             if not site_id:
                 return self.send_json({"status": "error", "message": "Aucun chantier actif"})
-                
+
             with get_db_connection() as conn:
                 # 1. Mise à jour Fabricant (OUI) si fourni
                 if vendor:
@@ -2981,18 +2981,18 @@ class WebAdminHandler(BaseHTTPRequestHandler):
                     prefix = mac[:8].upper()
                     logger.info(f"handle_ip_annotate: updating vendor for prefix={prefix}")
                     conn.execute("""
-                        INSERT INTO mac_vendors (prefix, vendor, is_dirty) 
-                        VALUES (?, ?, 1) 
+                        INSERT INTO mac_vendors (prefix, vendor, is_dirty)
+                        VALUES (?, ?, 1)
                         ON CONFLICT(prefix) DO UPDATE SET vendor = EXCLUDED.vendor, is_dirty = 1
                     """, (prefix, vendor))
-                    
+
                     # Local (discovered_devices)
                     conn.execute("""
                         INSERT INTO discovered_devices (site_id, mac, vendor, is_dirty)
                         VALUES (?, ?, ?, 1)
                         ON CONFLICT(site_id, mac) DO UPDATE SET vendor = EXCLUDED.vendor, is_dirty = 1
                     """, (site_id, mac, vendor))
-                
+
                 # 2. Mise à jour Annotations si fournies
                 if annotations is not None:
                     logger.info(f"handle_ip_annotate: updating annotations={annotations}")
@@ -3000,16 +3000,16 @@ class WebAdminHandler(BaseHTTPRequestHandler):
                     existing = json.loads(row["annotations_json"]) if row and row["annotations_json"] else {}
                     if isinstance(annotations, dict):
                         existing.update(annotations)
-                    
+
                     logger.info(f"handle_ip_annotate: new annotations_json={json.dumps(existing)}")
                     conn.execute("""
                         INSERT INTO discovered_devices (site_id, mac, annotations_json, is_dirty)
                         VALUES (?, ?, ?, 1)
                         ON CONFLICT(site_id, mac) DO UPDATE SET annotations_json = EXCLUDED.annotations_json, is_dirty = 1
                     """, (site_id, mac, json.dumps(existing)))
-                
+
                 conn.commit()
-            
+
             logger.info("handle_ip_annotate: success")
             return self.send_json({"status": "ok"})
         except Exception as e:

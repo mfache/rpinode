@@ -55,7 +55,7 @@
 
         <div id="results-area" style="display: none; margin-top: 20px;">
             <div class="card" style="padding: 0;">
-                <div style="padding: 15px; background: #f8fafc; border-bottom: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center;">
+                <div class="results-header" style="padding: 15px; background: #f8fafc; border-bottom: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center;">
                     <h3 style="margin: 0;">Objets Découverts <span id="objects-count" class="badge-count-main">0</span></h3>
                     <button class="btn-secondary" onclick="generateTemplate()" id="btn-generate" disabled>📄 Créer un template depuis la sélection</button>
                 </div>
@@ -120,7 +120,7 @@
 
         <div id="catalog-results-area" style="display: none; margin-top: 20px;">
             <div class="card" style="padding: 0;">
-                <div style="padding: 12px 15px; background: #f0fdf4; border-bottom: 1px solid #bbf7d0; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+                <div class="catalog-header" style="padding: 12px 15px; background: #f0fdf4; border-bottom: 1px solid #bbf7d0; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
                     <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
                         <h3 style="margin: 0; color: #166534;">Résultats <span id="catalog-count" class="badge-count-main" style="background: #16a085;">0</span></h3>
                         <div style="display: flex; gap: 6px; margin-left: 8px;">
@@ -132,7 +132,7 @@
                         </button>
                     </div>
                     <div style="display: flex; align-items: center; gap: 10px;">
-                        <label style="display: flex; align-items: center; gap: 6px; font-size: 0.85em; cursor: pointer; background: white; padding: 4px 10px; border-radius: 6px; border: 1px solid #cbd5e1; color: #334155;">
+                        <label class="catalog-auto-refresh" style="display: flex; align-items: center; gap: 6px; font-size: 0.85em; cursor: pointer; background: white; padding: 4px 10px; border-radius: 6px; border: 1px solid #cbd5e1; color: #334155;">
                             <input type="checkbox" id="catalog-auto-refresh" checked onchange="toggleCatalogAutoRefresh(this.checked)">
                             <span>Auto-refresh (5s)</span>
                         </label>
@@ -163,7 +163,7 @@
                     </table>
                 </div>
                 <!-- Barre de pagination -->
-                <div id="catalog-pagination" style="display: flex; justify-content: space-between; align-items: center; padding: 10px 15px; background: #f8fafc; border-top: 1px solid #e2e8f0; flex-wrap: wrap; gap: 10px;">
+                <div id="catalog-pagination" class="catalog-pagination" style="display: flex; justify-content: space-between; align-items: center; padding: 10px 15px; background: #f8fafc; border-top: 1px solid #e2e8f0; flex-wrap: wrap; gap: 10px;">
                     <div style="font-size: 0.85em; color: #64748b;">
                         Affichage de <strong id="catalog-range-start">0</strong> à <strong id="catalog-range-end">0</strong> sur <strong id="catalog-total-count">0</strong> point(s)
                     </div>
@@ -202,7 +202,7 @@
 
         <div id="whohas-results-area" style="display: none; margin-top: 20px;">
             <div class="card" style="padding: 0;">
-                <div style="padding: 15px; background: #fff7ed; border-bottom: 1px solid #fed7aa; display: flex; justify-content: space-between; align-items: center;">
+                <div class="whohas-header" style="padding: 15px; background: #fff7ed; border-bottom: 1px solid #fed7aa; display: flex; justify-content: space-between; align-items: center;">
                     <h3 style="margin: 0; color: #9a3412;">Résultats I-Have <span id="whohas-count" class="badge-count-main" style="background: #ea580c;">0</span></h3>
                 </div>
                 <div style="max-height: 40vh; overflow-y: auto;">
@@ -309,7 +309,7 @@
 
         <!-- Tableau des équipements MS/TP détectés -->
         <div class="card" style="padding: 0; margin-top: 20px;">
-            <div style="padding: 15px; background: #f8fafc; border-bottom: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center;">
+            <div class="mstp-table-header" style="padding: 15px; background: #f8fafc; border-bottom: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center;">
                 <h3 style="margin: 0; display: flex; align-items: center; gap: 8px;">
                     <span>📋</span> Nœuds & Équipements MS/TP découverts
                     <span id="mstp-nodes-count" class="badge-count-main">0</span>
@@ -407,6 +407,148 @@
 }
 @keyframes spin { 100% { transform: rotate(360deg); } }
 @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+
+.bacnet-tools {
+    --legacy-panel: rgba(44, 62, 80, 0.88);
+    --legacy-panel-soft: rgba(52, 73, 94, 0.78);
+    --legacy-panel-deep: rgba(28, 41, 56, 0.92);
+    --legacy-border: rgba(148, 163, 184, 0.32);
+    --legacy-border-strong: rgba(191, 219, 254, 0.26);
+    --legacy-text: #ecf3f9;
+    --legacy-muted: #c7d3df;
+    --legacy-primary: #3498db;
+    --legacy-primary-hover: #2980b9;
+}
+
+.bacnet-tools .header-with-actions {
+    border-bottom-color: var(--legacy-border);
+}
+
+.bacnet-tools .card {
+    background: linear-gradient(180deg, rgba(52, 73, 94, 0.88), rgba(44, 62, 80, 0.92)) !important;
+    border: 1px solid var(--legacy-border);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.22);
+}
+
+.bacnet-tools .params-card {
+    background: linear-gradient(180deg, rgba(52, 73, 94, 0.92), rgba(44, 62, 80, 0.96)) !important;
+}
+
+.bacnet-tools .btn-primary {
+    background: var(--legacy-primary) !important;
+    color: #fff !important;
+    border-color: transparent !important;
+}
+
+.bacnet-tools .btn-primary:hover {
+    background: var(--legacy-primary-hover) !important;
+}
+
+.bacnet-tools .btn-secondary {
+    background: var(--legacy-panel-soft) !important;
+    color: var(--legacy-text) !important;
+    border-color: var(--legacy-border) !important;
+}
+
+.bacnet-tools .btn-secondary:hover {
+    background: rgba(67, 89, 110, 0.92) !important;
+}
+
+.bacnet-tools .data-table th,
+.bacnet-tools .data-table td {
+    border-bottom-color: var(--legacy-border);
+}
+
+.bacnet-tools .data-table th {
+    background: var(--legacy-panel-deep) !important;
+    color: var(--legacy-muted) !important;
+}
+
+.bacnet-tools .data-table tbody tr:hover {
+    background: rgba(255, 255, 255, 0.04) !important;
+}
+
+.bacnet-tools .hint,
+.bacnet-tools .form-hint,
+.bacnet-tools label,
+.bacnet-tools #catalog-status-line,
+.bacnet-tools #mstp-cycle-info,
+.bacnet-tools #mstp-health-stats {
+    color: var(--legacy-muted) !important;
+}
+
+.bacnet-tools .tabs-nav {
+    border-bottom-color: var(--legacy-border) !important;
+}
+
+.bacnet-tools .tab-btn.active {
+    color: #dff1fd !important;
+    border-bottom-color: var(--legacy-primary) !important;
+}
+
+.bacnet-tools .tab-btn:not(.active) {
+    color: var(--legacy-muted) !important;
+}
+
+.bacnet-tools .tab-btn:hover {
+    color: #ffffff !important;
+}
+
+.bacnet-tools .results-header,
+.bacnet-tools .catalog-header,
+.bacnet-tools .catalog-pagination,
+.bacnet-tools .mstp-table-header,
+.bacnet-tools .whohas-header {
+    background: rgba(28, 41, 56, 0.82) !important;
+    border-color: var(--legacy-border) !important;
+}
+
+.bacnet-tools .catalog-auto-refresh {
+    background: var(--legacy-panel-soft) !important;
+    border-color: var(--legacy-border) !important;
+    color: var(--legacy-text) !important;
+}
+
+.bacnet-tools #mstp-health-card {
+    background: rgba(28, 41, 56, 0.82) !important;
+    border-left-color: var(--legacy-primary) !important;
+}
+
+.bacnet-tools #mstp-health-card h4,
+.bacnet-tools .catalog-header h3,
+.bacnet-tools .whohas-header h3,
+.bacnet-tools .mstp-table-header h3 {
+    color: var(--legacy-text) !important;
+}
+
+.bacnet-tools .badge-gray {
+    background: var(--legacy-panel-deep);
+    color: var(--legacy-muted);
+    border: 1px solid var(--legacy-border);
+}
+
+.bacnet-tools .badge-success {
+    background: rgba(39, 174, 96, 0.2);
+    color: #d7f8e6;
+    border: 1px solid rgba(125, 206, 160, 0.34);
+}
+
+.bacnet-tools .badge-error {
+    background: rgba(192, 57, 43, 0.22);
+    color: #ffd4cf;
+    border: 1px solid rgba(255, 180, 171, 0.28);
+}
+
+.bacnet-tools .cb-catalog-select,
+.bacnet-tools #selectAll,
+.bacnet-tools #catalog-select-all-cb {
+    accent-color: var(--legacy-primary);
+}
+
+@keyframes flashHighlight {
+    0% { background-color: rgba(52, 152, 219, 0.24); }
+    100% { background-color: transparent; }
+}
 </style>
 
 <script>

@@ -1,16 +1,35 @@
 import html
 import logging
 import string
+import subprocess
 
-from core.paths import TEMPLATES_DIR
+from core.paths import TEMPLATES_DIR, PROJECT_ROOT
 
 logger = logging.getLogger(__name__)
+
+def get_last_commit_date() -> str:
+    """Retourne la date du dernier commit Git ou un repli par défaut."""
+    try:
+        res = subprocess.run(
+            ["git", "--no-pager", "log", "-1", "--format=%cd", "--date=format:%Y-%m-%d %H:%M"],
+            cwd=PROJECT_ROOT,
+            capture_output=True,
+            text=True,
+            timeout=1
+        )
+        if res.returncode == 0 and res.stdout.strip():
+            return res.stdout.strip()
+        else:
+            logger.warning(f"git log a échoué: {res.stderr}")
+    except Exception as e:
+        logger.error(f"Exception dans get_last_commit_date: {e}")
+    return "v2.4.0-stable"
 
 class TemplateEngine:
     """
     Système de templates "à la poupée russe".
     Chaque template HTML contient des variables `$nom` (ou `${nom}`).
-    Cette classe permet de charger, mettre en cache et rendre ces templates en y injectant 
+    Cette classe permet de charger, mettre en cache et rendre ces templates en y injectant
     d'autres templates déjà rendus ou des données simples.
     """
     def __init__(self, templates_dir=TEMPLATES_DIR):
@@ -20,7 +39,7 @@ class TemplateEngine:
     def _load_template(self, name: str) -> string.Template:
         if name in self._cache:
             return self._cache[name]
-        
+
         path = self.templates_dir / name
         try:
             with open(path, encoding="utf-8") as f:
@@ -38,6 +57,17 @@ class TemplateEngine:
         Rend un template.
         Ex: render("page.html", content=render("widget.html", value="123"))
         """
+
+        if "site_name" not in kwargs:
+            try:
+                from services.presence import get_current_site_name
+                kwargs["site_name"] = get_current_site_name()
+            except Exception:
+                kwargs["site_name"] = "Inconnu"
+
+        if template_name == "nav.html" and "system_version" not in kwargs:
+            kwargs["system_version"] = get_last_commit_date()
+
         tpl = self._load_template(template_name)
         # safe_substitute permet de ne pas crasher si une variable manque.
         # Les variables non fournies resteront sous la forme `$variable`.

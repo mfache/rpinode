@@ -20,7 +20,7 @@
 
     <!-- Liste des Ports Série / RS-485 / M-Bus -->
     <div class="card params-card" style="margin-top: 24px;">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; border-bottom: 1px solid #f1f5f9; padding-bottom: 10px;">
+        <div class="section-card-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; border-bottom: 1px solid #f1f5f9; padding-bottom: 10px;">
             <h3 style="margin: 0; display: flex; align-items: center; gap: 8px;">
                 <span>🔌</span> Ports Série &amp; Passerelles Bus (RS-485 / M-Bus / RS-232)
                 <span class="badge-count-main" style="background: #3b82f6;" id="subt_total_serial">${total_serial}</span>
@@ -31,7 +31,7 @@
 
     <!-- Liste de tous les périphériques USB -->
     <div class="card params-card" style="margin-top: 24px;">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; border-bottom: 1px solid #f1f5f9; padding-bottom: 10px;">
+        <div class="section-card-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; border-bottom: 1px solid #f1f5f9; padding-bottom: 10px;">
             <h3 style="margin: 0; display: flex; align-items: center; gap: 8px;">
                 <span>💻</span> Périphériques USB connectés
                 <span class="badge-count-main" style="background: #64748b;" id="subt_total_usb">${total_usb}</span>
@@ -56,7 +56,7 @@
     </div>
 
     <!-- Info Passerelles & Pilotes Série -->
-    <div class="card" style="margin-top: 24px; background: #f8fafc; border-left: 4px solid #3b82f6; padding: 18px 20px;">
+    <div class="card gateway-info-card" style="margin-top: 24px; background: #f8fafc; border-left: 4px solid #3b82f6; padding: 18px 20px;">
         <div style="display: flex; align-items: flex-start; gap: 14px;">
             <span style="font-size: 1.8rem;">⚙️</span>
             <div>
@@ -111,7 +111,7 @@
 
             <div class="form-group" style="margin-top: 15px;">
                 <label><strong>Protocoles &amp; Capacités éligibles</strong></label>
-                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; margin-top: 8px; background: #f8fafc; padding: 12px; border-radius: 6px; border: 1px solid #e2e8f0;">
+                <div class="capabilities-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; margin-top: 8px; background: #f8fafc; padding: 12px; border-radius: 6px; border: 1px solid #e2e8f0;">
                     <label style="display: flex; align-items: center; gap: 8px; font-weight: normal; cursor: pointer;">
                         <input type="checkbox" id="cap_bacnet_mstp" value="bacnet_mstp">
                         <span>🔌 BACnet MS/TP</span>
@@ -161,6 +161,88 @@
 </div>
 
 <style>
+.devices-mgr {
+    --legacy-panel: rgba(44, 62, 80, 0.88);
+    --legacy-panel-soft: rgba(52, 73, 94, 0.78);
+    --legacy-panel-deep: rgba(28, 41, 56, 0.92);
+    --legacy-border: rgba(148, 163, 184, 0.32);
+    --legacy-border-strong: rgba(191, 219, 254, 0.26);
+    --legacy-text: #ecf3f9;
+    --legacy-muted: #c7d3df;
+    --legacy-primary: #3498db;
+    --legacy-primary-hover: #2980b9;
+}
+
+.devices-mgr .header-with-actions {
+    border-bottom: 1px solid var(--legacy-border);
+    padding-bottom: 14px;
+}
+
+.devices-mgr .params-card,
+.devices-mgr .gateway-info-card {
+    background: linear-gradient(180deg, rgba(52, 73, 94, 0.9), rgba(44, 62, 80, 0.94)) !important;
+    border: 1px solid var(--legacy-border);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.2);
+}
+
+.devices-mgr .gateway-info-card {
+    border-left: 4px solid var(--legacy-primary) !important;
+}
+
+.devices-mgr .section-card-header {
+    border-bottom-color: var(--legacy-border) !important;
+}
+
+.devices-mgr .data-table th,
+.devices-mgr .data-table td {
+    border-bottom-color: var(--legacy-border);
+}
+
+.devices-mgr .data-table th {
+    background: var(--legacy-panel-deep);
+    color: var(--legacy-muted);
+}
+
+.devices-mgr .data-table td,
+.devices-mgr .gateway-info-card h4,
+.devices-mgr .gateway-info-card p,
+.devices-mgr .gateway-info-card div,
+.devices-mgr .hint {
+    color: var(--legacy-text);
+}
+
+.devices-mgr .hint,
+.devices-mgr .gateway-info-card p,
+.devices-mgr .gateway-info-card div,
+.devices-mgr .capabilities-grid label {
+    color: var(--legacy-muted) !important;
+}
+
+.devices-mgr .capabilities-grid {
+    background: rgba(28, 41, 56, 0.78) !important;
+    border-color: var(--legacy-border) !important;
+}
+
+.devices-mgr .btn-primary {
+    background: var(--legacy-primary);
+    border-color: transparent;
+}
+
+.devices-mgr .btn-primary:hover {
+    background: var(--legacy-primary-hover);
+}
+
+.devices-mgr .btn-secondary {
+    background: var(--legacy-panel-soft);
+    color: var(--legacy-text);
+    border-color: var(--legacy-border);
+}
+
+.devices-mgr .btn-secondary:hover {
+    background: rgba(67, 89, 110, 0.92);
+    color: #ffffff;
+}
+
 .badge-count-main {
     display: inline-block;
     padding: 2px 8px;
@@ -309,6 +391,54 @@
 }
 .btn-danger:hover {
     background: #dc2626;
+}
+
+#qualifyModal .modal-box {
+    background: linear-gradient(180deg, rgba(52, 73, 94, 0.96), rgba(44, 62, 80, 0.98));
+    border: 1px solid rgba(148, 163, 184, 0.32);
+    color: #ecf3f9;
+}
+
+#qualifyModal .modal-header {
+    border-bottom-color: rgba(148, 163, 184, 0.32);
+}
+
+#qualifyModal .modal-header h3,
+#qualifyModal .device-summary-box,
+#qualifyModal .hint,
+#qualifyModal label {
+    color: #ecf3f9;
+}
+
+#qualifyModal .device-summary-box,
+#qualifyModal .capabilities-grid {
+    background: rgba(28, 41, 56, 0.82) !important;
+    border-color: rgba(148, 163, 184, 0.32) !important;
+}
+
+#qualifyModal .form-control {
+    background: rgba(28, 41, 56, 0.82);
+    border-color: rgba(148, 163, 184, 0.32);
+    color: #ecf3f9;
+}
+
+#qualifyModal .form-control:focus {
+    border-color: #3498db;
+    box-shadow: 0 0 0 3px rgba(52, 152, 219, 0.15);
+}
+
+#qualifyModal .modal-close {
+    color: #c7d3df;
+}
+
+#qualifyModal .btn-danger {
+    background: rgba(192, 57, 43, 0.22);
+    color: #ffd4cf;
+    border-color: rgba(255, 180, 171, 0.28);
+}
+
+#qualifyModal .btn-danger:hover {
+    background: rgba(192, 57, 43, 0.32);
 }
 </style>
 

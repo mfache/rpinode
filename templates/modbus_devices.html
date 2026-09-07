@@ -9,7 +9,7 @@
             <a href="${base_url}/modbus/templates" class="btn-secondary">
                 <span>📚</span> Gérer les Templates
             </a>
-            <a href="${base_url}/monitor/suivi" class="btn-secondary" style="background:#e8f4f8; border-color:#bee5eb; color:#0c5460;">
+            <a href="${base_url}/monitor/suivi" class="btn-secondary btn-link-suivi">
                 <span>📊</span> Suivi Live
             </a>
             <button class="btn-primary" onclick="showAddDeviceModal()">
@@ -100,44 +100,60 @@
 </div>
 
 <style>
-/* Stats Banner */
+.modbus-devices-mgr {
+    --legacy-panel: rgba(44, 62, 80, 0.88);
+    --legacy-panel-soft: rgba(52, 73, 94, 0.78);
+    --legacy-panel-deep: rgba(28, 41, 56, 0.92);
+    --legacy-border: rgba(148, 163, 184, 0.32);
+    --legacy-border-strong: rgba(191, 219, 254, 0.26);
+    --legacy-text: #ecf3f9;
+    --legacy-muted: #c7d3df;
+    --legacy-primary: #3498db;
+    --legacy-primary-hover: #2980b9;
+}
+
+.modbus-devices-mgr .header-with-actions {
+    border-bottom-color: var(--legacy-border);
+}
+
 .stats-banner {
     display: flex;
-    background: white;
+    background: linear-gradient(180deg, rgba(52, 73, 94, 0.9), rgba(44, 62, 80, 0.92));
+    border: 1px solid var(--legacy-border);
     padding: 16px 24px;
-    border-radius: 8px;
-    box-shadow: 0 2px 4px rgba(0,0,0,0.04);
+    border-radius: 10px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.22);
     margin-bottom: 24px;
     align-items: center;
     justify-content: space-around;
 }
-.stat-item { text-align: center; }
-.stat-val { font-size: 1.6rem; font-weight: bold; color: #2c3e50; line-height: 1.2; }
-.stat-lbl { font-size: 0.85rem; color: #7f8c8d; text-transform: uppercase; letter-spacing: 0.5px; margin-top: 4px; }
-.stat-divider { width: 1px; height: 35px; background: #ecf0f1; }
 
-/* Grille des cartes */
+.stat-item { text-align: center; }
+.stat-val { font-size: 1.6rem; font-weight: bold; color: var(--legacy-text); line-height: 1.2; }
+.stat-lbl { font-size: 0.85rem; color: var(--legacy-muted); text-transform: uppercase; letter-spacing: 0.5px; margin-top: 4px; }
+.stat-divider { width: 1px; height: 35px; background: var(--legacy-border); }
+
 .devices-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
     gap: 20px;
 }
 
-/* Carte Appareil */
 .device-card {
-    background: white;
+    background: linear-gradient(180deg, rgba(52, 73, 94, 0.88), rgba(44, 62, 80, 0.92));
     border-radius: 10px;
-    border: 1px solid #e1e8ed;
-    box-shadow: 0 2px 6px rgba(0,0,0,0.04);
+    border: 1px solid var(--legacy-border);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
     display: flex;
     flex-direction: column;
     overflow: hidden;
     transition: transform 0.2s, box-shadow 0.2s, border-color 0.2s;
 }
+
 .device-card:hover {
     transform: translateY(-3px);
-    box-shadow: 0 6px 14px rgba(0,0,0,0.08);
-    border-color: #cbd5e1;
+    box-shadow: 0 12px 28px rgba(0, 0, 0, 0.24);
+    border-color: var(--legacy-border-strong);
 }
 
 .device-card-header {
@@ -145,18 +161,20 @@
     display: flex;
     justify-content: space-between;
     align-items: flex-start;
-    border-bottom: 1px solid #f1f5f9;
+    border-bottom: 1px solid var(--legacy-border);
 }
+
 .device-title {
     margin: 0;
     font-size: 1.15rem;
     font-weight: 600;
-    color: #1e293b;
+    color: var(--legacy-text);
     word-break: break-word;
 }
+
 .device-meta {
     font-size: 0.85rem;
-    color: #64748b;
+    color: var(--legacy-muted);
     margin-top: 5px;
     display: flex;
     align-items: center;
@@ -173,45 +191,47 @@
 }
 
 .device-addr-box {
-    background: #f8fafc;
-    border: 1px solid #edf2f7;
+    background: var(--legacy-panel-deep);
+    border: 1px solid var(--legacy-border);
     border-radius: 6px;
     padding: 8px 12px;
     display: flex;
     align-items: center;
     justify-content: space-between;
 }
-.addr-label { font-size: 0.8rem; color: #64748b; }
-.addr-value { font-weight: 600; font-size: 0.9rem; color: #0f172a; }
+
+.addr-label { font-size: 0.8rem; color: var(--legacy-muted); }
+.addr-value { font-weight: 600; font-size: 0.9rem; color: var(--legacy-text); }
 
 .device-stats-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 10px;
 }
+
 .stat-pill {
-    background: #f8fafc;
+    background: rgba(28, 41, 56, 0.72);
     border-radius: 6px;
     padding: 8px 10px;
     display: flex;
     align-items: center;
     gap: 8px;
-    border: 1px solid #f1f5f9;
+    border: 1px solid var(--legacy-border);
 }
+
 .stat-icon { font-size: 1.2rem; }
-.stat-num { font-weight: bold; font-size: 0.95rem; color: #1e293b; }
-.stat-desc { font-size: 0.75rem; color: #64748b; }
+.stat-num { font-weight: bold; font-size: 0.95rem; color: var(--legacy-text); }
+.stat-desc { font-size: 0.75rem; color: var(--legacy-muted); }
 
 .device-card-footer {
     padding: 12px 18px;
-    background: #fafbfc;
-    border-top: 1px solid #f1f5f9;
+    background: rgba(28, 41, 56, 0.82);
+    border-top: 1px solid var(--legacy-border);
     display: flex;
     gap: 8px;
     align-items: center;
 }
 
-/* Badges */
 .badge-protocol {
     display: inline-block;
     padding: 2px 7px;
@@ -221,8 +241,15 @@
     text-transform: uppercase;
     letter-spacing: 0.5px;
 }
-.proto-modbus-tcp { background: #e0f2fe; color: #0369a1; border: 1px solid #bae6fd; }
-.proto-modbus-mstp { background: #ede9fe; color: #6d28d9; border: 1px solid #ddd6fe; }
+
+.proto-modbus-tcp { background: rgba(52, 152, 219, 0.18); color: #d6ecfa; border: 1px solid rgba(52, 152, 219, 0.36); }
+.proto-modbus-mstp { background: rgba(142, 68, 173, 0.2); color: #f0d9ff; border: 1px solid rgba(195, 155, 211, 0.34); }
+
+.btn-link-suivi {
+    background: rgba(52, 152, 219, 0.2) !important;
+    border-color: rgba(125, 179, 220, 0.34) !important;
+    color: #dff1fd !important;
+}
 
 .btn-icon-del {
     background: transparent;
@@ -231,26 +258,26 @@
     font-size: 1.1rem;
     padding: 4px 6px;
     border-radius: 4px;
-    color: #ef4444;
+    color: #ffb4ab;
     transition: background 0.15s;
 }
-.btn-icon-del:hover { background: #fee2e2; }
 
-/* Empty state */
+.btn-icon-del:hover { background: rgba(192, 57, 43, 0.22); }
+
 .empty-state {
     text-align: center;
-    background: white;
+    background: linear-gradient(180deg, rgba(52, 73, 94, 0.88), rgba(44, 62, 80, 0.92));
     padding: 40px 20px;
     border-radius: 10px;
-    border: 2px dashed #e2e8f0;
+    border: 2px dashed var(--legacy-border);
     max-width: 500px;
     margin: 40px auto;
 }
-.empty-icon { font-size: 3rem; margin-bottom: 12px; }
-.empty-state h3 { margin: 0 0 8px 0; color: #1e293b; }
-.empty-state p { color: #64748b; font-size: 0.95rem; margin: 0; line-height: 1.5; }
 
-/* Modal */
+.empty-icon { font-size: 3rem; margin-bottom: 12px; }
+.empty-state h3 { margin: 0 0 8px 0; color: var(--legacy-text); }
+.empty-state p { color: var(--legacy-muted); font-size: 0.95rem; margin: 0; line-height: 1.5; }
+
 .modal {
     position: fixed;
     top: 0; left: 0; width: 100%; height: 100%;
@@ -260,54 +287,38 @@
     z-index: 1000;
     padding: 15px;
 }
+
 .modal-content {
-    background: white;
+    background: linear-gradient(180deg, rgba(52, 73, 94, 0.96), rgba(44, 62, 80, 0.98));
+    border: 1px solid var(--legacy-border);
+    color: var(--legacy-text);
     padding: 24px;
     border-radius: 12px;
     width: 100%;
     max-width: 480px;
-    box-shadow: 0 10px 25px rgba(0,0,0,0.2);
+    box-shadow: 0 10px 25px rgba(0,0,0,0.28);
     animation: modalIn 0.2s ease-out;
 }
+
 @keyframes modalIn {
     from { opacity: 0; transform: scale(0.95); }
     to { opacity: 1; transform: scale(1); }
 }
+
 .modal-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
     margin-bottom: 18px;
 }
-.modal-header h3 { margin: 0; font-size: 1.25rem; color: #0f172a; }
-.btn-close {
-    background: none;
-    border: none;
-    font-size: 1.2rem;
-    cursor: pointer;
-    color: #64748b;
-    padding: 4px 8px;
-    border-radius: 4px;
-}
-.btn-close:hover { background: #f1f5f9; color: #0f172a; }
+
+.modal-header h3 { margin: 0; font-size: 1.25rem; color: var(--legacy-text); }
+.btn-close { background: none; border: none; font-size: 1.2rem; cursor: pointer; color: var(--legacy-muted); padding: 4px 8px; border-radius: 4px; }
+.btn-close:hover { background: rgba(255,255,255,0.08); color: #ffffff; }
 
 .form-group { margin-bottom: 14px; }
-.form-group label { display: block; font-size: 0.88rem; font-weight: 500; color: #334155; margin-bottom: 6px; }
-.form-group input, .form-group select {
-    width: 100%;
-    padding: 9px 12px;
-    border: 1px solid #cbd5e1;
-    border-radius: 6px;
-    font-size: 0.95rem;
-    box-sizing: border-box;
-    outline: none;
-    transition: border-color 0.15s;
-}
-.form-group input:focus, .form-group select:focus {
-    border-color: #0284c7;
-    box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.15);
-}
-.form-hint { font-size: 0.78rem; color: #64748b; margin-top: 4px; display: block; }
+.form-group label { display: block; font-size: 0.88rem; font-weight: 500; color: var(--legacy-muted); margin-bottom: 6px; }
+.form-hint { font-size: 0.78rem; color: var(--legacy-muted); margin-top: 4px; display: block; }
 .modal-buttons { margin-top: 22px; display: flex; justify-content: flex-end; gap: 10px; }
 </style>
 

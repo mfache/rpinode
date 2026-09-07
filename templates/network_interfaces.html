@@ -789,6 +789,201 @@
         justify-content: center;
     }
 }
+
+.network-interfaces-container {
+    --legacy-panel: rgba(44, 62, 80, 0.88);
+    --legacy-panel-soft: rgba(52, 73, 94, 0.78);
+    --legacy-panel-deep: rgba(28, 41, 56, 0.92);
+    --legacy-border: rgba(148, 163, 184, 0.32);
+    --legacy-border-strong: rgba(191, 219, 254, 0.26);
+    --legacy-text: #ecf3f9;
+    --legacy-muted: #c7d3df;
+    --legacy-primary: #3498db;
+    --legacy-primary-hover: #2980b9;
+}
+
+.network-interfaces-container .page-header {
+    background: linear-gradient(180deg, rgba(52, 73, 94, 0.92), rgba(44, 62, 80, 0.96));
+    border-color: var(--legacy-border);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.2);
+}
+
+.network-interfaces-container .site-badge {
+    background: rgba(52, 152, 219, 0.18);
+    color: #dff1fd;
+    border-color: rgba(52, 152, 219, 0.34);
+}
+
+.network-interfaces-container .page-header h2,
+.network-interfaces-container .iface-name,
+.network-interfaces-container .status-item .value {
+    color: var(--legacy-text);
+}
+
+.network-interfaces-container .header-subtitle,
+.network-interfaces-container .iface-sub,
+.network-interfaces-container .iface-mode,
+.network-interfaces-container .status-item .label,
+.network-interfaces-container .section-label,
+.network-interfaces-container .field-hint,
+.network-interfaces-container .tip-pill,
+.network-interfaces-container .box-help {
+    color: var(--legacy-muted);
+}
+
+.network-interfaces-container .btn-ghost {
+    background: var(--legacy-panel-soft);
+    color: var(--legacy-text);
+    border-color: var(--legacy-border);
+}
+
+.network-interfaces-container .btn-ghost:hover {
+    background: rgba(67, 89, 110, 0.92);
+    border-color: var(--legacy-border-strong);
+    color: #ffffff;
+}
+
+.network-interfaces-container .iface-card {
+    background: linear-gradient(180deg, rgba(52, 73, 94, 0.9), rgba(44, 62, 80, 0.94));
+    border-color: var(--legacy-border);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.18);
+}
+
+.network-interfaces-container .iface-card:hover {
+    box-shadow: 0 12px 28px rgba(0,0,0,0.24);
+    border-color: var(--legacy-border-strong);
+}
+
+.network-interfaces-container .card-top,
+.network-interfaces-container .live-status-bar,
+.network-interfaces-container .wifi-creds-group,
+.network-interfaces-container .device-summary-box,
+.network-interfaces-container .toast {
+    background: rgba(28, 41, 56, 0.82);
+    border-color: var(--legacy-border);
+}
+
+.network-interfaces-container .card-top,
+.network-interfaces-container .live-status-bar,
+.network-interfaces-container .expandable-panel,
+.network-interfaces-container .card-footer {
+    border-color: var(--legacy-border);
+}
+
+.network-interfaces-container .eth-icon,
+.network-interfaces-container .wifi-icon {
+    background: rgba(28, 41, 56, 0.82);
+    border-color: var(--legacy-border);
+}
+
+.network-interfaces-container .status-online {
+    background: rgba(39, 174, 96, 0.2);
+    color: #d7f8e6;
+    border-color: rgba(125, 206, 160, 0.34);
+}
+
+.network-interfaces-container .status-offline {
+    background: rgba(28, 41, 56, 0.82);
+    color: var(--legacy-muted);
+    border-color: var(--legacy-border);
+}
+
+.network-interfaces-container .form-input,
+.network-interfaces-container .form-select,
+#qualifyModal .form-control {
+    background-color: rgba(28, 41, 56, 0.82);
+    border-color: var(--legacy-border);
+    color: var(--legacy-text);
+}
+
+.network-interfaces-container .form-input:focus,
+.network-interfaces-container .form-select:focus,
+#qualifyModal .form-control:focus {
+    border-color: var(--legacy-primary);
+    box-shadow: 0 0 0 3px rgba(52, 152, 219, 0.15);
+}
+
+.network-interfaces-container .input-with-icon .input-icon {
+    color: var(--legacy-muted);
+}
+
+.network-interfaces-container .btn-action-icon {
+    background: rgba(28, 41, 56, 0.82);
+    border-color: var(--legacy-border);
+    color: var(--legacy-muted);
+}
+
+.network-interfaces-container .btn-action-icon:hover {
+    background: rgba(67, 89, 110, 0.92);
+    color: #ffffff;
+}
+
+.network-interfaces-container .btn-remove-addr {
+    background: rgba(192, 57, 43, 0.22);
+    color: #ffd4cf;
+    border-color: rgba(255, 180, 171, 0.28);
+}
+
+.network-interfaces-container .btn-remove-addr:hover {
+    background: rgba(192, 57, 43, 0.32);
+    color: #ffffff;
+}
+
+.network-interfaces-container .btn-add-addr {
+    background: rgba(28, 41, 56, 0.82);
+    border-color: var(--legacy-border);
+    color: #dff1fd;
+}
+
+.network-interfaces-container .btn-add-addr:hover {
+    background: rgba(52, 152, 219, 0.14);
+    border-color: var(--legacy-primary);
+}
+
+.network-interfaces-container .dhcp-range-box {
+    background: rgba(77, 56, 28, 0.35);
+    border-color: rgba(253, 230, 138, 0.28);
+}
+
+.network-interfaces-container .box-header,
+.network-interfaces-container .box-help {
+    color: #f8d9a8;
+}
+
+.network-interfaces-container .btn-save {
+    background: var(--legacy-primary);
+    box-shadow: 0 2px 6px rgba(52, 152, 219, 0.24);
+}
+
+.network-interfaces-container .btn-save:hover {
+    background: var(--legacy-primary-hover);
+    box-shadow: 0 4px 10px rgba(52, 152, 219, 0.28);
+}
+
+.network-interfaces-container .toast {
+    color: var(--legacy-text);
+}
+
+#qualifyModal .modal-box {
+    background: linear-gradient(180deg, rgba(52, 73, 94, 0.96), rgba(44, 62, 80, 0.98));
+    border: 1px solid rgba(148, 163, 184, 0.32);
+    color: #ecf3f9;
+}
+
+#qualifyModal .modal-header {
+    border-bottom-color: rgba(148, 163, 184, 0.32);
+}
+
+#qualifyModal .modal-header h3,
+#qualifyModal .device-summary-box,
+#qualifyModal .hint,
+#qualifyModal label {
+    color: #ecf3f9;
+}
+
+#qualifyModal .modal-close {
+    color: #c7d3df;
+}
 </style>
 
 <script>
