@@ -79,7 +79,7 @@ def _apply_eth0_profile(method, addresses, gateway, dhcp_range=None):
     con_name = res.stdout.strip() or "eth0-manual"
 
     if method == "auto":
-        nm_cmd = f"sudo nmcli con mod '{con_name}' ipv4.method auto ipv4.addresses '' ipv4.gateway '' ipv4.dhcp-range ''"
+        nm_cmd = f"sudo nmcli con mod '{con_name}' ipv4.method auto ipv4.addresses '' ipv4.gateway '' ipv4.shared-dhcp-range ''"
     else:
         # Nettoyage des adresses. Pour nmcli, plusieurs adresses doivent être séparées par des virgules
         # dans une seule chaîne de caractères si on utilise 'con mod'.
@@ -102,9 +102,9 @@ def _apply_eth0_profile(method, addresses, gateway, dhcp_range=None):
             
         if method == "shared":
             if dhcp_range:
-                nm_cmd += f" ipv4.dhcp-range '{dhcp_range}'"
+                nm_cmd += f" ipv4.shared-dhcp-range '{dhcp_range}'"
             else:
-                nm_cmd += f" ipv4.dhcp-range ''"
+                nm_cmd += f" ipv4.shared-dhcp-range ''"
     
     try:
         # 0. On désactive temporairement pour que NM lâche prise

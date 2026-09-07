@@ -200,22 +200,23 @@ def _ensure_client_mode(con_name, ssid=None, psk=None, method="auto", addresses=
             else:
                 opts += "ipv4.gateway '' "
             if dhcp_range:
-                opts += f"ipv4.dhcp-range {shlex.quote(dhcp_range)} "
+                opts += f"ipv4.shared-dhcp-range {shlex.quote(dhcp_range)} "
             else:
-                opts += "ipv4.dhcp-range '' "
+                opts += "ipv4.shared-dhcp-range '' "
         else:
             opts += "ipv4.method auto "
             
-        # On évite que le WiFi devienne la route par défaut si on a la 4G (wwan0)
-        # Sauf si on veut explicitement que le WiFi chantier soit prioritaire sur la 4G ?
-        # Dans le doute, on garde ipv4.never-default yes pour ne pas casser l'accès cloud via 4G
-        opts += "ipv4.never-default yes "
+        # Métrique 600 pour laisser la 4G prioritaire si elle est UP,
+        # tout en permettant au WiFi de fournir la passerelle par défaut en cas de coupure 4G.
+        opts += "ipv4.never-default no ipv4.route-metric 600 "
 
         check = subprocess.run(["nmcli", "con", "show", con_name], capture_output=True)
         if check.returncode == 0:
             subprocess.run(f"sudo nmcli con mod '{con_name}' {opts}", shell=True)
         else:
             subprocess.run(f"sudo nmcli con add type wifi ifname wlan0 con-name '{con_name}' {opts}", shell=True)
+    elif con_name == RESCUE_CON_NAME:
+        subprocess.run(f"sudo nmcli con mod '{con_name}' ipv4.never-default no ipv4.route-metric 600", shell=True, capture_output=True)
 
     # 3. Basculer
     subprocess.run(["sudo", "nmcli", "con", "up", con_name], timeout=30)
