@@ -50,7 +50,7 @@ Cette méthode est excellente pour remonter le statut du daemon BACnet, le scan 
 cd rpinode
 python src/main.py
 ```
-Ouvrir votre navigateur sur `http://localhost:8080`. Vous verrez :
+Ouvrir votre navigateur sur `http://localhost:8083`. Vous verrez :
 1. Le Layout englobant la Home englobant les Widgets.
 2. Le Widget CPU mis à jour dynamiquement toutes les 2 secondes par l'EventSource.
 
