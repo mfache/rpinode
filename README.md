@@ -11,8 +11,8 @@ Toute l'organisation du projet repose sur un fichier central : `src/core/paths.p
 - `data/` : C'est le **dossier de persistance**. Tous les fichiers de configuration (JSON, YAML), les bases de données (SQLite) et les logs sont stockés ici. Le système a été pensé pour ne jamais polluer d'autres dossiers avec de l'état local. (Cf: `src/core/config.py`).
 - `templates/` : Les composants HTML purs avec marqueurs de variables.
 - `static/` : Fichiers statiques (JS, CSS, images).
-- `docs/` : Documentation technique, notes d'investigation et comptes-rendus d'incident.
-- `tools/maintenance/` : Scripts ponctuels de migration, diagnostic ou patch, séparés du code applicatif principal.
+- `docs/` : Documentation technique, notes d'investigation et comptes-rendus d'incident. Point d'entrée conseillé : `docs/README.md`.
+- `tools/` : Scripts annexes rangés par usage (`migrations/`, `debug/`, `patches/`, `local/`), séparés du code applicatif principal. Point d'entrée conseillé : `tools/README.md`.
 
 ## Le système de Template "À la Poupée Russe"
 
@@ -55,6 +55,8 @@ python src/main.py
 Ouvrir votre navigateur sur `http://localhost:8083`. Vous verrez :
 1. Le Layout englobant la Home englobant les Widgets.
 2. Le Widget CPU mis à jour dynamiquement toutes les 2 secondes par l'EventSource.
+
+Voir aussi les index proches du code : `src/core/README.md` et `src/services/README.md`.
 
 ## Tests et Qualité
 
@@ -124,4 +126,4 @@ ssh -p 9922 mariadb@docs.deltathermic.be
 Pour la documentation détaillée sur l’accès au serveur, les chemins utiles et
 les précautions d’intervention hors dépôt, voir :
 
-- [docs/DOCS_SERVER_ACCESS.md](docs/DOCS_SERVER_ACCESS.md)
+- [docs/operations/DOCS_SERVER_ACCESS.md](docs/operations/DOCS_SERVER_ACCESS.md)

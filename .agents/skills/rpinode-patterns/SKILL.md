@@ -117,7 +117,7 @@ Avant une modification importante, vérifie la documentation du dépôt.
 Cherche en priorité :
 - `README.md`
 - `HOWTO.md`
-- [docs/DOCS_SERVER_ACCESS.md](../../../docs/DOCS_SERVER_ACCESS.md) si une tâche touche le serveur central `docs`
+- [docs/operations/DOCS_SERVER_ACCESS.md](../../../docs/operations/DOCS_SERVER_ACCESS.md) si une tâche touche le serveur central `docs`
 - tout autre fichier `.md` utile.
 
 But :
@@ -147,7 +147,7 @@ Informations utiles sur ce serveur :
 - accès MariaDB : `/etc/boitier-fleet/db.env`
 - script API distant : `/var/www/reports/api.py`
 - script de redémarrage des services : `/home/mariadb/bin/https`
-- documentation locale dédiée : [docs/DOCS_SERVER_ACCESS.md](../../../docs/DOCS_SERVER_ACCESS.md)
+- documentation locale dédiée : [docs/operations/DOCS_SERVER_ACCESS.md](../../../docs/operations/DOCS_SERVER_ACCESS.md)
 
 Si une tâche concerne l’API centrale ou la base distante, n’essaie pas de la
 traiter uniquement dans le dépôt local : l’intervention peut devoir être faite

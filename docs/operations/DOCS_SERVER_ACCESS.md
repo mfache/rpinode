@@ -52,7 +52,7 @@ Conséquences :
 - Documentation API distante :
   [https://docs.deltathermic.be/reports/api/usage](https://docs.deltathermic.be/reports/api/usage)
 - Historique des modifications hors dépôt :
-  [docs/FLEET_API_CHANGES.md](FLEET_API_CHANGES.md)
+  [../integrations/FLEET_API_CHANGES.md](../integrations/FLEET_API_CHANGES.md)
 
 ## 7. Redémarrage et précautions
 
@@ -63,7 +63,7 @@ Un script de redémarrage est disponible :
 ```
 
 Pour les détails opérationnels observés côté uWSGI et les limites de certaines
-commandes de reload, voir aussi [docs/FLEET_API_CHANGES.md](FLEET_API_CHANGES.md).
+commandes de reload, voir aussi [../integrations/FLEET_API_CHANGES.md](../integrations/FLEET_API_CHANGES.md).
 
 ## 8. Règle pratique
 

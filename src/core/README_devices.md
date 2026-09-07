@@ -212,7 +212,7 @@ ssh -p 9922 mariadb@docs.deltathermic.be
 Pour les repères utiles, les chemins importants et les précautions liées aux
 interventions hors dépôt, voir aussi :
 
-- [docs/DOCS_SERVER_ACCESS.md](../../docs/DOCS_SERVER_ACCESS.md)
+- [docs/operations/DOCS_SERVER_ACCESS.md](../../docs/operations/DOCS_SERVER_ACCESS.md)
 
 ### B. Création des tables dans MariaDB / MySQL
 Exécuter le script SQL suivant sur la base de données `reports` / `boitiers` :
@@ -314,4 +314,4 @@ Vérifier ensuite les logs dans `/var/log/uwsgi/` ou `/var/log/nginx/` pour s'as
 
 4. **Étape 4 : Télémétrie et Synchronisation avec `docs`**
    - Intégration de l'inventaire matériel qualifié dans le payload périodique de `src/services/reporter.py` / `src/services/sync.py`.
-   - Documentation de l'API côté `docs.deltathermic.be` dans [docs/FLEET_API_CHANGES.md](../../docs/FLEET_API_CHANGES.md).
+   - Documentation de l'API côté `docs.deltathermic.be` dans [docs/integrations/FLEET_API_CHANGES.md](../../docs/integrations/FLEET_API_CHANGES.md).
