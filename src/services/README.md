@@ -6,7 +6,7 @@ copies.
 
 ## Documentation locale
 
-- SSE et mises à jour temps réel : [`README_sse.md`](README_sse.md)
+- SSE et mises à jour temps réel : [`sse.md`](sse.md)
 
 ## Sous-systèmes principaux
 

@@ -27,7 +27,7 @@ def get_ap_config():
 def run_wifi_manager():
     """
     Boucle principale de gestion du WiFi.
-    Suit les règles de README_wifi.md
+    Suit les règles de ``wifi.md``.
     """
     logger.info("Démarrage du gestionnaire WiFi robuste.")
     

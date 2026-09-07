@@ -14,14 +14,14 @@ plutôt que de les recopier ailleurs.
 
 ## Documentation locale
 
-- Localisation : [`LOCALISATION.md`](LOCALISATION.md)
-- Chantier et données : [`README_chantieretdonnees.md`](README_chantieretdonnees.md)
-- Périphériques : [`README_devices.md`](README_devices.md)
-- Localisation détaillée : [`README_localisation.md`](README_localisation.md)
-- Réseau : [`README_network.md`](README_network.md)
-- Table et colonnes : [`README_table.md`](README_table.md)
-- Templates : [`README_templates.md`](README_templates.md)
-- Wi‑Fi : [`README_wifi.md`](README_wifi.md)
+- Localisation — notes : [`localisation-notes.md`](localisation-notes.md)
+- Chantiers et données : [`chantiers-donnees.md`](chantiers-donnees.md)
+- Périphériques : [`devices.md`](devices.md)
+- Localisation — stratégie : [`localisation.md`](localisation.md)
+- Réseau : [`network.md`](network.md)
+- Table et colonnes : [`table-engine.md`](table-engine.md)
+- Templates : [`templates.md`](templates.md)
+- Wi‑Fi : [`wifi.md`](wifi.md)
 
 ## Voir aussi
 
