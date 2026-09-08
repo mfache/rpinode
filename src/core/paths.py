@@ -17,6 +17,9 @@ SCHEMA_FILE = PROJECT_ROOT / "src" / "core" / "schema.sql"
 # IP Scan
 IPSCAN_RUNNING_FILE = DATA_DIR / "ip_last_scan.json.running"
 
+# Fichier en RAM contenant la session du chantier actif (effacé au redémarrage)
+CURRENT_SITE_FILE = Path("/tmp/rpinode_current_site.json")
+
 # Dossier de logs (en RAM pour préserver la carte SD)
 LOG_DIR = Path("/tmp/rpinode/log")
 LOG_FILE = LOG_DIR / "rpinode.log"

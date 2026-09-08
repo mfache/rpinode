@@ -1,19 +1,45 @@
+import json
 import logging
 import socket
 
 from core.database import get_db_connection
+from core.paths import CURRENT_SITE_FILE
 from services.gsm import get_gsm_info
 
 logger = logging.getLogger(__name__)
+
+def clear_current_location():
+    """
+    Supprime la localisation courante du boîtier.
+    Utilisé au démarrage pour forcer une réévaluation de l'emplacement.
+    """
+    # Effacement de la RAM
+    if CURRENT_SITE_FILE.exists():
+        try:
+            CURRENT_SITE_FILE.unlink()
+        except Exception as e:
+            logger.error(f"Erreur lors de la suppression de {CURRENT_SITE_FILE}: {e}")
+
+    # Synchronisation BDD
+    hostname = socket.gethostname()
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            UPDATE node_presence
+            SET is_current = 0
+            WHERE node_id = (SELECT id FROM nodes WHERE hostname = ?)
+            """,
+            (hostname,)
+        )
+        conn.commit()
 
 def label_current_location(site_name, is_provisional=False, external_id=None):
     """
     Associe l'antenne actuelle au nom de chantier donné.
     """
     gsm = get_gsm_info()
-    if not gsm.get("mcc") or not gsm.get("enodeb"):
-        logger.error("Impossible de labelliser : aucune information GSM disponible.")
-        return False
+    has_gsm = bool(gsm.get("mcc") and gsm.get("enodeb"))
 
     hostname = socket.gethostname()
     
@@ -78,43 +104,44 @@ def label_current_location(site_name, is_provisional=False, external_id=None):
                 )
                 site_id = cursor.lastrowid
         
-        # 2. S'assurer que l'antenne existe
-        # On met à jour les coordonnées GPS si on en a de nouvelles
-        gps = gsm.get("gps")
-        lat, lon = (gps["lat"], gps["lon"]) if gps else (None, None)
+        # 2. S'assurer que l'antenne existe, seulement si on a du GSM
+        if has_gsm:
+            # On met à jour les coordonnées GPS si on en a de nouvelles
+            gps = gsm.get("gps")
+            lat, lon = (gps["lat"], gps["lon"]) if gps else (None, None)
 
-        # On s'assure que les valeurs ne sont pas des listes (sécurité SQL)
-        mcc = str(gsm["mcc"]) if gsm.get("mcc") else None
-        mnc = str(gsm["mnc"]) if gsm.get("mnc") else None
-        enodeb = str(gsm["enodeb"]) if gsm.get("enodeb") else None
-        lac_tac = str(gsm.get("tac") or gsm.get("lac")) if (gsm.get("tac") or gsm.get("lac")) else None
-        cid = str(gsm.get("cid")) if gsm.get("cid") else None
+            # On s'assure que les valeurs ne sont pas des listes (sécurité SQL)
+            mcc = str(gsm["mcc"]) if gsm.get("mcc") else None
+            mnc = str(gsm["mnc"]) if gsm.get("mnc") else None
+            enodeb = str(gsm["enodeb"]) if gsm.get("enodeb") else None
+            lac_tac = str(gsm.get("tac") or gsm.get("lac")) if (gsm.get("tac") or gsm.get("lac")) else None
+            cid = str(gsm.get("cid")) if gsm.get("cid") else None
 
-        cursor.execute(
-            """
-            INSERT INTO antennas (mcc, mnc, enodeb, lac_tac, cid, lat, lon)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(mcc, mnc, enodeb) DO UPDATE SET
-                lac_tac = excluded.lac_tac,
-                cid = excluded.cid,
-                lat = COALESCE(excluded.lat, lat),
-                lon = COALESCE(excluded.lon, lon),
-                last_seen = CURRENT_TIMESTAMP
-            """,
-            (mcc, mnc, enodeb, lac_tac, cid, lat, lon)
-        )
-        cursor.execute(
-            "SELECT id FROM antennas WHERE mcc = ? AND mnc = ? AND enodeb = ?",
-            (gsm["mcc"], gsm["mnc"], gsm["enodeb"])
-        )
-        antenna_id = cursor.fetchone()["id"]
-        
-        # 3. Lier l'antenne au chantier
-        cursor.execute(
-            "INSERT OR IGNORE INTO site_antennas (site_id, antenna_id) VALUES (?, ?)",
-            (site_id, antenna_id)
-        )
-        
+            cursor.execute(
+                """
+                INSERT INTO antennas (mcc, mnc, enodeb, lac_tac, cid, lat, lon)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(mcc, mnc, enodeb) DO UPDATE SET
+                    lac_tac = excluded.lac_tac,
+                    cid = excluded.cid,
+                    lat = COALESCE(excluded.lat, lat),
+                    lon = COALESCE(excluded.lon, lon),
+                    last_seen = CURRENT_TIMESTAMP
+                """,
+                (mcc, mnc, enodeb, lac_tac, cid, lat, lon)
+            )
+            cursor.execute(
+                "SELECT id FROM antennas WHERE mcc = ? AND mnc = ? AND enodeb = ?",
+                (gsm["mcc"], gsm["mnc"], gsm["enodeb"])
+            )
+            antenna_id = cursor.fetchone()["id"]
+
+            # 3. Lier l'antenne au chantier
+            cursor.execute(
+                "INSERT OR IGNORE INTO site_antennas (site_id, antenna_id) VALUES (?, ?)",
+                (site_id, antenna_id)
+            )
+
         # 4. Enregistrer la présence du node
         # On commence par marquer les anciennes présences comme non-actuelles
         cursor.execute(
@@ -139,67 +166,54 @@ def label_current_location(site_name, is_provisional=False, external_id=None):
         
         conn.commit()
         logger.info(f"Localisation réussie : {hostname} est maintenant sur le chantier '{site_name}'")
-        return True
+        
+    # Validation du chantier actif en l'inscrivant dans le dossier /tmp (RAM)
+    try:
+        with open(CURRENT_SITE_FILE, "w", encoding="utf-8") as f:
+            json.dump({
+                "id": site_id,
+                "name": site_name,
+                "is_provisional": is_provisional
+            }, f)
+    except Exception as e:
+        logger.error(f"Erreur lors de l'écriture dans {CURRENT_SITE_FILE}: {e}")
+
+    return True
 
 def get_current_site_id():
-    """Retourne l'ID du chantier actuel pour ce rpinode."""
-    hostname = socket.gethostname()
-    with get_db_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute(
-            """
-            SELECT s.id 
-            FROM sites s
-            JOIN node_presence p ON s.id = p.site_id
-            JOIN nodes n ON p.node_id = n.id
-            WHERE n.hostname = ? AND p.is_current = 1
-            LIMIT 1
-            """,
-            (hostname,)
-        )
-        row = cursor.fetchone()
-        return row["id"] if row else None
+    """Retourne l'ID du chantier actuel pour ce rpinode depuis la RAM (/tmp)."""
+    if CURRENT_SITE_FILE.exists():
+        try:
+            with open(CURRENT_SITE_FILE, "r", encoding="utf-8") as f:
+                return json.load(f).get("id")
+        except Exception:
+            pass
+    return None
 
 def get_current_site_name():
-    """Retourne le nom du chantier actuel pour ce rpinode."""
-    hostname = socket.gethostname()
-    with get_db_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute(
-            """
-            SELECT s.name 
-            FROM sites s
-            JOIN node_presence p ON s.id = p.site_id
-            JOIN nodes n ON p.node_id = n.id
-            WHERE n.hostname = ? AND p.is_current = 1
-            LIMIT 1
-            """,
-            (hostname,)
-        )
-        row = cursor.fetchone()
-        return row["name"] if row else "Inconnu"
+    """Retourne le nom du chantier actuel pour ce rpinode depuis la RAM (/tmp)."""
+    if CURRENT_SITE_FILE.exists():
+        try:
+            with open(CURRENT_SITE_FILE, "r", encoding="utf-8") as f:
+                name = json.load(f).get("name")
+                if name:
+                    return name
+        except Exception:
+            pass
+    return "Inconnu"
 
 def is_current_site_provisional():
-    """Vérifie si le chantier actuel est provisoire."""
-    hostname = socket.gethostname()
-    with get_db_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute(
-            """
-            SELECT s.is_provisional, s.name 
-            FROM sites s
-            JOIN node_presence p ON s.id = p.site_id
-            JOIN nodes n ON p.node_id = n.id
-            WHERE n.hostname = ? AND p.is_current = 1
-            LIMIT 1
-            """,
-            (hostname,)
-        )
-        row = cursor.fetchone()
-        if not row:
-            return True
-        name = row["name"] or ""
-        return bool(row["is_provisional"] or name.startswith("AUTO-") or name.startswith("TEMP-") or name == "Inconnu")
+    """Vérifie si le chantier actuel est provisoire depuis la RAM (/tmp)."""
+    if CURRENT_SITE_FILE.exists():
+        try:
+            with open(CURRENT_SITE_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                name = data.get("name", "")
+                is_prov = data.get("is_provisional", False)
+                return bool(is_prov or name.startswith("AUTO-") or name.startswith("TEMP-") or name == "Inconnu")
+        except Exception:
+            pass
+    return True
 
 if __name__ == "__main__":
     import sys
