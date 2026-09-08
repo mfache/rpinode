@@ -17,6 +17,7 @@ plus facile à retrouver.
 - Intégrations et changements d’API flotte : [`integrations/FLEET_API_CHANGES.md`](integrations/FLEET_API_CHANGES.md)
 - Enrôlement automatique Headscale (identité + réseau) : [`integrations/HEADSCALE_AUTO_ENROLL.md`](integrations/HEADSCALE_AUTO_ENROLL.md)
 - Migration Headscale (historique) : [`operations/HEADSCALE_MIGRATION_STATUS.md`](operations/HEADSCALE_MIGRATION_STATUS.md)
+- CA interne "Deltathermic" et HTTPS des boîtiers : [`operations/INTERNAL_CA_TLS.md`](operations/INTERNAL_CA_TLS.md)
 
 ## Incidents et investigations
 
