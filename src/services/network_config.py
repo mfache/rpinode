@@ -69,6 +69,19 @@ def publish_tailscale_routes():
         logger.info(f"Publication des routes sur Tailscale : {routes_str}")
         subprocess.run(f"sudo tailscale set --advertise-routes={routes_str}", shell=True)
 
+        # Si l'appareil est rattache a Headscale, les nouvelles routes
+        # annoncees doivent aussi etre approuvees cote serveur (Headscale ne
+        # les route pas tant qu'elles ne sont pas explicitement approuvees,
+        # contrairement au SaaS Tailscale). Sans effet si l'appareil n'est
+        # pas (encore) sur Headscale, ou si le noeud n'existe pas encore.
+        try:
+            from services.headscale_enroll import is_headscale_active
+            if is_headscale_active():
+                from services.fleet import fleet
+                fleet.headscale_sync_routes(sorted(set(routes)))
+        except Exception as e:
+            logger.debug(f"Synchronisation des routes Headscale ignoree : {e}")
+
 def _apply_eth0_profile(method, addresses, gateway, dhcp_range=None):
     """Applique la config sur eth0 via nmcli."""
     logger.info(f"Application profil eth0 ({method})")

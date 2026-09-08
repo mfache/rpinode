@@ -35,6 +35,7 @@ copies.
 ### Synchronisation et remontées distantes
 
 - `fleet.py`
+- `headscale_enroll.py`
 - `reporter.py`
 - `remote_log.py`
 - `tracker.py`
@@ -50,4 +51,5 @@ copies.
 - Index documentaire global : [`../../docs/README.md`](../../docs/README.md)
 - Documentation d’accès au serveur `docs` : [`../../docs/operations/DOCS_SERVER_ACCESS.md`](../../docs/operations/DOCS_SERVER_ACCESS.md)
 - Changements d’API flotte : [`../../docs/integrations/FLEET_API_CHANGES.md`](../../docs/integrations/FLEET_API_CHANGES.md)
+- Enrôlement automatique Headscale : [`../../docs/integrations/HEADSCALE_AUTO_ENROLL.md`](../../docs/integrations/HEADSCALE_AUTO_ENROLL.md)
 - Vue d’ensemble du projet : [`../../README.md`](../../README.md)

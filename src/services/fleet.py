@@ -78,6 +78,79 @@ class FleetClient:
             logger.error(f"Erreur réseau lors de l'enregistrement : {e}")
         return False
 
+    def register_auto(self, cpu_serial):
+        """Enregistre automatiquement le boitier aupres de la flotte a partir de
+        son numero de serie CPU (identifiant materiel stable). Le serveur
+        attribue lui-meme le nom d'hote (ex: rpi02) et le retourne.
+
+        Retourne le hostname attribue, ou None en cas d'echec.
+        """
+        if not self.secret:
+            logger.warning("Aucun secret d'adhésion (fleet_secret) configuré.")
+            return None
+
+        url = f"{self.base_url}/register/auto"
+        headers = {"X-Join-Secret": self.secret}
+
+        try:
+            response = requests.post(url, json={"cpu_serial": cpu_serial}, headers=headers, timeout=10)
+            data = response.json()
+            if data.get("ok") and data.get("token"):
+                self.token = data["token"]
+                self.config["fleet_token"] = self.token
+                save_config(self.config)
+                hostname = data.get("hostname")
+                logger.info(f"Enregistrement automatique réussi auprès de la flotte (hostname={hostname}).")
+                return hostname
+            else:
+                logger.error(f"Échec de l'enregistrement automatique : {data.get('error', 'Inconnu')}")
+        except Exception as e:
+            logger.error(f"Erreur réseau lors de l'enregistrement automatique : {e}")
+        return None
+
+    def headscale_enroll(self, advertise_routes=None):
+        """Demande à docs une clé de pré-authentification Headscale à usage
+        unique pour cet appareil déjà enregistré dans la flotte.
+
+        Retourne un dict {authkey, hostname, login_server} ou None en cas
+        d'échec.
+        """
+        if not self.is_registered():
+            return None
+
+        url = f"{self.base_url}/headscale/enroll"
+        payload = {"advertise_routes": advertise_routes or []}
+        try:
+            response = requests.post(url, json=payload, headers=self._headers(), timeout=15)
+            data = response.json()
+            if data.get("ok"):
+                return data
+            logger.error(f"Échec de l'enrôlement Headscale : {data.get('error', 'Inconnu')}")
+        except Exception as e:
+            logger.error(f"Erreur réseau lors de l'enrôlement Headscale : {e}")
+        return None
+
+    def headscale_sync_routes(self, routes):
+        """Synchronise auprès de docs l'ensemble exact des routes Headscale a
+        approuver pour cet appareil (remplace toute approbation précédente).
+        A appeler a chaque fois que les routes locales sont recalculées
+        (démarrage, changement de chantier), pas seulement lors de
+        l'enrôlement initial. Sans effet si le nœud Headscale n'existe pas
+        encore (ex: `tailscale up` pas encore terminé)."""
+        if not self.is_registered():
+            return False
+
+        url = f"{self.base_url}/headscale/routes"
+        try:
+            response = requests.post(
+                url, json={"routes": routes or []}, headers=self._headers(), timeout=15
+            )
+            data = response.json()
+            return bool(data.get("ok"))
+        except Exception as e:
+            logger.error(f"Erreur réseau lors de la synchronisation des routes Headscale : {e}")
+        return False
+
     def get_chantiers(self, query=None):
         """Récupère la liste des chantiers depuis le serveur."""
         if not self.is_registered():

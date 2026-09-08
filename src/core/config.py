@@ -13,6 +13,7 @@ DEFAULT_CONFIG = {
     "fleet_url": "https://docs.deltathermic.be/reports/api",
     "fleet_secret": "",  # Peut être défini via la variable d'environnement FLEET_SECRET
     "fleet_token": "",    # Jeton obtenu après enregistrement
+    "fleet_assigned_hostname": "",  # Nom d'hôte (ex: rpi02) attribué par docs lors de l'enregistrement automatique
     "logger_retries": 3,
     "modbus_timeout": 1.2,
     "bacnet_timeout": 45

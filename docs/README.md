@@ -15,6 +15,8 @@ plus facile à retrouver.
 
 - Exploitation et interventions serveur : [`operations/DOCS_SERVER_ACCESS.md`](operations/DOCS_SERVER_ACCESS.md)
 - Intégrations et changements d’API flotte : [`integrations/FLEET_API_CHANGES.md`](integrations/FLEET_API_CHANGES.md)
+- Enrôlement automatique Headscale (identité + réseau) : [`integrations/HEADSCALE_AUTO_ENROLL.md`](integrations/HEADSCALE_AUTO_ENROLL.md)
+- Migration Headscale (historique) : [`operations/HEADSCALE_MIGRATION_STATUS.md`](operations/HEADSCALE_MIGRATION_STATUS.md)
 
 ## Incidents et investigations
 

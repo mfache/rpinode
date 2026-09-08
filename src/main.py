@@ -43,9 +43,15 @@ def main():
     try:
         from services.network_config import (apply_site_network_profiles,
                                              publish_tailscale_routes)
-        from services.presence import get_current_site_id
+        from services.presence import get_current_site_id, clear_current_location
 
         logging.info("--- DEMARRAGE RPINODE ---")
+
+        # 0. Effacement systématique du chantier en cours (fichier /tmp volatile)
+        # Assure qu'après un redémarrage physique, la machine ne devine jamais sa
+        # position depuis la base de données. Elle doit attendre une position 4G 
+        # stable ou une confirmation de l'utilisateur pour reprendre le flux de données.
+        clear_current_location()
 
         # 1. Résoudre immédiatement la localisation réelle avant de réappliquer un
         # profil réseau persistant. Sans cela, un boîtier déplacé au repos peut
@@ -62,6 +68,24 @@ def main():
         publish_tailscale_routes()
     except Exception as e:
         logging.error(f"Erreur initialisation réseau : {e}")
+
+    # Rattachement automatique a la flotte et au reseau Headscale (identite +
+    # cle de pre-authentification obtenues aupres de docs, sans intervention
+    # manuelle). Sans effet si deja enregistre/rattache.
+    def run_headscale_enroll():
+        import time
+        from services.headscale_enroll import ensure_headscale_enrolled
+        headscale_logger = logging.getLogger("HeadscaleEnroll")
+        for attempt in range(10):
+            try:
+                if ensure_headscale_enrolled():
+                    return
+            except Exception as e:
+                headscale_logger.error(f"Erreur lors du rattachement Headscale : {e}")
+            time.sleep(30)
+
+    headscale_thread = threading.Thread(target=run_headscale_enroll, daemon=True)
+    headscale_thread.start()
 
     # Démarrage du tracker de localisation en arrière-plan
     tracker_thread = threading.Thread(target=start_tracker, kwargs={'interval': 60}, daemon=True)

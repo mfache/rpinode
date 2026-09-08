@@ -80,6 +80,19 @@ Nettoyage des données effectué dans la foulée :
 - L'antenne historique erronée `24538` a finalement été retirée de `HIECS`, qui ne garde
   plus que `900529` côté serveur comme côté boîtier.
 
+## 5. Enrôlement automatique Headscale (2026-09-08)
+
+Nouveaux endpoints `POST /register/auto`, `POST /headscale/enroll` et
+`POST /headscale/routes` (ce dernier resynchronise les routes approuvées à
+chaque changement de chantier, pas seulement à l'enrôlement initial), plus
+une colonne ajoutée à `boitier_registre` (`cpu_serial`). `API_VERSION` →
+`1.2.0`.
+
+Documenté en détail (schéma, séquence, commandes `headscale` utilisées,
+validation) dans
+[HEADSCALE_AUTO_ENROLL.md](HEADSCALE_AUTO_ENROLL.md) plutôt que dupliqué
+ici, le sujet étant assez conséquent pour mériter son propre document.
+
 ## Validation effectuée
 
 - Compression gzip testée : ~20x de réduction sur un lot réaliste de points BACnet.
