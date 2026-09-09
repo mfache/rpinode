@@ -39,7 +39,7 @@ def main():
     # Initialisation de la DB
     init_db()
 
-    # Publication initiale des routes sur Tailscale
+    # Publication initiale des routes sur Headscale
     try:
         from services.network_config import (apply_site_network_profiles,
                                              publish_tailscale_routes)

@@ -59,7 +59,7 @@ class FleetClient:
         url = f"{self.base_url}/register"
         payload = {
             "hostname": self.hostname,
-            "tailscale_name": f"{self.hostname}.tailnet.ts.net" # Hypothèse basée sur la doc
+            "tailscale_name": f"{self.hostname}.dt.net" # Headscale MagicDNS
         }
         headers = {"X-Join-Secret": self.secret}
 

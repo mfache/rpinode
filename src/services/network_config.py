@@ -48,7 +48,7 @@ def apply_site_network_profiles(site_id):
         _apply_eth0_profile("auto", None, None, None)
 
 def publish_tailscale_routes():
-    """Publie les réseaux locaux sur Tailscale pour l'accès distant."""
+    """Publie les réseaux locaux sur Headscale pour l'accès distant."""
     import ipaddress
 
     from services.network import get_interface_status
@@ -66,7 +66,7 @@ def publish_tailscale_routes():
     
     if routes:
         routes_str = ",".join(set(routes))
-        logger.info(f"Publication des routes sur Tailscale : {routes_str}")
+        logger.info(f"Publication des routes sur Headscale : {routes_str}")
         subprocess.run(f"sudo tailscale set --advertise-routes={routes_str}", shell=True)
 
         # Si l'appareil est rattache a Headscale, les nouvelles routes
@@ -147,7 +147,7 @@ def _apply_eth0_profile(method, addresses, gateway, dhcp_range=None):
         else:
             logger.info(f"Profil eth0 appliqué avec succès.")
         
-        # Publication des routes sur Tailscale
+        # Publication des routes sur Headscale
         publish_tailscale_routes()
     except Exception as e:
         logger.error(f"Erreur lors de l'application du profil eth0: {e}")
