@@ -53,6 +53,9 @@ Conséquences :
   [https://docs.deltathermic.be/reports/api/usage](https://docs.deltathermic.be/reports/api/usage)
 - Historique des modifications hors dépôt :
   [../integrations/FLEET_API_CHANGES.md](../integrations/FLEET_API_CHANGES.md)
+- Comptes techniques et ACL SSH Headscale (`fleet`/`docsadmin`) : résumé dans
+  [HEADSCALE_SSH_ACL.md](HEADSCALE_SSH_ACL.md), référence canonique dans
+  `docs:/var/www/reports/HEADSCALE-ACL.md`.
 
 ## 7. Redémarrage et précautions
 
