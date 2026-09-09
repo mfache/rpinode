@@ -124,6 +124,37 @@ seulement lors de l'installation initiale.
 
 Nouvelle clé `fleet_assigned_hostname` dans `DEFAULT_CONFIG`.
 
+### `src/services/headscale_enroll.py` (9 septembre 2026 -- accès admin `docs`)
+
+En plus de l'enrôlement identité/réseau ci-dessus, ce module provisionne
+doravant l'accès administrateur de `docs` vers ce boîtier via Tailscale SSH
+(voir [`../operations/HEADSCALE_SSH_ACL.md`](../operations/HEADSCALE_SSH_ACL.md)
+pour le détail des comptes et de l'ACL) :
+
+- `_ensure_docsadmin_account()` : crée le compte système `docsadmin`
+  (verrouillé, sans clé SSH) s'il n'existe pas encore.
+- `_ensure_docsadmin_sudoers()` : dépose `/etc/sudoers.d/docsadmin` (sudo
+  restreint à la supervision du service `rpinode`), validé par `visudo -c`
+  avant toute installation. Sans effet si le contenu en place est déjà à
+  jour.
+- `_ensure_tailscale_ssh_enabled()` : active `tailscale set --ssh` si ce
+  n'est pas déjà fait. **Suppose que l'ACL côté Headscale couvre déjà un
+  accès admin humain vers `tag:fleet`** (sans quoi l'activation coupe la
+  session SSH en cours, comme observé lors de l'incident du 9 septembre
+  2026) -- c'est le cas par défaut car l'ACL est définie par tag, pas par
+  nœud.
+- `ensure_docs_admin_access()` : orchestre les trois étapes ci-dessus,
+  chacune best-effort (l'échec d'une étape n'empêche pas les autres).
+  Appelée à la fin de `ensure_headscale_enrolled()`, aussi bien lors d'un
+  enrôlement initial que lorsque l'appareil est déjà actif sur Headscale
+  (chemin rapide) -- idempotent, exécutée à chaque démarrage du service.
+
+Le taggage `tag:fleet` correspondant, lui, est posé **côté serveur** (voir
+`POST /headscale/routes` ci-dessous) : au moment où `ensure_docs_admin_access()`
+active `--ssh`, le nœud est déjà taggé (l'appel à
+`fleet.headscale_sync_routes(routes)` précède toujours cet appel dans le
+flux).
+
 ## 5. Modifications côté serveur (`docs`, hors dépôt Git)
 
 Comme pour les autres évolutions de l'API centrale, ce qui suit vit

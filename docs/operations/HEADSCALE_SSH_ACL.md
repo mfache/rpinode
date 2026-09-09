@@ -44,12 +44,18 @@ compris si le port SSH classique venait à être exposé par erreur.
 - Seul le groupe `group:fleet-admins` (= `delta@`) peut poser/retirer ces
   tags (`tagOwners` dans `acl.hujson`).
 
-**Pour un futur `rpiNN`** : poser le tag `tag:fleet` sur son nœud
-(`headscale nodes tag -i <ID> -t tag:fleet`) et créer le compte `docsadmin`
-dessus (avec le même `/etc/sudoers.d/docsadmin`) fait partie de son
-provisioning, au même titre que l'enrôlement Headscale automatique
-(voir [`../integrations/HEADSCALE_AUTO_ENROLL.md`](../integrations/HEADSCALE_AUTO_ENROLL.md)).
-Ce n'est pas encore automatisé.
+**Pour un futur `rpiNN`, c'est désormais automatique** (9 septembre 2026,
+après-midi) :
+
+- le tag `tag:fleet` est posé **côté serveur** par `docs` (`api.py`,
+  fonction `_ensure_fleet_tag()`, appelée depuis `POST /headscale/routes`
+  à chaque synchronisation de routes, y compris la première) ;
+- le compte `docsadmin` + son sudoers restreint + l'activation de
+  `tailscale set --ssh` sont posés **côté boîtier** par
+  `src/services/headscale_enroll.py::ensure_docs_admin_access()`, appelée
+  à chaque démarrage du service `rpinode` (idempotente).
+
+Détail complet : [`../integrations/HEADSCALE_AUTO_ENROLL.md`](../integrations/HEADSCALE_AUTO_ENROLL.md).
 
 ## 4. Incident du 09/09/2026 — leçon retenue
 
@@ -79,3 +85,23 @@ procédure de récupération : voir `HEADSCALE-ACL.md` sur `docs` (section 4).
   refusée comme attendu).
 - Connectivité générale du tailnet (`acls` ouvert) : non affectée par ce
   changement, vérifiée par `tailscale ping` avant/après.
+
+## 6. Automatisation du taggage et du provisioning (9 septembre 2026, après-midi)
+
+- Ajout de `_ensure_fleet_tag()` côté serveur (`api.py`, appelée depuis
+  `POST /headscale/routes`) : pose automatiquement `tag:fleet` sur le nœud
+  d'un boîtier qui ne l'a pas encore. Testé en conditions réelles avec le
+  jeton de `rpi01` (déjà taggué : opération sans effet, comme attendu) et
+  par un test unitaire isolé (mock de `_run_headscale`).
+- Ajout de `ensure_docs_admin_access()` côté boîtier
+  (`headscale_enroll.py`) : crée `docsadmin`, dépose son sudoers restreint
+  et active `tailscale set --ssh`, à chaque démarrage du service. Couvert
+  par `tests/test_headscale_enroll.py`.
+- **Incident survenu pendant ces travaux** (sans rapport avec l'ACL ou les
+  comptes techniques) : un `systemctl reload uwsgi` a révélé que
+  `/var/www/reports/app.py` avait été accidentellement écrasé par une copie
+  de `/var/www/headscale-admin/app.py`, cassant temporairement toute l'API
+  de flotte (`/reports/api/*`, HTTP 500). Corrigé en reconstruisant le
+  point d'entrée WSGI correct (`application = Bottle(); application.mount('/reports/api', api_app)`).
+  Détail dans les notes du serveur (`docs:/var/www/reports/NOTES-evolutions.md`,
+  section du 9 septembre après-midi).
