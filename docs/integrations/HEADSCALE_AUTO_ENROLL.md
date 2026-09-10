@@ -134,9 +134,9 @@ pour le détail des comptes et de l'ACL) :
 - `_ensure_docsadmin_account()` : crée le compte système `docsadmin`
   (verrouillé, sans clé SSH) s'il n'existe pas encore.
 - `_ensure_docsadmin_sudoers()` : dépose `/etc/sudoers.d/docsadmin` (sudo
-  restreint à la supervision du service `rpinode`), validé par `visudo -c`
-  avant toute installation. Sans effet si le contenu en place est déjà à
-  jour.
+  complet `NOPASSWD: ALL`, cf. `docs/operations/HEADSCALE_SSH_ACL.md`),
+  validé par `visudo -c` avant toute installation. Sans effet si le contenu
+  en place est déjà à jour.
 - `_ensure_tailscale_ssh_enabled()` : active `tailscale set --ssh` si ce
   n'est pas déjà fait. **Suppose que l'ACL côté Headscale couvre déjà un
   accès admin humain vers `tag:fleet`** (sans quoi l'activation coupe la

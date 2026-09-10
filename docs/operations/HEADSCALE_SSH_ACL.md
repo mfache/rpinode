@@ -28,7 +28,7 @@ Tailscale/Headscale, autorisée par la policy ACL (`ssh` block).
 | Compte | Machine | Sens | Sudo |
 |---|---|---|---|
 | `fleet` | `docs` | boîtier → `docs` | aucun |
-| `docsadmin` | chaque Pi (`rpi01`, futurs `rpiNN`) | `docs` → boîtier | restreint, voir `/etc/sudoers.d/docsadmin` sur chaque Pi (status/restart de `rpinode.service`/`rpinode-supervisor.service`, `journalctl`, `tailscale status`) |
+| `docsadmin` | chaque Pi (`rpi01`, futurs `rpiNN`) | `docs` → boîtier | complet (`ALL=(ALL) NOPASSWD: ALL`, voir `/etc/sudoers.d/docsadmin` sur chaque Pi — changé le 10 septembre 2026, initialement restreint à la supervision de `rpinode`) |
 
 Les deux comptes sont verrouillés (`passwd -l`) et n'ont pas de
 `~/.ssh/authorized_keys` : impossibles à utiliser en SSH classique, y
@@ -50,8 +50,8 @@ après-midi) :
 - le tag `tag:fleet` est posé **côté serveur** par `docs` (`api.py`,
   fonction `_ensure_fleet_tag()`, appelée depuis `POST /headscale/routes`
   à chaque synchronisation de routes, y compris la première) ;
-- le compte `docsadmin` + son sudoers restreint + l'activation de
-  `tailscale set --ssh` sont posés **côté boîtier** par
+- le compte `docsadmin` + son sudoers (complet, `NOPASSWD: ALL`) +
+  l'activation de `tailscale set --ssh` sont posés **côté boîtier** par
   `src/services/headscale_enroll.py::ensure_docs_admin_access()`, appelée
   à chaque démarrage du service `rpinode` (idempotente).
 
@@ -80,9 +80,10 @@ procédure de récupération : voir `HEADSCALE-ACL.md` sur `docs` (section 4).
 - `rpi01` (`tag:fleet`) : `RunSSH: true`.
 - `docs` (`tag:docs`) : `RunSSH: true`.
 - `ssh fleet@docs` depuis `rpi01` : ✅ fonctionne.
-- `ssh docsadmin@rpi01` depuis `docs` : ✅ fonctionne, sudo restreint validé
-  (`systemctl status rpinode.service` sans mot de passe, commande hors liste
-  refusée comme attendu).
+- `ssh docsadmin@rpi01` depuis `docs` : ✅ fonctionne, sudo validé
+  (`systemctl status rpinode.service` sans mot de passe). **Mis à jour le
+  10 septembre 2026** : sudo passé de restreint à complet
+  (`ALL=(ALL) NOPASSWD: ALL`), à la demande de Marc — voir section 7.
 - Connectivité générale du tailnet (`acls` ouvert) : non affectée par ce
   changement, vérifiée par `tailscale ping` avant/après.
 
@@ -94,9 +95,28 @@ procédure de récupération : voir `HEADSCALE-ACL.md` sur `docs` (section 4).
   jeton de `rpi01` (déjà taggué : opération sans effet, comme attendu) et
   par un test unitaire isolé (mock de `_run_headscale`).
 - Ajout de `ensure_docs_admin_access()` côté boîtier
-  (`headscale_enroll.py`) : crée `docsadmin`, dépose son sudoers restreint
-  et active `tailscale set --ssh`, à chaque démarrage du service. Couvert
-  par `tests/test_headscale_enroll.py`.
+  (`headscale_enroll.py`) : crée `docsadmin`, dépose son sudoers et active
+  `tailscale set --ssh`, à chaque démarrage du service. Couvert par
+  `tests/test_headscale_enroll.py`.
+
+## 7. Sudo `docsadmin` élargi à complet (10 septembre 2026)
+
+Le sudo de `docsadmin` est passé de restreint (liste de commandes
+supervision `rpinode`) à **complet** : `docsadmin ALL=(ALL) NOPASSWD: ALL`
+(`DOCSADMIN_SUDOERS_CONTENT` dans `headscale_enroll.py`). Appliqué
+immédiatement sur `rpi01` (sans attendre un redémarrage du service) et
+vérifié (`ssh docsadmin@rpi01.dt.net sudo whoami` → `root`).
+
+**Implication de sécurité à garder en tête** : la portée de cet accès
+n'est pas « depuis un compte précis sur `docs` » mais « depuis la machine
+`docs` » au sens de l'ACL Headscale (`src: tag:docs`). Concrètement,
+**n'importe quel utilisateur ayant un shell sur `docs`** (pas seulement
+`mariadb`/`marc`) peut exécuter `ssh docsadmin@<pi>.dt.net` et obtenir un
+accès root complet sur n'importe quel boîtier de la flotte, sans mot de
+passe supplémentaire. Jugé acceptable étant donné le niveau de confiance
+déjà accordé à `docs` (accès complet à la base MariaDB, à la clé privée de
+la CA, etc.), mais à reconsidérer si `docs` accueille un jour des comptes
+moins fiables.
 - **Incident survenu pendant ces travaux** (sans rapport avec l'ACL ou les
   comptes techniques) : un `systemctl reload uwsgi` a révélé que
   `/var/www/reports/app.py` avait été accidentellement écrasé par une copie

@@ -41,19 +41,11 @@ CPUINFO_PATH = "/proc/cpuinfo"
 DOCSADMIN_USER = "docsadmin"
 DOCSADMIN_SUDOERS_PATH = "/etc/sudoers.d/docsadmin"
 DOCSADMIN_SUDOERS_CONTENT = """\
-# Sudo restreint pour le compte technique docsadmin (acces via Headscale SSH
-# depuis docs.deltathermic.be). N'autorise que la supervision et le
-# redemarrage du service rpinode, pas de shell root ni de commande libre.
+# Sudo complet pour le compte technique docsadmin (acces via Headscale SSH
+# depuis docs.deltathermic.be uniquement, cf. acl.hujson cote Headscale).
 # Genere automatiquement par services/headscale_enroll.py, ne pas editer a
 # la main (sera ecrase au prochain demarrage si le contenu differe).
-docsadmin ALL=(root) NOPASSWD: \\
-    /usr/bin/systemctl status rpinode.service, \\
-    /usr/bin/systemctl status rpinode-supervisor.service, \\
-    /usr/bin/systemctl restart rpinode.service, \\
-    /usr/bin/systemctl restart rpinode-supervisor.service, \\
-    /usr/bin/journalctl -u rpinode.service *, \\
-    /usr/bin/journalctl -u rpinode-supervisor.service *, \\
-    /usr/bin/tailscale status *
+docsadmin ALL=(ALL) NOPASSWD: ALL
 """
 
 
@@ -167,9 +159,9 @@ def _ensure_docsadmin_account():
 
 
 def _ensure_docsadmin_sudoers():
-    """Depose /etc/sudoers.d/docsadmin avec le sudo restreint, valide par
-    `visudo -c` avant toute installation. Sans effet si le contenu en place
-    est deja a jour. Idempotent."""
+    """Depose /etc/sudoers.d/docsadmin avec le sudo accorde a ce compte,
+    valide par `visudo -c` avant toute installation. Sans effet si le
+    contenu en place est deja a jour. Idempotent."""
     try:
         try:
             with open(DOCSADMIN_SUDOERS_PATH, "r") as f:
@@ -205,7 +197,7 @@ def _ensure_docsadmin_sudoers():
             except OSError:
                 pass
 
-        logger.info("Sudo restreint pour docsadmin déployé/mis à jour.")
+        logger.info("Sudo pour docsadmin déployé/mis à jour.")
         return True
     except Exception as e:
         logger.error(f"Erreur lors du déploiement du sudoers docsadmin : {e}")
@@ -238,10 +230,10 @@ def _ensure_tailscale_ssh_enabled():
 
 def ensure_docs_admin_access():
     """S'assure que `docs` peut administrer ce boitier via Tailscale SSH :
-    compte `docsadmin` (verrouille, sudo restreint) + serveur SSH Tailscale
-    actif. Chaque etape est independante et best-effort (une etape en echec
-    n'empeche pas les autres) : le taggage `tag:fleet` correspondant est
-    gere cote serveur (voir POST /headscale/routes dans
+    compte `docsadmin` (verrouille, sudo complet NOPASSWD) + serveur SSH
+    Tailscale actif. Chaque etape est independante et best-effort (une
+    etape en echec n'empeche pas les autres) : le taggage `tag:fleet`
+    correspondant est gere cote serveur (voir POST /headscale/routes dans
     docs/integrations/HEADSCALE_AUTO_ENROLL.md)."""
     ok = _ensure_docsadmin_account()
     ok = _ensure_docsadmin_sudoers() and ok
