@@ -2515,22 +2515,10 @@ class WebAdminHandler(BaseHTTPRequestHandler):
         except Exception:
             data = {}
 
-        action = data.get("action", "status")
         try:
             from services.live_view import live_view_service
-            if action == "start":
-                live_view_service.points_to_poll = data.get("points", [])
-                live_view_service.interval = max(1, data.get("interval", 1))
-                live_view_service.active = True
-            elif action == "stop":
-                live_view_service.active = False
-                live_view_service.points_to_poll = []
-
-            self.send_json({
-                "status": "ok",
-                "active": live_view_service.active,
-                "points": len(live_view_service.points_to_poll)
-            })
+            result = live_view_service.handle_action(data)
+            self.send_json({"status": "ok", **result})
         except Exception as e:
             logger.error(f"Erreur handle_live_view: {e}")
             self.send_json({"status": "error", "message": str(e)})

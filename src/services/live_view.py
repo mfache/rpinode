@@ -7,6 +7,13 @@ from services.mqtt_service import mqtt_client
 
 logger = logging.getLogger(__name__)
 
+# Le Live View est un outil de debug ponctuel (visualisation temps reel depuis docs).
+# Il ne doit jamais rester actif indefiniment : sur une liaison 4G facturee au volume,
+# un "stop" perdu (coupure reseau, onglet ferme, crash cote docs, ...) transformerait
+# une session de quelques minutes en pompe a data permanente. On coupe donc
+# automatiquement apres MAX_SESSION_SECONDS, meme sans "stop" recu.
+MAX_SESSION_SECONDS = 300  # 5 minutes
+
 class LiveViewService(threading.Thread):
     def __init__(self):
         super().__init__()
@@ -17,6 +24,7 @@ class LiveViewService(threading.Thread):
         self.active = False
         self.points_to_poll = []
         self.interval = 1
+        self.started_at = None
 
         def on_cmd_message(client, userdata, msg):
             self._handle_cmd(msg)
@@ -26,18 +34,31 @@ class LiveViewService(threading.Thread):
     def _handle_cmd(self, msg):
         try:
             payload = json.loads(msg.payload.decode())
-            action = payload.get("action")
-            if action == "start":
-                self.points_to_poll = payload.get("points", [])
-                self.interval = max(1, payload.get("interval", 1))
-                self.active = True
-                logger.info(f"Live view ACTIVE START: {len(self.points_to_poll)} points.")
-            elif action == "stop":
-                self.active = False
-                self.points_to_poll = []
-                logger.info("Live view ACTIVE STOP")
+            self.handle_action(payload)
         except Exception as e:
             logger.error(f"LiveView cmd error: {e}")
+
+    def handle_action(self, payload):
+        """Point d'entree partage entre la commande MQTT (docs) et la route HTTP
+        locale de debug (/api/live_view), pour garantir le meme comportement
+        (notamment l'auto-stop de securite) quelle que soit l'origine."""
+        action = payload.get("action")
+        if action == "start":
+            self.points_to_poll = payload.get("points", [])
+            self.interval = max(1, payload.get("interval", 1))
+            self.active = True
+            self.started_at = time.time()
+            logger.info(f"Live view ACTIVE START: {len(self.points_to_poll)} points (auto-stop dans {MAX_SESSION_SECONDS}s).")
+        elif action == "stop":
+            self.active = False
+            self.points_to_poll = []
+            self.started_at = None
+            logger.info("Live view ACTIVE STOP")
+        return {
+            "active": self.active,
+            "points": len(self.points_to_poll),
+            "remaining_seconds": max(0, int(MAX_SESSION_SECONDS - (time.time() - self.started_at))) if self.active and self.started_at else 0
+        }
 
     def run(self):
         logger.info("LiveViewService active polling thread started.")
@@ -52,6 +73,12 @@ class LiveViewService(threading.Thread):
                     subscribed = False
             except Exception:
                 pass
+
+            if self.active and self.started_at and (time.time() - self.started_at > MAX_SESSION_SECONDS):
+                logger.warning(f"Live view : arret automatique apres {MAX_SESSION_SECONDS}s (securite conso donnees 4G).")
+                self.active = False
+                self.points_to_poll = []
+                self.started_at = None
 
             if not self.active or not self.points_to_poll:
                 time.sleep(1)
