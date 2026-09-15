@@ -60,6 +60,63 @@ class LiveViewService(threading.Thread):
             "remaining_seconds": max(0, int(MAX_SESSION_SECONDS - (time.time() - self.started_at))) if self.active and self.started_at else 0
         }
 
+    def _poll_bacnet(self, bacnet_points, results):
+        """Lit un lot de points BACnet en un seul aller-retour MQTT vers
+        bacnet_daemon (via bacnet_mgr.read_bacnet_points_live_raw), plutot
+        qu'un aller-retour par point : le polling live tourne toutes les
+        self.interval secondes, un aller-retour par point saturerait vite
+        le bus MQTT local et le daemon BACnet."""
+        from services.bacnet_mgr import read_bacnet_points_live_raw
+        from core.database import get_db_connection
+
+        resolved = []
+        pt_by_key = {}
+        try:
+            with get_db_connection() as conn:
+                for pt in bacnet_points:
+                    obj_id = pt.get("obj")
+                    try:
+                        device_instance = int(pt.get("device"))
+                    except (TypeError, ValueError):
+                        logger.warning(f"Point BACnet 'device' invalide (live view) : {pt}")
+                        continue
+                    row = conn.execute(
+                        "SELECT network_address FROM bacnet_points WHERE device_instance = ? AND object_id = ? LIMIT 1",
+                        (device_instance, obj_id)
+                    ).fetchone()
+                    if not row or not row["network_address"]:
+                        logger.warning(f"Point BACnet introuvable en base locale (live view) : {pt}")
+                        continue
+                    key = f"{device_instance}|{obj_id}"
+                    pt_by_key[key] = pt
+                    resolved.append({
+                        "key": key,
+                        "address": row["network_address"],
+                        "object_id": obj_id,
+                        "device_id": device_instance,
+                    })
+        except Exception as e:
+            logger.error(f"LiveView bacnet resolution err: {e}")
+            return
+
+        if not resolved:
+            return
+
+        # bacnet_daemon applique son propre timeout de 3.0s par point (voir
+        # process_reads dans bacnet_daemon.py) : il faut laisser une marge
+        # confortable au-dessus, sinon on rate systematiquement la reponse
+        # meme quand la lecture reussit cote BACnet.
+        raw = read_bacnet_points_live_raw(resolved, timeout=max(5.0, self.interval + 4.0))
+        for key, item in raw.items():
+            if not item or item.get("value") is None:
+                continue
+            pt = pt_by_key.get(key)
+            if not pt:
+                continue
+            result_key = f"{self.boitier_id}|bacnet|{pt['device']}|{pt['obj']}"
+            val_str = str(item.get("display")) if item.get("display") not in (None, "—") else str(item.get("value"))
+            results[result_key] = {"v": val_str, "c": 0}
+
     def run(self):
         logger.info("LiveViewService active polling thread started.")
         subscribed = False
@@ -87,10 +144,17 @@ class LiveViewService(threading.Thread):
             try:
                 from services.modbus_mgr import read_point_value
                 from core.database import get_db_connection
-                
+
                 results = {}
                 current_points = list(self.points_to_poll)
-                
+
+                bacnet_points = [p for p in current_points if p.get("protocol") == "bacnet"]
+                if bacnet_points:
+                    try:
+                        self._poll_bacnet(bacnet_points, results)
+                    except Exception as e:
+                        logger.error(f"LiveView bacnet err: {e}")
+
                 for pt in current_points:
                     if pt.get("protocol") == "modbus":
                         address = pt.get("address")
@@ -123,7 +187,7 @@ class LiveViewService(threading.Thread):
                             scale = float(r["scale"] or 1.0)
                             base = int(r["base"] or 0)
                             proto = r["dproto"]
-                            
+
                         try:
                             v, display = read_point_value(
                                 proto, address, port, unit, func, reg, t_str, scale, base=base, timeout=0.5
@@ -134,16 +198,13 @@ class LiveViewService(threading.Thread):
                         except Exception as e:
                             logger.error(f"Modbus err {pt}: {e}")
                             pass
-                            
-                    elif pt.get("protocol") == "bacnet":
-                        pass
 
                 if results:
                     mqtt_client.publish(self.data_topic, results)
 
             except Exception as e:
                 logger.error(f"LiveView polling error: {e}")
-                
+
             time.sleep(self.interval)
 
 live_view_service = LiveViewService()
