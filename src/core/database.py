@@ -13,8 +13,10 @@ def get_db_connection():
     # lors d'accès concurrents (web, logger, fleet, etc.)
     conn = sqlite3.connect(paths.DATABASE_FILE, timeout=20.0)
 
-    # Activation du mode WAL pour la concurrence des lectures/écritures
-    conn.execute("PRAGMA journal_mode=WAL;")
+    # PRAGMA synchronous est un réglage par connexion (contrairement à journal_mode qui est
+    # persistant au niveau du fichier). Il doit donc être réappliqué à chaque connexion, sous
+    # peine de retomber sur la valeur par défaut de SQLite (FULL), beaucoup plus lente sur une
+    # carte SD et pouvant provoquer des blocages/lenteurs sous forte charge d'écriture (trends).
     conn.execute("PRAGMA synchronous=NORMAL;")
     conn.execute("PRAGMA busy_timeout=20000;")
 
@@ -37,6 +39,14 @@ def init_db():
     Permet d'ajouter des tables ou des colonnes (si l'utilisateur édite schema.sql).
     """
     logger.info(f"Vérification de la structure de la base de données : {paths.DATABASE_FILE}")
+    
+    # Configuration du mode WAL et synchronous pour la base SQLite
+    try:
+        with get_db_connection() as conn:
+            conn.execute("PRAGMA journal_mode=WAL;")
+            conn.execute("PRAGMA synchronous=NORMAL;")
+    except Exception as e:
+        logger.warning(f"Impossible de configurer PRAGMA WAL : {e}")
     
     if not paths.SCHEMA_FILE.exists():
         logger.error(f"Fichier de schéma introuvable : {paths.SCHEMA_FILE}")

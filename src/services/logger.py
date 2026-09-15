@@ -1,11 +1,13 @@
 import json
 import logging
 import os
+import queue
 import random
 import subprocess
 import sys
 import threading
 import time
+import uuid
 
 from core.config import load_config
 from core.database import get_db_connection
@@ -181,7 +183,7 @@ def run_modbus_logging_cycle(now, last_poll_times, last_recorded_values, last_st
                     "value": val_str,
                     "display": full_display,
                     "name": p.get("name"),
-                    "device_name": p.get("device_name"),
+                    "device_name": p.get("device_name"), "obj_id": f"FC{p.get('function', 3):02d}_{p.get('reg', 0)}",
                     "ts": int(now),
                     "error": None
                 }
@@ -210,7 +212,7 @@ def run_modbus_logging_cycle(now, last_poll_times, last_recorded_values, last_st
                         "value": p["last_value"],
                         "display": full_display,
                         "name": p.get("name"),
-                        "device_name": p.get("device_name"),
+                        "device_name": p.get("device_name"), "obj_id": f"FC{p.get('function', 3):02d}_{p.get('reg', 0)}",
                         "ts": int(now),
                         "error": None,
                         "retained": True
@@ -222,7 +224,7 @@ def run_modbus_logging_cycle(now, last_poll_times, last_recorded_values, last_st
                         "value": None,
                         "display": "—",
                         "name": p.get("name"),
-                        "device_name": p.get("device_name"),
+                        "device_name": p.get("device_name"), "obj_id": f"FC{p.get('function', 3):02d}_{p.get('reg', 0)}",
                         "ts": int(now),
                         "error": str(e) if e else "Valeur vide"
                     }
@@ -260,72 +262,68 @@ def run_bacnet_logging_cycle(timestamp, timeout=45):
         with get_db_connection() as conn:
             cursor = conn.cursor()
             for res in results:
-                if res.get("status") == "ok":
-                    dev_id = next((r["device_id"] for r in requests if r["addr"] == res["addr"] and r["obj"] == res["obj"]), res["instance"])
-                    record_trend(cursor, site_id, "bacnet", timestamp, str(dev_id), res["obj"], res["value"])
+                if not res.get("error") and res.get("value") is not None:
+                    dev_id = res.get("device_id")
+                    obj_id = res.get("object_id")
+                    val = res.get("value")
+                    record_trend(cursor, site_id, "bacnet", timestamp, str(dev_id), obj_id, val)
             conn.commit()
 
 def prepare_bacnet_requests(cursor, site_id):
     """Prépare la liste des points BACnet à lire."""
     requests = []
-    if BACNET_POINTS_FILE.exists():
-        try:
-            with open(BACNET_POINTS_FILE, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                requests = data.get("points", [])
-        except Exception as e:
-            logger.warning(f"Fichier {BACNET_POINTS_FILE} illisible : {e}")
-    
-    if not requests:
-        try:
-            cursor.execute(
-                """
-                SELECT d.*, t.objects_json 
-                FROM bacnet_devices d
-                JOIN bacnet_templates t ON d.template_id = t.id
-                WHERE d.site_id = ?
-                """,
-                (site_id,)
-            )
-            for dev in cursor.fetchall():
-                objects = json_loads(dev["objects_json"])
-                for obj in objects:
-                    requests.append({
-                        "addr": dev["network_address"],
-                        "instance": dev["device_instance"],
-                        "obj": obj["obj"],
-                        "device_id": str(dev["device_instance"])
-                    })
-        except Exception as e:
-            logger.error(f"Erreur lecture BACnet DB : {e}")
+    try:
+        cursor.execute(
+            """
+            SELECT network_address, device_instance, object_id
+            FROM bacnet_points
+            WHERE site_id = ? AND is_recorded = 1
+            """,
+            (site_id,)
+        )
+        for row in cursor.fetchall():
+            requests.append({
+                "address": row["network_address"],
+                "device_id": row["device_instance"],
+                "object_id": row["object_id"]
+            })
+    except Exception as e:
+        logger.error(f"Erreur SQL req bacnet: {e}")
     return requests
 
 def perform_bacnet_read(requests, timeout):
-    """Exécute l'appel au reader BACnet externe."""
+    """Exécute l'appel au daemon BACnet via MQTT."""
+    if not requests:
+        return []
+    
+    job_id = str(uuid.uuid4())
+    res_queue = queue.Queue()
+
+    def on_msg(client, userdata, msg):
+        try:
+            res_queue.put(json.loads(msg.payload.decode('utf-8')))
+        except Exception:
+            pass
+
+    topic = f"rpinode/bacnet/res/read/{job_id}"
+    mqtt_client.client.subscribe(topic)
+    mqtt_client.client.message_callback_add(topic, on_msg)
+    
     try:
-        reader_path = os.path.join(os.path.dirname(__file__), "bacnet_reader.py")
-        bacnet_python = "/opt/boitier-bacnet/venv/bin/python"
-        if not os.path.exists(bacnet_python):
-            bacnet_python = sys.executable
-            
-        process = subprocess.Popen(
-            [bacnet_python, reader_path],
-            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
-        )
-        stdout, stderr = process.communicate(input=json.dumps(requests), timeout=timeout)
-        
-        if process.returncode == 0:
-            data = json.loads(stdout)
-            if "error" in data:
-                logger.warning(f"Erreur retournée par le reader BACnet : {data['error']}")
-            return data.get("results", [])
-        else:
-            logger.error(f"Le reader BACnet a échoué (code {process.returncode}) : {stderr}")
-    except subprocess.TimeoutExpired:
-        logger.warning("Le reader BACnet a expiré (timeout).")
+        mqtt_client.publish("rpinode/bacnet/cmd/read", {
+            "job_id": job_id,
+            "points": requests
+        })
+        return res_queue.get(timeout=timeout)
+    except queue.Empty:
+        logger.warning(f"Timeout MQTT lors de la lecture BACnet ({timeout}s).")
+        return []
     except Exception as e:
-        logger.error(f"Erreur lors de l'appel au reader BACnet : {e}")
-    return []
+        logger.error(f"Erreur appel BACnet MQTT : {e}")
+        return []
+    finally:
+        mqtt_client.client.message_callback_remove(topic)
+        mqtt_client.client.unsubscribe(topic)
 
 def simulate_value(name):
     """Simule une valeur réaliste basée sur le nom du point."""

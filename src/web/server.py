@@ -176,6 +176,8 @@ class WebAdminHandler(BaseHTTPRequestHandler):
             self.handle_sync_test()
         elif path == "/api/reboot":
             self.handle_system_action("reboot")
+        elif path == "/api/live_view":
+            self.handle_live_view()
         elif path == "/api/shutdown":
             self.handle_system_action("shutdown")
         elif path == "/api/site/rename":
@@ -2501,6 +2503,36 @@ class WebAdminHandler(BaseHTTPRequestHandler):
                 self.send_json({"status": "error", "message": "Le serveur distant n'a pas répondu ou a rejeté la synchronisation."})
         except Exception as e:
             logger.error(f"Erreur test sync: {e}")
+            self.send_json({"status": "error", "message": str(e)})
+
+    def handle_live_view(self):
+        """Permet de déclencher/arrêter manuellement le service Live View (debug local),
+        avec la même sémantique que la commande MQTT envoyée par docs (start/stop)."""
+        content_length = int(self.headers.get('Content-Length', 0))
+        post_data = self.rfile.read(content_length) if content_length else b"{}"
+        try:
+            data = json.loads(post_data) if post_data else {}
+        except Exception:
+            data = {}
+
+        action = data.get("action", "status")
+        try:
+            from services.live_view import live_view_service
+            if action == "start":
+                live_view_service.points_to_poll = data.get("points", [])
+                live_view_service.interval = max(1, data.get("interval", 1))
+                live_view_service.active = True
+            elif action == "stop":
+                live_view_service.active = False
+                live_view_service.points_to_poll = []
+
+            self.send_json({
+                "status": "ok",
+                "active": live_view_service.active,
+                "points": len(live_view_service.points_to_poll)
+            })
+        except Exception as e:
+            logger.error(f"Erreur handle_live_view: {e}")
             self.send_json({"status": "error", "message": str(e)})
 
     def serve_system_status(self):

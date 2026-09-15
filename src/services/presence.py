@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 import socket
 
 from core.database import get_db_connection
@@ -18,7 +19,11 @@ def clear_current_location():
         try:
             CURRENT_SITE_FILE.unlink()
         except Exception as e:
-            logger.error(f"Erreur lors de la suppression de {CURRENT_SITE_FILE}: {e}")
+            try:
+                os.chmod(CURRENT_SITE_FILE, 0o666)
+                CURRENT_SITE_FILE.unlink()
+            except Exception:
+                logger.error(f"Erreur lors de la suppression de {CURRENT_SITE_FILE}: {e}")
 
     # Synchronisation BDD
     hostname = socket.gethostname()
@@ -175,6 +180,10 @@ def label_current_location(site_name, is_provisional=False, external_id=None):
                 "name": site_name,
                 "is_provisional": is_provisional
             }, f)
+        try:
+            os.chmod(CURRENT_SITE_FILE, 0o666)
+        except Exception:
+            pass
     except Exception as e:
         logger.error(f"Erreur lors de l'écriture dans {CURRENT_SITE_FILE}: {e}")
 

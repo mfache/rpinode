@@ -99,6 +99,10 @@ def main():
     logger_thread = threading.Thread(target=start_data_logger, kwargs={'interval': 60}, daemon=True)
     logger_thread.start()
 
+    # Démarrage du service Live View
+    from services.live_view import live_view_service
+    live_view_service.start()
+
     # Démarrage du reporter MQTT (Bridge données internes -> MQTT)
     reporter.start()
 
