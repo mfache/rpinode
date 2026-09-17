@@ -998,18 +998,17 @@ async function runCatalogSearch(page = 1) {
     
     try {
         const url = (baseUrl + '/api/bacnet/catalog/search').replace(/\/+/g, '/');
-        const offset = (page - 1) * CATALOG_PAGE_SIZE;
         const res = await fetch(url, {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({pattern: pattern, offset: offset, limit: CATALOG_PAGE_SIZE})
+            body: JSON.stringify({pattern: pattern, page: page, limit: CATALOG_PAGE_SIZE})
         });
         const data = await res.json();
         document.getElementById('catalog-loading').style.display = 'none';
         
         if (data.status === 'ok') {
-            catalogTotalItems = data.total || 0;
-            renderCatalogTable(data.points || [], catalogTotalItems);
+            catalogTotalItems = data.total_count || 0;
+            renderCatalogTable(data.objects || [], catalogTotalItems);
             document.getElementById('catalog-results-area').style.display = 'block';
         } else {
             alert("Erreur recherche : " + (data.message || "Erreur"));
@@ -1032,26 +1031,27 @@ function renderCatalogTable(points, totalCount) {
     }
     
     points.forEach(p => {
+        const pointKey = `${p.address}_${p.object_id}`;
         const tr = document.createElement('tr');
-        tr.id = `cat-row-${p.id}`;
-        tr.dataset.pointId = p.id;
-        tr.dataset.ip = p.network_address;
-        tr.dataset.instance = p.device_instance;
-        tr.dataset.object = p.object_id;
+        tr.dataset.pointKey = pointKey;
+        tr.dataset.address = p.address;
+        tr.dataset.deviceId = p.device_id;
+        tr.dataset.objectId = p.object_id;
+        tr.dataset.objectName = p.object_name || '';
         
         const isMon = p.is_monitored ? '⭐ Suivi' : '—';
         const monColor = p.is_monitored ? '#27ae60' : '#888';
         
         tr.innerHTML = `
             <td style="text-align: center;">
-                <input type="checkbox" class="cb-catalog-select" value="${p.id}" onchange="updateCatalogSelectionCount()">
+                <input type="checkbox" class="cb-catalog-select" value="${pointKey}" data-address="${p.address}" data-device-id="${p.device_id}" data-object-id="${p.object_id}" data-object-name="${p.object_name || ''}" onchange="updateCatalogSelectionCount()">
             </td>
-            <td><code>${p.network_address}</code></td>
-            <td><code>${p.device_instance}</code></td>
+            <td><code>${p.address}</code></td>
+            <td><code>${p.device_id}</code></td>
             <td><small>${p.device_name || '—'}</small></td>
             <td><code>${p.object_id}</code></td>
-            <td><strong>${p.name || ''}</strong></td>
-            <td><span class="badge-success cat-live-val" id="cat-val-${p.id}">—</span></td>
+            <td><strong>${p.object_name || ''}</strong></td>
+            <td><span class="badge-success cat-live-val" id="cat-val-${pointKey}">—</span></td>
             <td style="text-align: center; color: ${monColor}; font-weight: bold;">${isMon}</td>
         `;
         tbody.appendChild(tr);
@@ -1101,8 +1101,14 @@ function updateCatalogSelectionCount() {
 
 async function markSelectedCatalogAsSuivi() {
     const cbs = Array.from(document.querySelectorAll('.cb-catalog-select:checked'));
-    const pointIds = cbs.map(cb => parseInt(cb.value, 10)).filter(id => !isNaN(id));
-    if (pointIds.length === 0) return;
+    if (cbs.length === 0) return;
+    
+    const points = cbs.map(cb => ({
+        address: cb.dataset.address,
+        device_id: cb.dataset.deviceId,
+        object_id: cb.dataset.objectId,
+        object_name: cb.dataset.objectName
+    }));
     
     const btn = document.getElementById('btn-catalog-mark-suivi');
     btn.disabled = true;
@@ -1110,11 +1116,11 @@ async function markSelectedCatalogAsSuivi() {
         const res = await fetch((baseUrl + '/api/bacnet/points/track').replace(/\/+/g, '/'), {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({point_ids: pointIds, is_monitored: true})
+            body: JSON.stringify({points: points})
         });
         const data = await res.json();
         if (data.status === 'ok') {
-            showToast(`${data.updated_count || pointIds.length} point(s) marqués comme suivis !`);
+            showToast(`${data.count || points.length} point(s) marqués comme suivis !`);
             runCatalogSearch(currentCatalogPage);
         } else {
             alert("Erreur : " + (data.message || "Échec"));
@@ -1127,14 +1133,14 @@ async function markSelectedCatalogAsSuivi() {
 }
 
 async function refreshCatalogLiveValues(flash = false) {
-    const rows = Array.from(document.querySelectorAll('#catalog-tbody tr[data-point-id]'));
+    const rows = Array.from(document.querySelectorAll('#catalog-tbody tr[data-point-key]'));
     if (rows.length === 0) return;
     
     const requests = rows.map(r => ({
-        point_id: parseInt(r.dataset.pointId, 10),
-        ip: r.dataset.ip,
-        instance: parseInt(r.dataset.instance, 10),
-        object_id: r.dataset.object
+        key: r.dataset.pointKey,
+        address: r.dataset.address,
+        device_id: r.dataset.deviceId,
+        object_id: r.dataset.objectId
     }));
     
     try {
@@ -1145,8 +1151,8 @@ async function refreshCatalogLiveValues(flash = false) {
         });
         const data = await res.json();
         if (data.status === 'ok' && data.values) {
-            data.values.forEach(item => {
-                const el = document.getElementById(`cat-val-${item.point_id}`);
+            Object.entries(data.values).forEach(([key, item]) => {
+                const el = document.getElementById(`cat-val-${key}`);
                 if (el) {
                     const oldVal = el.textContent;
                     const newVal = item.value !== null && item.value !== undefined ? String(item.value) : (item.error ? 'Err' : '—');

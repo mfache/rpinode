@@ -970,8 +970,13 @@ class WebAdminHandler(BaseHTTPRequestHandler):
 
         local_html = ""
         for t in local_templates:
-            t_json = json.dumps(dict(t)).replace("'", "\\'")
-            escaped_name = t['name'].replace("'", "\\'")
+            # Échappement HTML (et non JS) car ces valeurs sont injectées dans un
+            # attribut onclick='' : les entités HTML sont décodées par le navigateur
+            # avant l'exécution du JS, ce qui protège la fois la délimitation de
+            # l'attribut (') et la syntaxe JSON/JS (") même si le texte contient
+            # des apostrophes (ex: "l'installation").
+            t_json = escape(json.dumps(dict(t), ensure_ascii=False))
+            escaped_name = escape(json.dumps(t['name'], ensure_ascii=False))
             try:
                 regs = json.loads(t.get("registers_json", "[]"))
                 reg_count = len(regs)
@@ -991,8 +996,8 @@ class WebAdminHandler(BaseHTTPRequestHandler):
                 f"<td><span class='badge-count'>{reg_count} reg.</span></td>"
                 f"<td style='display:flex; gap:6px; flex-wrap:wrap;'>"
                 f"<button class='btn-blue btn-sm' onclick='showEditTemplateModal({t_json})' title='Modifier les registres'>✏️ Modifier</button>"
-                f"<button class='btn-secondary btn-sm' onclick='shareTemplate({t['id']}, \"{escaped_name}\")' title='Publier vers la flotte docs'>📤 Partager</button>"
-                f"<button class='btn-red btn-sm' onclick='deleteTemplate({t['id']}, \"{escaped_name}\")' title='Supprimer du boîtier'>🗑️</button>"
+                f"<button class='btn-secondary btn-sm' onclick='shareTemplate({t['id']}, {escaped_name})' title='Publier vers la flotte docs'>📤 Partager</button>"
+                f"<button class='btn-red btn-sm' onclick='deleteTemplate({t['id']}, {escaped_name})' title='Supprimer du boîtier'>🗑️</button>"
                 f"</td>"
                 f"</tr>"
             )
@@ -1001,20 +1006,20 @@ class WebAdminHandler(BaseHTTPRequestHandler):
 
         fleet_html = ""
         for f in fleet_templates:
-            escaped_name = f['name'].replace("'", "\\'")
+            escaped_name = escape(json.dumps(f['name'], ensure_ascii=False))
             if f.get('needs_update'):
                 status_action = (
                     f"<span class='badge-installed' style='background:#fef9e7; color:#d4ac0d;'>⚠️ v{f['local_version']} ➔ v{f['version']}</span> "
-                    f"<button class='btn-blue btn-sm' onclick='importFromFleet(\"{escaped_name}\", true)' title='Mettre à jour vers la version {f['version']}'>⬆️ Mettre à jour</button>"
+                    f"<button class='btn-blue btn-sm' onclick='importFromFleet({escaped_name}, true)' title='Mettre à jour vers la version {f['version']}'>⬆️ Mettre à jour</button>"
                 )
             elif f['is_installed']:
                 status_action = (
                     f"<span class='badge-installed'>✅ v{f['version']}</span> "
-                    f"<button class='btn-gray btn-sm' onclick='importFromFleet(\"{escaped_name}\", true)' title='Réimporter la version de la flotte'>🔄</button>"
+                    f"<button class='btn-gray btn-sm' onclick='importFromFleet({escaped_name}, true)' title='Réimporter la version de la flotte'>🔄</button>"
                 )
             else:
                 status_action = (
-                    f"<button class='btn-primary btn-sm' onclick='importFromFleet(\"{escaped_name}\", false)'>⬇️ Installer (v{f['version']})</button>"
+                    f"<button class='btn-primary btn-sm' onclick='importFromFleet({escaped_name}, false)'>⬇️ Installer (v{f['version']})</button>"
                 )
 
             fleet_html += (
@@ -1573,8 +1578,12 @@ class WebAdminHandler(BaseHTTPRequestHandler):
 
         local_html = ""
         for t in local_templates:
-            t_json = json.dumps(dict(t)).replace("'", "\\'")
-            escaped_name = t['name'].replace("'", "\\'")
+            # Échappement HTML (et non JS) : ces valeurs sont injectées dans un
+            # attribut onclick='' ; les entités HTML sont décodées par le
+            # navigateur avant l'exécution du JS, ce qui protège la délimitation
+            # de l'attribut (') même si le texte contient des apostrophes.
+            t_json = escape(json.dumps(dict(t), ensure_ascii=False))
+            escaped_name = escape(json.dumps(t['name'], ensure_ascii=False))
             try:
                 objs = json.loads(t.get("objects_json", "[]"))
                 obj_count = len(objs)
@@ -1594,8 +1603,8 @@ class WebAdminHandler(BaseHTTPRequestHandler):
                 f"<td><span class='badge-count'>{obj_count} obj.</span></td>"
                 f"<td style='display:flex; gap:6px; flex-wrap:wrap;'>"
                 f"<button class='btn-blue btn-sm' onclick='showEditTemplateModal({t_json})' title='Modifier les objets'>✏️ Modifier</button>"
-                f"<button class='btn-secondary btn-sm' onclick='shareTemplate({t['id']}, \"{escaped_name}\")' title='Publier vers la flotte docs'>📤 Partager</button>"
-                f"<button class='btn-red btn-sm' onclick='deleteTemplate({t['id']}, \"{escaped_name}\")' title='Supprimer du boîtier'>🗑️</button>"
+                f"<button class='btn-secondary btn-sm' onclick='shareTemplate({t['id']}, {escaped_name})' title='Publier vers la flotte docs'>📤 Partager</button>"
+                f"<button class='btn-red btn-sm' onclick='deleteTemplate({t['id']}, {escaped_name})' title='Supprimer du boîtier'>🗑️</button>"
                 f"</td>"
                 f"</tr>"
             )
@@ -1604,20 +1613,20 @@ class WebAdminHandler(BaseHTTPRequestHandler):
 
         fleet_html = ""
         for f in fleet_templates:
-            escaped_name = f['name'].replace("'", "\\'")
+            escaped_name = escape(json.dumps(f['name'], ensure_ascii=False))
             if f.get('needs_update'):
                 status_action = (
                     f"<span class='badge-installed' style='background:#fef9e7; color:#d4ac0d;'>⚠️ v{f['local_version']} ➤ v{f['version']}</span> "
-                    f"<button class='btn-blue btn-sm' onclick='importFromFleet(\"{escaped_name}\", true)' title='Mettre à jour vers la version {f['version']}'>⬆️ Mettre à jour</button>"
+                    f"<button class='btn-blue btn-sm' onclick='importFromFleet({escaped_name}, true)' title='Mettre à jour vers la version {f['version']}'>⬆️ Mettre à jour</button>"
                 )
             elif f['is_installed']:
                 status_action = (
                     f"<span class='badge-installed'>✅ v{f['version']}</span> "
-                    f"<button class='btn-gray btn-sm' onclick='importFromFleet(\"{escaped_name}\", true)' title='Réimporter la version de la flotte'>🔄</button>"
+                    f"<button class='btn-gray btn-sm' onclick='importFromFleet({escaped_name}, true)' title='Réimporter la version de la flotte'>🔄</button>"
                 )
             else:
                 status_action = (
-                    f"<button class='btn-primary btn-sm' onclick='importFromFleet(\"{escaped_name}\", false)'>⬇️ Installer (v{f['version']})</button>"
+                    f"<button class='btn-primary btn-sm' onclick='importFromFleet({escaped_name}, false)'>⬇️ Installer (v{f['version']})</button>"
                 )
 
             fleet_html += (
@@ -1974,7 +1983,10 @@ class WebAdminHandler(BaseHTTPRequestHandler):
             points = points[:100]
 
             from services.bacnet_mgr import read_bacnet_points_live_raw
-            values = read_bacnet_points_live_raw(points, timeout=4.0)
+            # Timeout plus généreux : les lectures sont désormais sérialisées par appareil
+            # côté démon (pour éviter de saturer les contrôleurs), donc un appareil avec
+            # beaucoup de points sélectionnés peut prendre plus que quelques secondes.
+            values = read_bacnet_points_live_raw(points, timeout=10.0)
 
             self.send_json({"status": "ok", "values": values})
         except Exception as e:
@@ -2461,7 +2473,21 @@ class WebAdminHandler(BaseHTTPRequestHandler):
         try:
             data = json.loads(post_data)
             from services.presence import label_current_location
-            if label_current_location(data.get("name"), external_id=data.get("external_id")): self.send_json({"status": "ok"})
+            name = data.get("name")
+            external_id = data.get("external_id")
+            if label_current_location(name, external_id=external_id):
+                # Si un external_id existe déjà (fourni ou acquis lors d'une synchro
+                # antérieure, ex: chantier résolu sous un nom AUTO-xxxxxx), il faut
+                # informer le serveur du nouveau nom : sinon le chantier reste affiché
+                # sous son ancien nom automatique côté docs malgré le renommage local.
+                remote_id = external_id
+                if not remote_id:
+                    with get_db_connection() as conn:
+                        row = conn.execute("SELECT external_id FROM sites WHERE name = ?", (name,)).fetchone()
+                        remote_id = row["external_id"] if row else None
+                if remote_id:
+                    fleet.rename_chantier(remote_id, name)
+                self.send_json({"status": "ok"})
             else: self.send_error(500, "Échec du renommage")
         except Exception as e: self.send_error(400, str(e))
 
@@ -2525,9 +2551,9 @@ class WebAdminHandler(BaseHTTPRequestHandler):
 
     def serve_system_status(self):
         import shutil
-        from core.sys import get_sys, ping_check
-        from core.paths import LOG_FILE
-        from services.presence import get_current_site_name
+        from core.sys import get_sys, ping_check, is_process_running, get_undervoltage_status
+        from core.paths import LOG_FILE, LOG_DIR
+        from services.presence import get_current_site_name, is_current_site_provisional
         from services.network import get_interface_status, get_tailscale_status
         from services.gsm import get_gsm_info
         from services.fleet import fleet
@@ -2568,6 +2594,80 @@ class WebAdminHandler(BaseHTTPRequestHandler):
         except Exception:
             disk_total_go = disk_used_go = disk_percent = 0
 
+        # Espace /tmp (logs en RAM)
+        try:
+            t_total, t_used, t_free = shutil.disk_usage(str(LOG_DIR))
+            tmp_total_mo = t_total // (2**20)
+            tmp_used_mo = t_used // (2**20)
+            tmp_percent = int((t_used / t_total) * 100) if t_total else 0
+            tmp_usage_display = f"{tmp_used_mo} Mo / {tmp_total_mo} Mo ({tmp_percent}%)"
+        except Exception:
+            tmp_usage_display = "N/A"
+
+        # Sous-tension (Raspberry Pi)
+        uv = get_undervoltage_status()
+        if uv is None:
+            undervoltage_class = "text-warning"
+            undervoltage_display = "Non disponible (vcgencmd absent)"
+        elif uv["now"]:
+            undervoltage_class = "text-danger"
+            undervoltage_display = "⚠️ Sous-tension ACTIVE"
+        elif uv["past"]:
+            undervoltage_class = "text-warning"
+            undervoltage_display = "Détectée depuis le dernier démarrage"
+        else:
+            undervoltage_class = "text-ok"
+            undervoltage_display = "Aucune"
+
+        # Statut des services / démons
+        site_provisional = is_current_site_provisional()
+        bacnet_daemon_up = is_process_running("bacnet_daemon.py")
+        bbmd_dot_class = "srv-dot ok" if bacnet_daemon_up else "srv-dot err"
+        bbmd_status_text = "Actif (MQTT)" if bacnet_daemon_up else "Arrêté"
+
+        last_bacnet_ts = last_modbus_ts = None
+        try:
+            with get_db_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT id FROM sites WHERE name = ?", (site_name,))
+                site_row = cursor.fetchone()
+                if site_row:
+                    cursor.execute(
+                        "SELECT MAX(timestamp) as ts FROM trends WHERE site_id = ? AND protocol = 'bacnet'",
+                        (site_row["id"],)
+                    )
+                    row = cursor.fetchone()
+                    last_bacnet_ts = row["ts"] if row else None
+                    cursor.execute(
+                        "SELECT MAX(timestamp) as ts FROM trends WHERE site_id = ? AND protocol = 'modbus'",
+                        (site_row["id"],)
+                    )
+                    row = cursor.fetchone()
+                    last_modbus_ts = row["ts"] if row else None
+        except Exception as e:
+            logger.debug(f"Erreur lecture derniers relevés pour diagnostic: {e}")
+
+        def _recorder_status(last_ts):
+            if site_provisional:
+                return "srv-dot warn", "En pause (chantier non nommé)"
+            if last_ts is None:
+                return "srv-dot warn", "Aucun point enregistré"
+            age = time.time() - last_ts
+            if age < 180:
+                return "srv-dot ok", "Actif (cycle 60s)"
+            return "srv-dot warn", f"Inactif depuis {int(age)}s"
+
+        bacnet_rec_dot_class, bacnet_rec_status_text = _recorder_status(last_bacnet_ts)
+        modbus_rec_dot_class, modbus_rec_status_text = _recorder_status(last_modbus_ts)
+
+        pending_trends = 0
+        try:
+            with get_db_connection() as conn:
+                row = conn.execute("SELECT COUNT(*) as c FROM trends WHERE is_synced = 0").fetchone()
+                pending_trends = row["c"] if row else 0
+        except Exception as e:
+            logger.debug(f"Erreur comptage relevés en attente: {e}")
+
         # 2. WAN & Réseaux
         wwan_status = get_interface_status("wwan0")
         wlan_status = get_interface_status("wlan0")
@@ -2596,9 +2696,11 @@ class WebAdminHandler(BaseHTTPRequestHandler):
         sync_ok = False
         sync_diag_msg = "En cours de vérification..."
         sync_diag_class = "text-warning"
+        sync_http_code = None
         try:
             import requests
             probe_resp = requests.get(f"{fleet_url}/chantiers", headers=fleet._headers(), timeout=3)
+            sync_http_code = probe_resp.status_code
             if probe_resp.status_code == 200:
                 sync_ok = True
                 sync_diag_msg = "Connecté & Opérationnel (HTTP 200 OK)"
@@ -2629,6 +2731,26 @@ class WebAdminHandler(BaseHTTPRequestHandler):
         sync_badge_class = "badge-ok" if sync_ok else "badge-danger"
         sync_icon_class = "icon-green" if sync_ok else "icon-red"
         sync_status_label = "Synchronisé" if sync_ok else "Erreur de Synchro"
+
+        fleet_sync_dot_class = "srv-dot ok" if sync_ok else "srv-dot err"
+        fleet_sync_status_text = "Connecté" if sync_ok else "Hors ligne"
+
+        if not fleet.is_registered():
+            trend_sync_dot_class = "srv-dot warn"
+            trend_sync_status_text = "Boîtier non enregistré"
+        elif pending_trends == 0:
+            trend_sync_dot_class = "srv-dot ok"
+            trend_sync_status_text = "À jour"
+        elif sync_ok:
+            trend_sync_dot_class = "srv-dot warn"
+            trend_sync_status_text = f"{pending_trends} en attente (prochain cycle)"
+        else:
+            trend_sync_dot_class = "srv-dot err"
+            trend_sync_status_text = f"{pending_trends} en file (liaison coupée)"
+
+        fleet_http_code_display = str(sync_http_code) if sync_http_code else "—"
+        fleet_http_class = "text-ok" if sync_http_code == 200 else ("text-danger" if sync_http_code is None else "text-warning")
+        fleet_queue_display = f"{pending_trends} relevé(s) en attente" if pending_trends else "Aucun (à jour)"
 
         # Derniers logs
         sync_logs_list = []
@@ -2681,7 +2803,35 @@ class WebAdminHandler(BaseHTTPRequestHandler):
             sync_diag_msg=escape(sync_diag_msg),
             sync_diag_class=sync_diag_class,
             sync_last_time=time.strftime("%Y-%m-%d %H:%M:%S"),
-            sync_recent_logs=sync_recent_logs_html
+            sync_recent_logs=sync_recent_logs_html,
+            base_url=escape(base_url),
+            bbmd_dot_class=bbmd_dot_class,
+            bbmd_status_text=escape(bbmd_status_text),
+            bacnet_rec_dot_class=bacnet_rec_dot_class,
+            bacnet_rec_status_text=escape(bacnet_rec_status_text),
+            modbus_rec_dot_class=modbus_rec_dot_class,
+            modbus_rec_status_text=escape(modbus_rec_status_text),
+            fleet_sync_dot_class=fleet_sync_dot_class,
+            fleet_sync_status_text=escape(fleet_sync_status_text),
+            trend_sync_dot_class=trend_sync_dot_class,
+            trend_sync_status_text=escape(trend_sync_status_text),
+            temp_class=cpu_temp_class,
+            cpu_temp_display=f"{cpu_temp_val:.1f}°C",
+            uptime_display=escape(uptime),
+            ram_usage_display=escape(f"{used_ram} Mo / {total_ram} Mo ({ram_percent}%)"),
+            disk_usage_display=escape(f"{disk_used_go} Go / {disk_total_go} Go ({disk_percent}%)"),
+            tmp_usage_display=escape(tmp_usage_display),
+            undervoltage_class=undervoltage_class,
+            undervoltage_display=escape(undervoltage_display),
+            fleet_card_class=sync_card_class,
+            fleet_badge_class=sync_badge_class,
+            fleet_badge_text=escape(sync_status_label),
+            fleet_url_display=escape(fleet_url),
+            fleet_last_sync_display=time.strftime("%Y-%m-%d %H:%M:%S"),
+            fleet_queue_display=escape(fleet_queue_display),
+            fleet_http_class=fleet_http_class,
+            fleet_http_code_display=escape(fleet_http_code_display),
+            fleet_last_log_display=sync_recent_logs_html
         )
         nav_html = render("nav.html", base_url=base_url)
         final_html = render("layout.html", title="État Système & Synchronisation", hostname=escape(hostname), base_url=escape(base_url), version=version, nav=nav_html, content=content)

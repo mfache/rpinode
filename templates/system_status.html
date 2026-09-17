@@ -187,7 +187,7 @@
                 </div>
 
                 <div class="info-row">
-                    <span class="info-label">Dernière Synchro Réussie</span>
+                    <span class="info-label">Dernière Vérification</span>
                     <span id="diag-fleet-last-sync" class="info-val font-mono">${fleet_last_sync_display}</span>
                 </div>
 
@@ -618,12 +618,12 @@ async function testSyncNow() {
     resultBox.style.display = "none";
 
     try {
-        const url = baseUrl + "/api/action/fleet_test_sync";
+        const url = baseUrl + "/api/system/sync/test";
         const res = await fetch(url, { method: "POST" });
         const data = await res.json();
 
         resultBox.style.display = "block";
-        if (data.ok) {
+        if (data.status === "ok") {
             resultBox.className = "test-result-box ok";
             resultBox.innerHTML = "<strong>✅ Succès :</strong> " + (data.message || "Test de synchro réussi avec le serveur flotte.");
         } else {

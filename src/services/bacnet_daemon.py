@@ -24,6 +24,11 @@ logger = logging.getLogger(__name__)
 
 MQTT_BROKER = "127.0.0.1"
 MQTT_PORT = 1883
+# Nombre max de lectures BACnet (read_property) en vol en même temps, tous appareils
+# confondus. Évite de saturer un appareil distant (file APDU limitée) ou la pile
+# BACpypes3 locale (pool d'invoke-ID / socket) quand un lot de dizaines de points est
+# demandé d'un coup (ex: recherche dans le dictionnaire BACnet).
+READ_CONCURRENCY_LIMIT = 4
 
 class BacnetMqttDaemon:
     def __init__(self, iface="auto", port=47808, bbmd_ttl=0):
@@ -355,9 +360,14 @@ class BacnetMqttDaemon:
             logger.error(f"Erreur Who-Is: {e}")
 
     async def process_reads(self, job_id, points):
-        """Lit une liste de points en parallèle (chaque appareil étant indépendant, le temps
-        total reste borné par le timeout d'un seul point plutôt que par leur somme) et
-        publie le résultat."""
+        """Lit une liste de points. Envoyer des dizaines de lectures BACnet en même temps
+        peut saturer soit un appareil distant (file d'attente APDU très limitée sur la
+        plupart des contrôleurs), soit la pile BACpypes3 locale elle-même (pool
+        d'invoke-ID / socket UDP). On limite donc le nombre de lectures BACnet
+        réellement en vol en même temps via un sémaphore global, quel que soit
+        l'appareil ciblé, plutôt que de tout lancer en parallèle."""
+        read_semaphore = asyncio.Semaphore(READ_CONCURRENCY_LIMIT)
+
         async def _read_one(p):
             addr = p.get("address")
             obj_id = p.get("object_id") # ex: "analogInput:1"
@@ -365,18 +375,19 @@ class BacnetMqttDaemon:
 
             res_val = None
             err = None
-            try:
-                # BACpypes3 gère le routage si l'adresse est "2001:14"
-                res_val = await asyncio.wait_for(
-                    self.app.read_property(Address(addr), obj_id, "present-value"),
-                    timeout=3.0
-                )
-            except ErrorRejectAbortNack as e:
-                err = f"BACnet Error: {e}"
-            except asyncio.TimeoutError:
-                err = "Timeout"
-            except (Exception, ErrorRejectAbortNack) as e:
-                err = str(e)
+            async with read_semaphore:
+                try:
+                    # BACpypes3 gère le routage si l'adresse est "2001:14"
+                    res_val = await asyncio.wait_for(
+                        self.app.read_property(Address(addr), obj_id, "present-value"),
+                        timeout=3.0
+                    )
+                except ErrorRejectAbortNack as e:
+                    err = f"BACnet Error: {e}"
+                except asyncio.TimeoutError:
+                    err = "Timeout"
+                except (Exception, ErrorRejectAbortNack) as e:
+                    err = str(e)
 
             return {
                 "device_id": dev_id,

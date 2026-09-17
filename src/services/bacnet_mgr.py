@@ -675,7 +675,7 @@ def read_site_monitored_points_live(site_id):
         for p in points
     ]
 
-    raw_results = read_bacnet_points_live_raw(points_to_read, timeout=4.0)
+    raw_results = read_bacnet_points_live_raw(points_to_read, timeout=10.0)
     results = {}
 
     with get_db_connection() as conn:

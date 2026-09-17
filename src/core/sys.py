@@ -34,3 +34,26 @@ def ping_check(interface=None, target="8.8.8.8", timeout=3):
         return res.returncode == 0
     except Exception:
         return False
+
+def is_process_running(pattern):
+    """Vérifie si un processus correspondant au motif est actif (via pgrep)."""
+    try:
+        res = subprocess.run(["pgrep", "-f", pattern], capture_output=True)
+        return res.returncode == 0
+    except Exception:
+        return False
+
+def get_undervoltage_status():
+    """Interroge vcgencmd pour détecter une sous-alimentation (actuelle ou passée).
+    Retourne None si vcgencmd est indisponible (ex: hors Raspberry Pi)."""
+    try:
+        res = subprocess.run(["vcgencmd", "get_throttled"], capture_output=True, text=True, timeout=3)
+        if res.returncode != 0 or "=" not in res.stdout:
+            return None
+        value = int(res.stdout.strip().split("=")[1], 16)
+        return {
+            "now": bool(value & 0x1),
+            "past": bool(value & 0x10000)
+        }
+    except Exception:
+        return None

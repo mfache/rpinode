@@ -219,12 +219,14 @@ class TestTrackerHints(unittest.TestCase):
 
             with patch("services.tracker.get_db_connection", fake_get_db_connection), \
                  patch("services.tracker.fleet.is_registered", return_value=True), \
-                 patch("services.tracker.fleet.sync_location", return_value={"chantier": {"id": 10, "ref": "AUTO-403869"}}):
+                 patch("services.tracker.fleet.sync_location", return_value={"chantier": {"id": 10, "ref": "AUTO-403869"}}), \
+                 patch("services.tracker.fleet.rename_chantier") as mock_rename:
                 check_and_update_site()
         finally:
             tmp_dir.cleanup()
 
         mock_label.assert_called_once_with("H66", is_provisional=False, external_id="10")
+        mock_rename.assert_called_once_with("10", "H66")
 
     @patch("services.tracker.label_current_location", return_value=True)
     @patch("services.tracker.apply_site_network_profiles")

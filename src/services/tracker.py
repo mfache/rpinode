@@ -96,6 +96,10 @@ def check_and_update_site():
             if is_dist_prov and trusted_local_name:
                 logger.info(f"Le serveur a renvoyé un nom automatique ({dist_name}), conservation du nom local fiable ({trusted_local_name}) avec external_id={dist_id}")
                 label_current_location(trusted_local_name, is_provisional=False, external_id=dist_id)
+                # Corrige aussi le nom côté serveur : sinon le chantier reste affiché
+                # indéfiniment sous son nom automatique sur docs, même une fois nommé en local.
+                logger.info(f"Renommage distant de {dist_name} (ID {dist_id}) en {trusted_local_name}")
+                fleet.rename_chantier(dist_id, trusted_local_name)
             elif dist_name != current_site:
                 logger.info(f"Nouveau chantier détecté via le serveur : {dist_name} (ID: {dist_id})")
                 if label_current_location(dist_name, is_provisional=is_dist_prov, external_id=dist_id):
