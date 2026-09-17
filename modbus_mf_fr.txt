@@ -1,0 +1,414 @@
+AERMEC
+
+s— air conditioning
+
+BMS pCO5
+
+AERMEC
+
+COMPANY QUALITY SYSTEM
+
+CE NN
+
+Protocole de communication série
+
+Grâce à l'accessoire AER485P1, NRL peut communiquer en protocole
+Modbus slave vers un réseau BMS.
+La communication se base sur la modalité RTU par RS485.
+
+Configuration du superviseur à distance
+
+Mode de communication
+
+RTU
+
+Type de communication
+
+RS485 standard, asynchrone, 1 bit de
+
+Le superviseur à distance devra avoir ces configurations start
+Vitesse de communication [19200 baud
+VARIABLES ANALOGIQUES Stop_Bit 2 stop bit
+R (lecture) = Code commande Modbus = 3 Parity_mode no parity
+R/W (lecture/écriture) = Code commande Modbus = 6
+Adresse Description Unité Min Max Read/Write
+de mesure
+1 SUW - Temp. sortie évap. 1 °C -99.9 99.9 R
+2 SIW - Temp. entrée évap. 1 °C -99.9 99.9 R
+3
+4
+5 SUR1 - Temp. sortie récup.circ.1 °C -99.9 99.9 R
+6 SIR - Temp. entrée récupér. °C -99.9 99.9 R
+7 TAP1 - Haute pression circ.1 Bar -99.9 99.9 R
+8 TBP1 - Basse pression circ.1 Bar -99.9 99.9 R
+9 TAP2 - Haute pression circ.2 Bar -99.9 99.9 R
+10 TBP2 - Basse pression circ.2 Bar -99.9 99.9 R
+11 TAE - Temp. air neuf 1 °C -99.9 99.9 R
+12 TGP1 - Temp.gaz de refoulement circ.1 °C -999.9 999.9 R
+13 TGP2 - Temp.gaz de refoulement circ.2 °C -999,9 999.9 R
+14 SL1 - Temp.liquide circ.1 °C -99.9 99.9 R
+15 SL2 - Temp.liquide circ.2 °C -99.9 99,9 R
+16
+17
+18
+19 Entrée multifonction — -99.9 99.9 R
+20
+21 SUW com - Temp. sortie évap. commun °C -99,9 99.9 R
+22 SUR com - Temp. sortie récup. commune °C -999.9 999.9 R
+23 SSAN Température Eau Chaude Sanitaire °C -999.9 999.9 R
+24 Version logiciel -—- 0 99.9 R
+25 Révision logiciel 0 99.9 R
+26 SUR2 - Temp. sortie récup.circ.1 °C -99.9 99.9 R
+27 SUW2 - Temp. sortie évap. 2 (DK froid seul) °C -99.9 99.9 R
+28 SUWC - Temp. sortie évap. Commun (DK froid seul) °C -99.9 99.9 R
+29 Basse pression 1 haute résolution Bar/100 (e) 3276.7 R
+30 Basse pression moyenne 1 haute résolution Bar/100 (e) 999.9 R
+31 DeltaP basse pression 1 haute résolution Bar/100 (e) 99.9 R
+32 Basse pression 2 haute résolution Bar/100 (e) 3276.7 R
+33 Basse pression moyenne 2 haute résolution Bar/100 (e) 999.9 R
+34 DeltaP basse pression 2 haute résolution Bar/100 (e) 99.9 R
+180 Erreur proportionnelle de récupération = (e) 100.0 R
+181 Erreur proportionnelle de l'installation -— (o) 100.0 R
+
+16
+FR. BMS - pCOS5 1309 5806600
+
+Adresse
+
+Description
+
+Unité
+
+de mesure
+
+Read/Write
+
+182 Erreur complémentaire de récupération -—- 0 100.0 R
+183 Erreur complémentaire de l'installation -—- (e) 100.0 R
+184 Limite de charge basse de l'installation (chaud) --- (e) 100.0 R
+185 Limite de charge basse de l'installation (froid) -—- 0 100.0 R
+186 Limite de charge basse de Récupération -—- (e) 100.0 R
+187 Dégivrage Circ 1, actuel Delta LP Bar -99.9 99.9 R
+188 Dégivrage Circ 2, actuel Delta LP Bar -99.9 99.9 R
+189 Différentiel actuel ventilateurs circ 1 Bar (0) 99.9 R
+190 Différentiel actuel ventilateurs circ 2 Bar 0 99.9 R
+191 Point de consigne actuel ventilateurs circ 1 barg (e) 999.9 R
+192 Point de consigne actuel ventilateurs circ 2 barg (e) 99.9 R
+193 Différentiel Auto. HP seul °C -99.9 99.9 R
+194 Différentiel Auto. chiller seul °C -99.9 99.9 R
+195 Différentiel récupération active °C 0 99.9 R
+196 Point de consigne récupération active °C -99.9 99.9 R
+197 Différentiel installation active °C 0 99.9 R
+198 Point de consigne installation actuelle °C -999.9 999.9 R
+199 Point de consigne 1 récupération totale °C (e) 99.9 R/W
+200 Point de consigne 2 récupération totale °C (e) 99.9 R/W
+201 Différentiel récup.totale °C (e) 99.9 R/W
+202 Différentiel été installation °C (e) 99.9 R/W
+203 Différentiel hiver installation °C (e) 99.9 R/W
+204 Point de consigne 1 été °C -99.9 99.9 R/W
+205 Point de consigne 2 été °C -99,9 99.9 R/W
+206 Point de consigne 1 hiver °C -99.9 99.9 R/W
+207 Point de consigne 2 hiver °C -99,9 99.9 R/W
+
+BMS - pCOS 1309 5806600 _00 LR
+
+17
+VARIABLES ENTIÈRES
+R (lecture) = Code commande Modbus = 3
+R/W (lecture/écriture) = Code commande Modbus = 6
+
+Adresse Adresse
+
+Modbus AerWeb300 Ad Description itte
+(BMS 1) (BMS2)
+209 5002 1 MANCHES Installation (1=ON,2=Point de consigne2,3=PAR . 1 3 R/W
+11 5004 - section ea 2 Per T.extérieure,3=Par : o 5 R/W
+212 5005 4
+213 5006 5
+214 5007 6 Puissance active installation (0.100) % (e) 100 R
+215 5008 7 Puissance active récupération (0.100) % 0 100 R
+216 5009 8 Compte-heures partie haute, pompes installation 1 = (e) 999 R
+217 5010 9 Compte-heures partie basse, pompes installation 1 h (e) 999 R
+218 5011 10 | Compte-heures partie haute, pompes installation 2 -—- (0) 999 R
+219 5012 11 | Compte-heures partie basse pompes installation 2 -—- (e) 999 R
+220 5013 12 | Compte-heures partie haute, comp.1 circ.1 -—- (e] 999 R
+221 5014 13 | Compte-heures partie basse, comp.1 circ.1 h (e] 999 R
+222 5015 14 | Compte-heures partie haute, comp.2 circ.1 =—- 0 999 R
+223 5016 15 | Compte-heures partie basse, comp.2 circ.1 h 0 999 R
+224 5017 16 | Compte-heures partie haute, comp.3 circ.1 -—- 0 999 R
+225 5018 17 | Compte-heures partie basse, comp.3 circ.1 h 0 999 R
+226 5019 18 | Compte-heures partie haute, comp.1 circ.2 —- 0 999 R
+227 5020 19 | Compte-heures partie basse, comp.1 circ.2 h 0 999 R
+228 5021 20 | Compte-heures partie haute, comp.2 circ.2 —- (o) 999 R
+229 5022 21 | Compte-heures partie basse, comp.2 circ.2 h 0 999 R
+230 5023 22 | Compte-heures partie haute, comp.3 circ.2 — 0 999 R
+231 5024 23 | Compte-heures partie basse, comp.3 circ.2 h (e) 999 R
+232 5025 24
+233 5026 25
+234 5027 26 | Vitesse ventilateurs 1 (0..100 %) % (e) 100.0 R
+235 5028 27 | Vitesse ventilateurs 2 (0..100 %) % (e) 100.0 R
+236 5029 28 | Vitesse ventilateurs 3 (0..100 %) % (e) 100.0 R
+237 5030 29 | Demande de puissance côté installation (0..100) % (e] 100.0 R
+238 5031 30 | Demande de puissance côté sanitaire (0..100) % (e) 100.0 R
+239 5032 31 | Compte-heures partie haute, pompes récupération 1 —- (e) 999 R
+240 5033 32 | Compte-heures partie basse, pompes récupération 1 h (e) 999 R
+241 5034 33 | Compte-heures partie haute, pompes récupération 2 —- (e) 999 R
+242 5035 34 | Compte-heures partie basse, pompes récupération 2 h (e) 999 R
+243 5036 35 | Compteur de démarrages partie haute, pompe installation 1 —- (e) 999 R
+244 5037 36 | Compteur de démarrages partie basse, pompe installation 1 —- (e) 999 R
+245 5038 37 | Compteur de démarrages partie haute, pompe installation 2 —- (e) 999 R
+246 5039 38 | Compteur de démarrages partie basse, pompe installation 2 —- (e) 999 R
+247 5040 39 compteur de démarrages partie haute, pompe de récupéra- . 0 999 R
+248 5041 40 compteur de démarrages partie basse, pompe de récupéra- …: 0 999 R
+249 5042 41 compteur de démarrages partie haute, pompe de récupéra- . 0 999 R
+18 750 5073 _ compteur de démarrages partie basse, pompe de récupéra- _— D _ r
+æ BMS - pCOs 1309 584dé80 2
+251 5044 43 | Compteur de démarrages partie haute, CP1 circuit 1 ——- (e) 999 R
+|
+
+Adresse
+
+Modbus
+
+(BMS 1)
+
+Adresse
+
+AerWeb300
+
+(BMS2)
+
+Adr.
+
+CAREL
+
+Description
+
+Unité de
+
+mesure
+
+253 5046 45 | Compteur de démarrages partie haute, CP1A circuit 1 — 0 999 R
+254 5047 46 | Compteur de démarrages partie basse, CP1A circuit 1 — 0 999 R
+255 5048 47 | Compteur de démarrages partie haute, CP1B circuit 1 — 0 999 R
+256 5049 48 | Compteur de démarrages partie basse, CP1B circuit 1 — 0 999 R
+257 5050 49 | Compteur de démarrages partie haute, CP1 circuit 2 — 0 999 R
+258 5051 50 | Compteur de démarrages partie basse, CP1 circuit 2 — 0 999 R
+259 5052 51 | Compteur de démarrages partie haute, CP1A circuit 2 — 0 999 R
+260 5053 52 | Compteur de démarrages partie basse, CP1A circuit 2 — 0 999 R
+261 5054 53 | Compteur de démarrages partie haute, CP1B circuit 2 -—- 0 999 R
+262 5055 54 | Compteur de démarrages partie basse, CP1B circuit 2 — 0 999 R
+263 5056 55
+264 5057 56
+265 5058 57
+266 5059 58
+267 5060 59
+268 5061 60 | NRL code - Taille -— (0) 20 R/W
+269 5062 61 | NRL code - Type de Comp. — 0 3 R/W
+270 5063 62 NRL code - Vanne = 0 2 R/W
+271 5064 63 NRL code - modèle = 0 3 R/W
+272 5065 64 | NRL code - récupération —— 0 3 R/W
+273 5066 65 NRL code - Version -—- 0 3 R/W
+274 5067 66 NRL code - Batteries = 0 2 R/W
+275 5068 67 |NRL code - Ventilateur — 0 3 R/W
+276 5069 68 NRL code - Alimentation -—- 0 2 R/W
+277 5070 69 | NRL code - Réservoir d'accumulation
+278 5071 70 | Code d'identification de la gamme de l'unité (0=NRL) 0 999 R
+408 5201 200 | Puissance Circ 1 % 0 999 R
+409 5202 201 | Puissance Circ 2 % 0 999 R
+
+État de dégivrage du circuit 1 (0=DÉSACTIVÉ,1=BYPASS,3=CALCUL
+
+DÉTÉRIORATION,11=ATTENTE INVERSION DE
+410 5203 202 | CYCLE,13=-DÉMARRAGE DÉGIVRAGE,14=DÉGIVRAGE = 0 99 R
+
+EN COURS,15=ATTENTE INVERSION DE CYCLE,17=FIN
+
+DÉGIVRAGE,20=PREMIER DÉGIVRAGE)
+
+Évènements dégivrage circuit 1 (1=Haute température externe,
+
+2=Circuit éteint, 3=BP au-delà du seuil limite, 4=Temps mini-
+
+mums entre dégivrages, 5=démarrage CP, 6=nouvelle référence
+411 5204 203 | BP, 7=démarrage pour BP limite, 8=démarrage pour delta P, — 0 99 R
+
+9=température liquide OK, 10=Temps minimum de dégivrage,
+
+l1=attente autre circuit, 12=bypass premier démarrage, 13=Basse
+
+température liquide, 14=démarrage pour TGP élevée, 15=forcé)
+
+État de dégivrage du circuit 2 (0=DÉSACTIVÉ,1=BYPASS,3=CALCUL
+
+DÉTÉRIORATION,11=ATTENTE INVERSION DE
+412 5205 204 | CYCLE,13=-DÉMARRAGE DÉGIVRAGE,14=DÉGIVRAGE —— 0 99 R
+
+EN COURS,15=ATTENTE INVERSION DE CYCLE,17=FIN
+
+DÉGIVRAGE,20=PREMIER DÉGIVRAGE)
+
+Évènements dégivrage circuit 2 (1=Haute température externe,
+
+2=Circuit éteint, 3=BP au-delà du seuil limite, 4=Temps mini-
+
+mums entre dégivrages, 5=démarrage CP, 6=nouvelle référence
+413 5206 205 | BP, 7=démarrage pour BP limite, 8=démarrage pour delta P, — 0 99 R
+
+9=température liquide OK, 10=Temps minimum de dégivrage,
+
+11=attente autre circuit, 12=bypass premier démarrage, 13=Basse
+
+température liquide, 14=démarrage pour TGP élevée, 15=forcé)
+
+BMS - pCOS 1309 5806600 _00 LR
+
+19
+Variables numériques
+
+R = Code commande Modbus = 1
+
+R/W = Code commande Modbus = 5
+
+Adresse Modbus Description R/W
+1 On/Off Unité R
+2 Demande Été/Hiver par Superviseur R/W
+3 Reset alarmes (1= réinitialisation) R/W
+4 Demande allumage installation par entr.numérique R
+5 Demande froid/chaud installation par entrnumérique (fermé = Froid) R
+6 Demande allumage récupération par entr.numérique R
+7 R/W
+8 R/W
+9 On/Off Récupération par Superv. R/W
+10 On/Off Installation par Superv. R/W
+11 R/W
+12 Réglage froid sur point de consigne fixe (0) ou courbe climatique (1) R/W
+13 Réglage hiver sur point de consigne fixe (0) ou courbe climatique (1) R/W
+14 Réglage récupération sur point de consigne fixe (0) ou courbe climatique (1) R/W
+15 Activer pompe installation R/W
+16 Activer pompe récupération R/W
+17 R/W
+18 On/Off General System R/W
+21 Act. Calcul auto différentiel récupération R/W
+22
+23
+24
+25
+26
+27
+28 Fonct. charge basse récupération active R
+29 Fonct. charge basse installation active R
+30 Pompe 1 évaporateur R
+31 Pompe 2 évaporateur R
+34 Pompe 1 récupération R
+35 Pompe 2 récupération R
+36 CCP1 - Compresseur 1 circ.1 R
+37 CP1A - Compresseur 2 circ.1 R
+38 CCP1B - Compresseur 3 circ.1 R
+39 CCP2 - Compresseur 1 circ.2 R
+40 CCP2A - Compresseur 1 circ.2 R
+a CCP2B - Compresseur 3 circ.2 R
+42 CV - Ventilateur 1 R
+43 CV1 - Ventilateur 2 R
+44 VIC- vanne inversion cycle, Circ 1 R
+45 VIC- vanne inversion cycle, Circ 2 R
+46 VSL - soupape solénoïde liquide 1 circ.1 R
+47 VSL - soupape solénoïde liquide 1 circ.2 R
+48
+
+20
+
+FR. BMS - pCOS 1309 5806600
+
+Variables numériques
+
+R = Code commande Modbus = 1
+
+R/W = Code commande Modbus = 5
+
+Adresse Modbus
+
+Description
+
+£
+£
+
+49 R
+50 R
+51 R
+52 R
+53 R
+54 R
+55 R
+56 VSBP - Vanne Bypass dégivrage circ.1 R
+57 VSBP - Vanne Bypass dégivrage circ.2 R
+58 R
+59 R
+100 Somme de toutes les alarmes R
+101 AL38 - alarme fluxostat évaporateur R
+102 AL39 - alarme fluxostat récupération R
+103 AL24 - Alarme thermique pompe évaporateur 1 R
+104 AL25 - Alarme thermique pompe évaporateur 2 R
+107 AL26 - Alarme thermique pompe récupération 1 R
+108 AL27 - Alarme thermique pompe récupération 2 R
+115 AL28 - Alarme thermique ventilateur 1 R
+116 AL29 - Alarme thermique ventilateur 2 R
+117 AL40 - Alarme antigel évap. R
+121 AL31 - Alarme basse pression circ.1 R
+122 AL65 - Alarme basse pression circ.2 R
+123 AL34 - Alarme basse pression grave circ.1 R
+124 AL35 - Alarme basse pression grave circ.2 R
+125 AL32 - Alarme pressostat haute circ.1 R
+126 AL66 - Alarme pressostat haute circ.2 R
+127 AL33 - Alarme haute pression circ.1 R
+128 AL67 - Alarme haute pression circ.2 R
+129 ALO3 - Alarme moniteur de phase R
+130 AL10 - Alarme sonde en panne sortie évap.1 R
+131 ALO9 - Alarme sonde en panne entrée évap.1 R
+134 AL13 - Alarme sonde en panne sortie récup.1 R
+135 AL12 - Alarme sonde en panne entrée récup.1 R
+136 ALOS - Alarme sonde en panne haute press.circ.1 R
+137 ALO7 - Alarme sonde en panne basse press.circ.1 R
+138 ALO6 - Alarme sonde en panne haute press.circ.2 R
+139 ALO8 - Alarme sonde en panne basse press.circ.2 R
+140 AL16 - Alarme sonde en panne température extérieure R
+141 AL48 - Alarme sonde en panne temp.gaz de refoulement 1 R
+142 AL49 - Alarme sonde en panne temp.gaz de refoulement 2 R
+143 AL17 - Alarme sonde en panne temp.liquide circ.1 R
+144 AL18 - Alarme sonde en panne temp.liquide circ.2 R
+147 ALO1 - Alarme batterie horloge déchargée R
+148 ALO2 - Alarme erreur mémoire pCO R
+
+BMS - pCOS 1309 5806600 _00 LR
+
+21
+Variables numériques
+
+R = Code commande Modbus = 1
+
+R/W = Code commande Modbus = 5
+
+Adresse Modbus Description R/W
+149 AL14 - Alarme sonde en panne sortie récup.2 R
+150 AL15 - Alarme sonde en panne sortie récup.com. R
+160 AL41 - Alarme antigel évap.com. R
+161 AL42 - Alarme antigel récup.1 R
+162 AL43 - Alarme antigel récup.2 R
+163 AL44 - Alarme antigel récup.com. R
+164 AL4S - Alarme offline détente uPC R
+169 AL23 - Alarme thermique compresseur 1 circ.1 R
+170 AL59 - Alarme thermique compresseur 2 circ.1 R
+171 AL60 - Alarme thermique compresseur 3 circ.1 R
+172 AL61 - Alarme thermique compresseur 1 circ.2 R
+173 AL62 - Alarme thermique compresseur 2 circ.2 R
+174 AL63 - Alarme thermique compresseur 3 circ.2 R
+176 AL11 - Alarme sonde en panne sortie évap.com. R
+184 AL7S - Alarme haute temp.gaz de refoulement circ.1 R
+185 AL76 - Alarme haute temp.gaz de refoulement circ.2 R
+190 ALS5 - Haute température installation R
+191 AL84 - Haute température récupération R
+
+22
+
+FR. BMS - pCOS 1309 5806600
+
