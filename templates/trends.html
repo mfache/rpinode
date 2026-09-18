@@ -25,8 +25,20 @@
             <button class="filter-btn" onclick="filterProtocol('modbus-mstp', this)">Modbus RTU / MSTP</button>
             <button class="filter-btn" onclick="filterProtocol('bacnet', this)">BACnet</button>
         </div>
+        <div class="text-filter-box">
+            <input type="text" id="suivi-text-filter" class="text-filter-input" placeholder="Filtrer... (ex: TGBT*, *temp*)" oninput="applyFilters()">
+        </div>
         <div class="points-count-display" id="points-count-display">
             <!-- Rempli en JS -->
+        </div>
+    </div>
+
+    <div class="monitor-toolbar monitor-toolbar-bulk">
+        <div class="bulk-actions">
+            <span class="bulk-actions-label">Enregistrement :</span>
+            <button class="btn-secondary btn-sm" onclick="recordAll()">☑️ Tout enregistrer</button>
+            <button class="btn-secondary btn-sm" onclick="recordNone()">☐ Rien enregistrer</button>
+            <button class="btn-secondary btn-sm" onclick="recordVisible()">💾 Enregistrer la liste affichée</button>
         </div>
     </div>
 
@@ -34,13 +46,13 @@
         <table class="data-table">
             <thead>
                 <tr>
-                    <th>Protocole</th>
-                    <th>Appareil</th>
-                    <th>Point</th>
-                    <th>Nom du point</th>
-                    <th>Valeur Live</th>
-                    <th>Enregistrement</th>
-                    <th>Cadence</th>
+                    <th class="sortable-th" onclick="sortTable(0)">Protocole<span class="sort-arrow" id="sort-arrow-0"></span></th>
+                    <th class="sortable-th" onclick="sortTable(1)">Appareil<span class="sort-arrow" id="sort-arrow-1"></span></th>
+                    <th class="sortable-th" onclick="sortTable(2)">Point<span class="sort-arrow" id="sort-arrow-2"></span></th>
+                    <th class="sortable-th" onclick="sortTable(3)">Nom du point<span class="sort-arrow" id="sort-arrow-3"></span></th>
+                    <th class="sortable-th" onclick="sortTable(4)">Valeur Live<span class="sort-arrow" id="sort-arrow-4"></span></th>
+                    <th class="sortable-th" onclick="sortTable(5)">Enregistrement<span class="sort-arrow" id="sort-arrow-5"></span></th>
+                    <th class="sortable-th" onclick="sortTable(6)">Cadence<span class="sort-arrow" id="sort-arrow-6"></span></th>
                     <th>Actions</th>
                 </tr>
             </thead>
@@ -260,12 +272,72 @@
     border-color: transparent;
     box-shadow: 0 0 12px rgba(52, 152, 219, 0.22);
 }
+
+.text-filter-box {
+    flex: 1 1 220px;
+    min-width: 180px;
+    max-width: 320px;
+}
+
+.text-filter-input {
+    width: 100%;
+    padding: 6px 10px;
+    background: var(--legacy-panel-deep);
+    border: 1px solid var(--legacy-border);
+    border-radius: var(--radius);
+    color: var(--legacy-text);
+    font-size: 0.85em;
+}
+
+.text-filter-input::placeholder {
+    color: var(--legacy-muted);
+    opacity: 0.8;
+}
+
+.monitor-toolbar-bulk {
+    margin-top: -4px;
+}
+
+.bulk-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.bulk-actions-label {
+    font-size: 0.85em;
+    color: var(--legacy-muted);
+    margin-right: 2px;
+}
+
+.sortable-th {
+    cursor: pointer;
+    user-select: none;
+    white-space: nowrap;
+}
+
+.sortable-th:hover {
+    color: #ffffff;
+}
+
+.sort-arrow {
+    display: inline-block;
+    margin-left: 4px;
+    font-size: 0.85em;
+    color: var(--legacy-primary);
+}
 </style>
 
 <script>
 const baseUrl = window.CONFIG ? window.CONFIG.baseUrl : '/rpinode';
 let autoRefreshTimer = null;
 let lastValues = {};
+let currentProtoFilter = 'all';
+const LIVE_VALUE_COL = 4;
+const RECORD_COL = 5;
+const CADENCE_COL = 6;
+let currentSort = { col: null, dir: 1 };
 
 function updatePointsCount() {
     const rows = document.querySelectorAll('#suivi-tbody tr[data-proto]');
@@ -276,20 +348,96 @@ function updatePointsCount() {
     }
 }
 
+// Convertit un motif texte+joker (* = n'importe quels caractères, ? = un caractère)
+// en expression régulière insensible à la casse (recherche non ancrée = "contient").
+function wildcardToRegex(pattern) {
+    const escaped = pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&');
+    const withWildcards = escaped.replace(/\*/g, '.*').replace(/\?/g, '.');
+    return new RegExp(withWildcards, 'i');
+}
+
 function filterProtocol(proto, btn) {
     document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
     if (btn) btn.classList.add('active');
+    currentProtoFilter = proto;
+    applyFilters();
+}
 
+function applyFilters() {
     const rows = document.querySelectorAll('#suivi-tbody tr[data-proto]');
+    const textQuery = (document.getElementById('suivi-text-filter')?.value || '').trim();
+    const textRegex = textQuery ? wildcardToRegex(textQuery) : null;
+
     rows.forEach(r => {
         const rowProto = r.getAttribute('data-proto') || '';
-        if (proto === 'all' || rowProto === proto || rowProto.startsWith(proto)) {
-            r.style.display = '';
-        } else {
-            r.style.display = 'none';
-        }
+        const protoOk = currentProtoFilter === 'all' || rowProto === currentProtoFilter || rowProto.startsWith(currentProtoFilter);
+        const searchText = r.getAttribute('data-search') || '';
+        const textOk = !textRegex || textRegex.test(searchText);
+        r.style.display = (protoOk && textOk) ? '' : 'none';
     });
     updatePointsCount();
+}
+
+// --- Tri par colonnes ---
+
+function getSortValue(row, colIndex) {
+    const cell = row.children[colIndex];
+    if (!cell) return '';
+
+    if (colIndex === LIVE_VALUE_COL) {
+        const valEl = cell.querySelector('.live-val');
+        const text = (valEl ? valEl.textContent : cell.textContent).trim();
+        const num = parseFloat(text.replace(',', '.'));
+        return { num: isNaN(num) ? null : num, text: text.toLowerCase() };
+    }
+    if (colIndex === RECORD_COL) {
+        const cb = cell.querySelector('input[type="checkbox"]');
+        return cb && cb.checked ? 1 : 0;
+    }
+    if (colIndex === CADENCE_COL) {
+        const sel = cell.querySelector('select');
+        return sel ? sel.value : '';
+    }
+    return cell.textContent.trim().toLowerCase();
+}
+
+function compareSortValues(a, b) {
+    if (typeof a === 'number' && typeof b === 'number') return a - b;
+    if (a && typeof a === 'object' && 'num' in a) {
+        if (a.num !== null && b.num !== null) return a.num - b.num;
+        if (a.num !== null) return -1;
+        if (b.num !== null) return 1;
+        return a.text.localeCompare(b.text);
+    }
+    return String(a).localeCompare(String(b));
+}
+
+function applySort() {
+    if (currentSort.col === null) return;
+    const tbody = document.getElementById('suivi-tbody');
+    const rows = Array.from(tbody.querySelectorAll('tr[data-proto]'));
+    rows.sort((r1, r2) => {
+        return compareSortValues(getSortValue(r1, currentSort.col), getSortValue(r2, currentSort.col)) * currentSort.dir;
+    });
+    rows.forEach(r => tbody.appendChild(r));
+}
+
+function updateSortIndicators() {
+    document.querySelectorAll('.sort-arrow').forEach(el => el.textContent = '');
+    if (currentSort.col === null) return;
+    const arrow = document.getElementById('sort-arrow-' + currentSort.col);
+    if (arrow) arrow.textContent = currentSort.dir === 1 ? ' ▲' : ' ▼';
+}
+
+function sortTable(colIndex) {
+    if (currentSort.col === colIndex) {
+        currentSort.dir *= -1;
+    } else {
+        currentSort.col = colIndex;
+        currentSort.dir = 1;
+    }
+    applySort();
+    updateSortIndicators();
 }
 
 function seedInitialValues() {
@@ -332,6 +480,10 @@ async function refreshLiveValues(isManual = false) {
                     }
                 }
             });
+
+            if (currentSort.col === LIVE_VALUE_COL) {
+                applySort();
+            }
         }
     } catch (err) {
         console.error("Erreur refresh suivi:", err);
@@ -366,7 +518,7 @@ function toggleAutoRefresh(enabled) {
     }
 }
 
-async function toggleRecord(pointId, isRecorded, proto = 'modbus') {
+async function toggleRecord(pointId, isRecorded, proto = 'modbus', silent = false) {
     const cadenceId = proto === 'bacnet' ? `cadence-bac-${pointId}` : `cadence-${pointId}`;
     const cadenceEl = document.getElementById(cadenceId);
     const cadence = cadenceEl ? cadenceEl.value : '1m';
@@ -386,11 +538,59 @@ async function toggleRecord(pointId, isRecorded, proto = 'modbus') {
         });
         const data = await res.json();
         if (data.status !== 'ok') {
-            alert("Erreur lors de la mise à jour: " + (data.message || "Erreur inconnue"));
+            if (!silent) alert("Erreur lors de la mise à jour: " + (data.message || "Erreur inconnue"));
+            return false;
         }
+        return true;
     } catch (e) {
-        alert("Erreur réseau");
+        if (!silent) alert("Erreur réseau");
+        return false;
     }
+}
+
+// --- Enregistrement en masse ---
+
+async function setRowsRecording(rows, recorded) {
+    const tasks = rows.map(row => {
+        const cb = row.querySelector('.cb-record');
+        if (!cb) return Promise.resolve(true);
+        const pointId = cb.getAttribute('data-point-id');
+        const proto = row.id.indexOf('suivi-row-bac-') === 0 ? 'bacnet' : 'modbus';
+        cb.checked = recorded;
+        return toggleRecord(pointId, recorded, proto, true);
+    });
+    const results = await Promise.all(tasks);
+    const failures = results.filter(ok => ok === false).length;
+    if (failures > 0) {
+        alert(`${failures} point(s) n'ont pas pu être mis à jour.`);
+    }
+    if (currentSort.col === RECORD_COL) {
+        applySort();
+    }
+}
+
+async function recordAll() {
+    const rows = Array.from(document.querySelectorAll('#suivi-tbody tr[data-proto]'));
+    if (rows.length === 0) return;
+    if (!confirm(`Activer l'enregistrement pour les ${rows.length} point(s) (tous, filtres ignorés) ?`)) return;
+    await setRowsRecording(rows, true);
+}
+
+async function recordNone() {
+    const rows = Array.from(document.querySelectorAll('#suivi-tbody tr[data-proto]'));
+    if (rows.length === 0) return;
+    if (!confirm(`Désactiver l'enregistrement pour les ${rows.length} point(s) (tous, filtres ignorés) ?`)) return;
+    await setRowsRecording(rows, false);
+}
+
+async function recordVisible() {
+    const rows = Array.from(document.querySelectorAll('#suivi-tbody tr[data-proto]')).filter(r => r.style.display !== 'none');
+    if (rows.length === 0) {
+        alert("Aucun point affiché avec les filtres actuels.");
+        return;
+    }
+    if (!confirm(`Activer l'enregistrement pour les ${rows.length} point(s) actuellement affiché(s) ?`)) return;
+    await setRowsRecording(rows, true);
 }
 
 async function changeCadence(pointId, cadence, proto = 'modbus') {

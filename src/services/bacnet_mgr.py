@@ -510,6 +510,55 @@ def add_points_to_suivi(site_id, points):
         conn.commit()
     return count
 
+def remove_points_from_suivi(site_id, points):
+    """
+    Retire le tag "suivi" d'une liste de points BACnet identifiés par leur adresse
+    réseau/instance et leur object_id (mêmes clés que celles envoyées par la page
+    /bacnet/tools : address/network_address, device_id/device_instance, object_id).
+    Comme un point non suivi ne peut pas être enregistré, la ligne correspondante est
+    supprimée de bacnet_points. Retourne le nombre de points effectivement retirés.
+    """
+    if not site_id or not points:
+        return 0
+
+    count = 0
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+
+        for p in points:
+            net_addr = p.get("network_address") or p.get("address")
+            dev_inst = p.get("device_instance") or p.get("device_id")
+            obj_id = p.get("object_id")
+
+            if not net_addr or not obj_id:
+                continue
+
+            try:
+                dev_inst = int(dev_inst) if dev_inst is not None else None
+            except (ValueError, TypeError):
+                dev_inst = None
+
+            if dev_inst is not None:
+                cursor.execute(
+                    """
+                    DELETE FROM bacnet_points
+                    WHERE site_id = ? AND (device_instance = ? OR (device_instance IS NULL AND network_address = ?)) AND object_id = ?
+                    """,
+                    (site_id, dev_inst, net_addr, obj_id)
+                )
+            else:
+                cursor.execute(
+                    """
+                    DELETE FROM bacnet_points
+                    WHERE site_id = ? AND network_address = ? AND object_id = ?
+                    """,
+                    (site_id, net_addr, obj_id)
+                )
+            count += cursor.rowcount if cursor.rowcount and cursor.rowcount > 0 else 0
+
+        conn.commit()
+    return count
+
 def update_point_settings(point_id, is_monitored=None, is_recorded=None, cadence=None):
     """Met à jour le statut de suivi/enregistrement et la cadence d'un point BACnet."""
     with get_db_connection() as conn:

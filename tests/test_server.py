@@ -167,6 +167,50 @@ class TestServer(unittest.TestCase):
         except Exception as e:
             self.fail(f"L'API /api/bacnet/points/track n'a pas répondu : {e}")
 
+    def test_bacnet_points_untrack_api(self):
+        """Vérifie que l'API /api/bacnet/points/untrack retire les points du suivi."""
+        url = f"http://localhost:{self.test_port}/api/bacnet/points/untrack"
+        payload = json.dumps({
+            "points": [
+                {
+                    "address": "172.31.12.145",
+                    "device_id": 1200,
+                    "object_id": "analog-input:104"
+                }
+            ]
+        }).encode('utf-8')
+        req = urllib.request.Request(url, data=payload, headers={'Content-Type': 'application/json'})
+        try:
+            with unittest.mock.patch('services.presence.get_current_site_id', return_value=1), \
+                 unittest.mock.patch('services.bacnet_mgr.remove_points_from_suivi', return_value=1):
+                response = urllib.request.urlopen(req, timeout=5)
+                self.assertEqual(response.getcode(), 200)
+                data = json.loads(response.read().decode('utf-8'))
+                self.assertEqual(data["status"], "ok")
+                self.assertEqual(data["count"], 1)
+        except Exception as e:
+            self.fail(f"L'API /api/bacnet/points/untrack n'a pas répondu : {e}")
+
+    def test_bacnet_catalog_search_only_monitored_api(self):
+        """Vérifie que l'API /api/bacnet/catalog/search accepte le filtre only_monitored et un motif vide."""
+        url = f"http://localhost:{self.test_port}/api/bacnet/catalog/search"
+        payload = json.dumps({"pattern": "", "only_monitored": True, "page": 1, "limit": 100}).encode('utf-8')
+        req = urllib.request.Request(url, data=payload, headers={'Content-Type': 'application/json'})
+        try:
+            with unittest.mock.patch('services.presence.get_current_site_id', return_value=1), \
+                 unittest.mock.patch('services.bacnet_catalog.count_search_points', return_value=1) as mock_count, \
+                 unittest.mock.patch('services.bacnet_catalog.search_points', return_value=[{'network_address': '192.168.1.10', 'device_instance': 100, 'device_name': 'Automate 100', 'object_id': 'analogInput:1', 'object_name': 'Temp Ambient', 'is_monitored': 1}]) as mock_search:
+                response = urllib.request.urlopen(req, timeout=5)
+                self.assertEqual(response.getcode(), 200)
+                data = json.loads(response.read().decode('utf-8'))
+                self.assertEqual(data["status"], "ok")
+                self.assertEqual(len(data["objects"]), 1)
+                # Motif vide + only_monitored => remplacé par '*' côté serveur
+                mock_count.assert_called_once_with("*", site_id=1, only_monitored=True)
+                mock_search.assert_called_once_with("*", site_id=1, limit=100, offset=0, only_monitored=True)
+        except Exception as e:
+            self.fail(f"L'API /api/bacnet/catalog/search (only_monitored) n'a pas répondu : {e}")
+
     def test_bacnet_device_view_page(self):
         """Vérifie que la page /bacnet/device/view est servie pour un appareil existant."""
         from src.core.database import get_db_connection

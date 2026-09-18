@@ -108,6 +108,50 @@ utilisateur :
 et y renvoyer depuis un endroit visible (page d'accueil `reports`,
 menu, ou lien direct communiqué aux utilisateurs).
 
+## Identification utilisateur : Azure AD sur `docs` désactivé temporairement, Google en attendant — 18 septembre 2026
+
+Suite à une question sur l'identité utilisateur via Headscale (remplaçant de
+Tailscale) : Marc a précisé que le service d'identification dont il parle se
+trouve sur le serveur **`docs`** (pas sur les boîtiers `rpinode`). C'est donc
+vraisemblablement le mécanisme déjà documenté dans
+`docs/operations/DOCS_BACKUP_STATUS.md` (section 3, énumération des services) :
+`/reports` (UI humaine + SSE de l'API flotte) est normalement **protégé par
+Azure AD** via `oauth2-proxy` (tenant Entra ID, config
+`/etc/oauth2-proxy/oauth2-proxy.cfg` sur `docs`, hors dépôt Git).
+
+Ce qui est nouveau (pas encore documenté ailleurs) :
+
+- Cette protection Azure AD est **temporairement désactivée** côté nginx sur
+  `docs`, en attendant d'éclaircir un **problème de validation en interne**
+  (nature exacte du problème pas encore précisée par Marc).
+- **En attendant, c'est Google qui est utilisé** pour l'identification (mécanisme
+  exact à clarifier : autre config `oauth2-proxy` avec provider Google ? autre
+  outil ? à vérifier directement sur `docs` si besoin, voir
+  `docs/operations/DOCS_SERVER_ACCESS.md`).
+
+À ne pas perdre de vue :
+
+- Indépendamment de ça, côté Headscale : aucun OIDC configuré, tous les
+  nœuds (boîtiers et PC) sont enrôlés sous le même utilisateur générique
+  Headscale `delta` (ID 1) — donc pas de distinction d'identité humaine
+  possible par ce biais tant que ça reste ainsi (voir
+  `docs/operations/HEADSCALE_MIGRATION_STATUS.md` et
+  `docs/integrations/HEADSCALE_AUTO_ENROLL.md`). Ce point Headscale est
+  probablement sans rapport direct avec l'auth Azure AD/Google de `/reports`,
+  mais les deux sujets étaient évoqués dans la même conversation.
+- Rien dans le code `rpinode` ne lit de header d'identité Tailscale
+  aujourd'hui (vérifié le 18 septembre 2026) : `tailscale serve` n'est plus
+  utilisé depuis le passage à nginx + CA interne sur les boîtiers (voir
+  `docs/operations/INTERNAL_CA_TLS.md`).
+- Quand le problème de validation Azure AD sera éclairci : réactiver la
+  protection Azure AD sur `/reports` côté `docs`, et vérifier/documenter ce
+  qu'il faut faire du contournement Google mis en place en attendant
+  (le garder en secours ? le retirer ?).
+
+Aucune action de code n'a été demandée pour l'instant (et le sujet concerne
+le serveur `docs`, hors dépôt Git local `rpinode`) : cette section est une
+simple note de contexte pour ne pas perdre le fil.
+
 ## En cas de problème
 
 Accès de secours SSH local : `192.168.1.253`, utilisateur `marc`.

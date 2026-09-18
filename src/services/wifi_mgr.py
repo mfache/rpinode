@@ -151,6 +151,23 @@ def _is_ssid_visible(ssid):
     except:
         return False
 
+def _normalize_addresses(addresses):
+    """
+    Normalise une valeur d'adresses IP (JSON list, JSON string, ou CSV) en une liste
+    de chaînes CIDR propres. Protège contre un double encodage JSON en amont (ex.
+    synchro flotte), qui produirait sinon une adresse invalide côté nmcli et
+    laisserait l'interface sans IP.
+    """
+    import json
+    try:
+        parsed = json.loads(addresses) if addresses else []
+        addrs_list = parsed if isinstance(parsed, list) else [parsed]
+    except Exception:
+        addrs_list = (addresses or "").split(",")
+
+    addrs_list = [str(a).strip().strip('"').strip("'").strip() for a in addrs_list]
+    return [a for a in addrs_list if a]
+
 def _ensure_client_mode(con_name, ssid=None, psk=None, method="auto", addresses=None, gateway=None, dhcp_range=None, force=False):
     """S'assure que wlan0 est connecté à l'AP spécifié."""
     # 1. Vérifier si déjà connecté à cette connexion
@@ -170,30 +187,14 @@ def _ensure_client_mode(con_name, ssid=None, psk=None, method="auto", addresses=
         
         # Gestion de l'IP
         if method == "manual" and addresses:
-            import json
-            try:
-                addrs_list = json.loads(addresses) if addresses else []
-                if not isinstance(addrs_list, list):
-                    addrs_list = [addresses]
-            except Exception:
-                addrs_list = [a.strip() for a in (addresses or "").split(",") if a.strip()]
-
-            addrs_nm = ",".join(addrs_list)
+            addrs_nm = ",".join(_normalize_addresses(addresses))
             opts += f"ipv4.method manual ipv4.addresses {shlex.quote(addrs_nm)} "
             if gateway:
                 opts += f"ipv4.gateway {shlex.quote(gateway)} "
             else:
                 opts += "ipv4.gateway '' "
         elif method == "shared":
-            import json
-            try:
-                addrs_list = json.loads(addresses) if addresses else []
-                if not isinstance(addrs_list, list):
-                    addrs_list = [addresses]
-            except Exception:
-                addrs_list = [a.strip() for a in (addresses or "").split(",") if a.strip()]
-
-            addrs_nm = ",".join(addrs_list)
+            addrs_nm = ",".join(_normalize_addresses(addresses))
             opts += f"ipv4.method shared ipv4.addresses {shlex.quote(addrs_nm)} "
             if gateway:
                 opts += f"ipv4.gateway {shlex.quote(gateway)} "

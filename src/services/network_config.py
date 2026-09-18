@@ -98,11 +98,17 @@ def _apply_eth0_profile(method, addresses, gateway, dhcp_range=None):
         # dans une seule chaîne de caractères si on utilise 'con mod'.
         import json
         try:
-            addrs_list = json.loads(addresses) if addresses else []
-            if not isinstance(addrs_list, list):
-                addrs_list = [addresses]
+            parsed = json.loads(addresses) if addresses else []
+            addrs_list = parsed if isinstance(parsed, list) else [parsed]
         except Exception:
-            addrs_list = [a.strip() for a in (addresses or "").split(",") if a.strip()]
+            addrs_list = (addresses or "").split(",")
+
+        # Nettoyage défensif : retire les guillemets parasites et espaces qui peuvent
+        # provenir d'un double encodage JSON en amont (ex. synchro flotte). Sans ce
+        # nettoyage, nmcli reçoit une adresse invalide (ex: '"172.31.12.55/23"') et
+        # l'application du profil échoue silencieusement, laissant eth0 sans IP.
+        addrs_list = [str(a).strip().strip('"').strip("'").strip() for a in addrs_list]
+        addrs_list = [a for a in addrs_list if a]
 
         addrs_nm = ",".join(addrs_list)
         logger.info(f"Paramètres NM pour eth0: method={method}, addresses='{addrs_nm}', gateway='{gateway}', dhcp_range='{dhcp_range}'")
@@ -184,14 +190,21 @@ def save_site_network_profiles(site_id, profiles_list, is_dirty=True):
             import json
             addresses = p.get('addresses')
             if isinstance(addresses, list):
-                addresses = json.dumps(addresses)
+                addr_list = addresses
             elif isinstance(addresses, str):
                 try:
-                    # check if it's already a valid json
-                    json.loads(addresses)
+                    parsed = json.loads(addresses)
+                    addr_list = parsed if isinstance(parsed, list) else [parsed]
                 except Exception:
-                    # convert comma separated string to JSON list
-                    addresses = json.dumps([a.strip() for a in addresses.split(',') if a.strip()])
+                    addr_list = addresses.split(',')
+            else:
+                addr_list = []
+
+            # Nettoyage défensif : retire les guillemets parasites et espaces (protège
+            # contre un double encodage JSON en amont, ex. synchro flotte, qui
+            # produirait sinon une adresse invalide côté nmcli).
+            addr_list = [str(a).strip().strip('"').strip("'").strip() for a in addr_list]
+            addresses = json.dumps([a for a in addr_list if a])
                 
             cursor.execute(
                 """

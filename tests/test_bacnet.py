@@ -16,7 +16,8 @@ from services.bacnet_mgr import (
     normalize_fleet_definition_to_local,
     format_local_template_for_fleet,
     read_bacnet_points_live_raw,
-    add_points_to_suivi
+    add_points_to_suivi,
+    remove_points_from_suivi
 )
 from services.bacnet_catalog import upsert_device_points, search_points, count_search_points
 
@@ -183,6 +184,29 @@ class TestBacnetPoints(unittest.TestCase):
         results_after = search_points("*RHvacCoo*")
         self.assertEqual(len(results_after), 1)
         self.assertEqual(results_after[0]["is_monitored"], 1)
+
+        # Recherche filtrée "suivi uniquement" : doit retrouver ce point suivi
+        only_suivi_results = search_points("*", only_monitored=True)
+        self.assertEqual(len(only_suivi_results), 1)
+        self.assertEqual(only_suivi_results[0]["object_id"], "analog-input:1")
+        self.assertEqual(count_search_points("*", only_monitored=True), 1)
+
+        # Retirer le tag suivi : le point ne doit plus apparaître dans le filtre "suivi uniquement"
+        removed = remove_points_from_suivi(self.site_id, [{
+            "network_address": "172.31.13.179",
+            "device_instance": 1329,
+            "object_id": "analog-input:1"
+        }])
+        self.assertEqual(removed, 1)
+
+        self.assertEqual(search_points("*", only_monitored=True), [])
+        monitored_after_untrack = get_site_bacnet_points(self.site_id, only_monitored=True)
+        self.assertFalse(any(p["object_id"] == "analog-input:1" and p["device_instance"] == 1329 for p in monitored_after_untrack))
+
+        # Mais le point reste bien retrouvable dans une recherche normale (avec is_monitored=0)
+        results_after_untrack = search_points("*RHvacCoo*")
+        self.assertEqual(len(results_after_untrack), 1)
+        self.assertEqual(results_after_untrack[0]["is_monitored"], 0)
 
     def test_add_points_to_suivi_with_and_without_device(self):
         # 1. Point avec appareil existant (device_id 1234 -> self.device_id)

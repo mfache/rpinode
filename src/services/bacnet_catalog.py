@@ -217,9 +217,10 @@ def build_catalog():
         logger.debug(f"Synchro flotte du dictionnaire BACnet ignorée : {e}")
 
 
-def count_search_points(pattern, site_id=None):
+def count_search_points(pattern, site_id=None, only_monitored=False):
     """
     Compte le nombre total de points correspondant au motif dans le dictionnaire pour le chantier courant.
+    Si only_monitored=True, ne compte que les points déjà marqués comme suivis (is_monitored=1).
     """
     if site_id is None:
         site_id = get_current_site_id()
@@ -227,19 +228,28 @@ def count_search_points(pattern, site_id=None):
         return 0
     with get_db_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute(
-            "SELECT COUNT(*) as c FROM bacnet_points_catalog WHERE site_id = ? AND object_name GLOB ?",
-            (site_id, pattern)
-        )
+        query = "SELECT COUNT(*) as c FROM bacnet_points_catalog c WHERE c.site_id = ? AND c.object_name GLOB ?"
+        if only_monitored:
+            query += """
+                AND EXISTS (
+                    SELECT 1 FROM bacnet_points bp
+                    WHERE bp.site_id = c.site_id
+                      AND (bp.device_instance = c.device_instance OR (bp.device_instance IS NULL AND bp.network_address = c.network_address))
+                      AND bp.object_id = c.object_id
+                      AND bp.is_monitored = 1
+                )
+            """
+        cursor.execute(query, (site_id, pattern))
         row = cursor.fetchone()
         return row["c"] if row else 0
 
 
-def search_points(pattern, site_id=None, limit=100, offset=0):
+def search_points(pattern, site_id=None, limit=100, offset=0, only_monitored=False):
     """
     Recherche des points dans le dictionnaire local par nom, avec le support natif des
     jokers SQLite (`*` = n'importe quelle suite de caractères, `?` = un seul caractère).
     Toujours limitée au chantier courant.
+    Si only_monitored=True, ne retourne que les points déjà marqués comme suivis (is_monitored=1).
     """
     if site_id is None:
         site_id = get_current_site_id()
@@ -247,8 +257,7 @@ def search_points(pattern, site_id=None, limit=100, offset=0):
         return []
     with get_db_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute(
-            """
+        query = """
             SELECT 
                 c.network_address, 
                 c.device_instance, 
@@ -269,11 +278,19 @@ def search_points(pattern, site_id=None, limit=100, offset=0):
                 ) AS is_monitored
             FROM bacnet_points_catalog c
             WHERE c.site_id = ? AND c.object_name GLOB ?
-            ORDER BY c.device_instance, c.object_id
-            LIMIT ? OFFSET ?
-            """,
-            (site_id, pattern, limit, offset)
-        )
+        """
+        if only_monitored:
+            query += """
+                AND EXISTS (
+                    SELECT 1 FROM bacnet_points bp
+                    WHERE bp.site_id = c.site_id
+                      AND (bp.device_instance = c.device_instance OR (bp.device_instance IS NULL AND bp.network_address = c.network_address))
+                      AND bp.object_id = c.object_id
+                      AND bp.is_monitored = 1
+                )
+            """
+        query += " ORDER BY c.device_instance, c.object_id LIMIT ? OFFSET ?"
+        cursor.execute(query, (site_id, pattern, limit, offset))
         return [dict(r) for r in cursor.fetchall()]
 
 

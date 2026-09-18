@@ -242,6 +242,8 @@ class WebAdminHandler(BaseHTTPRequestHandler):
             self.handle_bacnet_catalog_values()
         elif path == "/api/bacnet/points/track":
             self.handle_bacnet_points_track()
+        elif path == "/api/bacnet/points/untrack":
+            self.handle_bacnet_points_untrack()
         elif path == "/api/table/columns/add":
             self.handle_column_add()
         elif path == "/api/table/columns/delete":
@@ -1918,9 +1920,13 @@ class WebAdminHandler(BaseHTTPRequestHandler):
         post_data = self.rfile.read(content_length)
         try:
             data = json.loads(post_data)
+            only_monitored = bool(data.get("only_monitored"))
             pattern = (data.get("pattern") or "").strip()
             if not pattern:
-                raise ValueError("Motif de recherche manquant")
+                if only_monitored:
+                    pattern = "*"
+                else:
+                    raise ValueError("Motif de recherche manquant")
 
             page = max(1, int(data.get("page", 1)))
             limit = max(1, min(500, int(data.get("limit", 100))))
@@ -1937,8 +1943,8 @@ class WebAdminHandler(BaseHTTPRequestHandler):
                     row = cursor.fetchone()
                     site_id = row["id"] if row else None
 
-            total_count = count_search_points(pattern, site_id=site_id) if site_id else 0
-            matches = search_points(pattern, site_id=site_id, limit=limit, offset=offset) if site_id else []
+            total_count = count_search_points(pattern, site_id=site_id, only_monitored=only_monitored) if site_id else 0
+            matches = search_points(pattern, site_id=site_id, limit=limit, offset=offset, only_monitored=only_monitored) if site_id else []
 
             total_pages = max(1, (total_count + limit - 1) // limit) if total_count > 0 else 1
 
@@ -2025,6 +2031,39 @@ class WebAdminHandler(BaseHTTPRequestHandler):
             logger.error(f"Erreur track bacnet points: {e}")
             self.send_json({"status": "error", "message": str(e)})
 
+    def handle_bacnet_points_untrack(self):
+        content_length = int(self.headers.get('Content-Length', 0))
+        post_data = self.rfile.read(content_length)
+        try:
+            data = json.loads(post_data)
+            points = data.get("points", [])
+            if not points:
+                return self.send_json({"status": "error", "message": "Aucun point sélectionné"})
+
+            from services.presence import get_current_site_id, get_current_site_name
+            site_id = get_current_site_id()
+            if not site_id:
+                site_name = get_current_site_name()
+                with get_db_connection() as conn:
+                    cursor = conn.cursor()
+                    cursor.execute("SELECT id FROM sites WHERE name = ?", (site_name,))
+                    row = cursor.fetchone()
+                    site_id = row["id"] if row else None
+
+            if not site_id:
+                return self.send_json({"status": "error", "message": "Aucun chantier actif"})
+
+            from services.bacnet_mgr import remove_points_from_suivi
+            count = remove_points_from_suivi(site_id, points)
+            self.send_json({
+                "status": "ok",
+                "count": count,
+                "message": f"{count} point(s) retiré(s) du suivi avec succès"
+            })
+        except Exception as e:
+            logger.error(f"Erreur untrack bacnet points: {e}")
+            self.send_json({"status": "error", "message": str(e)})
+
     def handle_bacnet_tools_whohas(self):
         content_length = int(self.headers.get('Content-Length', 0))
         post_data = self.rfile.read(content_length)
@@ -2105,9 +2144,10 @@ class WebAdminHandler(BaseHTTPRequestHandler):
             proto_key = "modbus-tcp" if is_tcp else "modbus-mstp"
             proto_badge = "proto-modbus-tcp" if is_tcp else "proto-modbus-mstp"
             proto_label = "MODBUS TCP" if is_tcp else "MODBUS RTU"
+            search_text = f"{p['device_name']} {p['name']} FC{p['function']:02d} @{p['reg']}".lower()
 
             rows_html += f"""
-                <tr id="suivi-row-{pid}" data-proto="{proto_key}">
+                <tr id="suivi-row-{pid}" data-proto="{proto_key}" data-search="{escape(search_text)}">
                     <td><span class="badge-protocol {proto_badge}">{proto_label}</span></td>
                     <td><strong>{escape(p['device_name'])}</strong><br><small style="color:#777;">{unit_display}</small></td>
                     <td><span class="badge-gray">FC{p['function']:02d} @{p['reg']}</span></td>
@@ -2139,9 +2179,10 @@ class WebAdminHandler(BaseHTTPRequestHandler):
             ])
             val_display = p["last_value"] if p["last_value"] is not None else "—"
             unit_display = f"<code>bacnet://{p['network_address']} (Inst: {p['device_instance']})</code>"
+            search_text = f"{p['device_name']} {p['name'] or p['object_id']} {p['object_id']}".lower()
 
             rows_html += f"""
-                <tr id="suivi-row-bac-{pid}" data-proto="bacnet-ip">
+                <tr id="suivi-row-bac-{pid}" data-proto="bacnet-ip" data-search="{escape(search_text)}">
                     <td><span class="badge-protocol proto-bacnet-ip">BACNET/IP</span></td>
                     <td><strong>{escape(p['device_name'])}</strong><br><small style="color:#777;">{unit_display}</small></td>
                     <td><span class="badge-gray">{escape(p['object_id'])}</span></td>

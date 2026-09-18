@@ -103,13 +103,16 @@
 
         <div class="card params-card">
             <h3>🔍 Recherche par nom (avec jokers)</h3>
-            <form id="form-catalog-search" style="display: flex; gap: 15px; align-items: flex-end; flex-wrap: wrap;" onsubmit="event.preventDefault(); runCatalogSearch();">
+            <form id="form-catalog-search" style="display: flex; gap: 15px; align-items: flex-end; flex-wrap: wrap;" onsubmit="event.preventDefault(); runCatalogSearch(1, false);">
                 <div style="flex: 1; min-width: 220px;">
                     <label>Motif recherché :</label>
-                    <input type="text" id="catalog_pattern" placeholder="Ex: BExt25'R'Flr*'R*'RHvacCoo'RTemp" style="width: 100%;" required>
+                    <input type="text" id="catalog_pattern" placeholder="Ex: BExt25'R'Flr*'R*'RHvacCoo'RTemp" style="width: 100%;">
                 </div>
                 <div>
                     <button type="submit" class="btn-primary" id="btn-catalog-search" style="height: 38px;">🔍 Rechercher dans le dictionnaire</button>
+                </div>
+                <div>
+                    <button type="button" class="btn-secondary" id="btn-catalog-search-suivi" style="height: 38px; background: #16a085; color: white; border-color: #138d75;" onclick="runCatalogSearch(1, true)">⭐ Points suivis uniquement</button>
                 </div>
             </form>
         </div>
@@ -122,13 +125,16 @@
             <div class="card" style="padding: 0;">
                 <div class="catalog-header" style="padding: 12px 15px; background: #f0fdf4; border-bottom: 1px solid #bbf7d0; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
                     <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
-                        <h3 style="margin: 0; color: #166534;">Résultats <span id="catalog-count" class="badge-count-main" style="background: #16a085;">0</span></h3>
+                        <h3 style="margin: 0; color: #166534;">Résultats <span id="catalog-count" class="badge-count-main" style="background: #16a085;">0</span> <span id="catalog-filter-label" style="font-size: 0.7em; font-weight: normal; color: #16a085;"></span></h3>
                         <div style="display: flex; gap: 6px; margin-left: 8px;">
                             <button type="button" class="btn-secondary btn-sm" onclick="selectCatalogAll(true)">Tout sélectionner</button>
                             <button type="button" class="btn-secondary btn-sm" onclick="selectCatalogAll(false)">Rien sélectionner</button>
                         </div>
                         <button type="button" class="btn-primary btn-sm" id="btn-catalog-mark-suivi" onclick="markSelectedCatalogAsSuivi()" disabled style="background: #16a085; border-color: #138d75; display: inline-flex; align-items: center; gap: 4px; height: 30px;">
                             <span>⭐</span> Marquer comme suivi (<span id="catalog-selected-count">0</span>)
+                        </button>
+                        <button type="button" class="btn-secondary btn-sm" id="btn-catalog-unmark-suivi" onclick="unmarkSelectedCatalogAsSuivi()" disabled style="background: #fff5f5; color: #b91c1c; border-color: #fca5a5; display: inline-flex; align-items: center; gap: 4px; height: 30px;">
+                            <span>❌</span> Retirer le suivi (<span id="catalog-selected-count-unmark">0</span>)
                         </button>
                     </div>
                     <div style="display: flex; align-items: center; gap: 10px;">
@@ -901,6 +907,7 @@ let currentCatalogPage = 1;
 const CATALOG_PAGE_SIZE = 50;
 let catalogTotalItems = 0;
 let catalogRefreshInterval = null;
+let catalogOnlyMonitored = false;
 
 async function refreshCatalogStatus() {
     try {
@@ -988,9 +995,16 @@ async function cancelCatalogBuild() {
     }
 }
 
-async function runCatalogSearch(page = 1) {
+async function runCatalogSearch(page = 1, onlyMonitored = null) {
+    if (onlyMonitored !== null) {
+        catalogOnlyMonitored = onlyMonitored;
+    }
     const pattern = document.getElementById('catalog_pattern').value.trim();
-    if (!pattern) return;
+    if (!pattern && !catalogOnlyMonitored) {
+        alert("Merci de saisir un motif de recherche, ou d'utiliser le bouton \u00e9toile pour lister uniquement les points suivis.");
+        return;
+    }
+    const effectivePattern = pattern || '*';
     
     currentCatalogPage = page;
     document.getElementById('catalog-loading').style.display = 'block';
@@ -1001,7 +1015,7 @@ async function runCatalogSearch(page = 1) {
         const res = await fetch(url, {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({pattern: pattern, page: page, limit: CATALOG_PAGE_SIZE})
+            body: JSON.stringify({pattern: effectivePattern, only_monitored: catalogOnlyMonitored, page: page, limit: CATALOG_PAGE_SIZE})
         });
         const data = await res.json();
         document.getElementById('catalog-loading').style.display = 'none';
@@ -1023,6 +1037,7 @@ function renderCatalogTable(points, totalCount) {
     const tbody = document.getElementById('catalog-tbody');
     tbody.innerHTML = '';
     document.getElementById('catalog-count').innerText = totalCount;
+    document.getElementById('catalog-filter-label').textContent = catalogOnlyMonitored ? '(points suivis uniquement)' : '';
     
     if (points.length === 0) {
         tbody.innerHTML = '<tr><td colspan="8" style="text-align:center; padding:20px; color:#888;">Aucun point correspondant trouvé.</td></tr>';
@@ -1096,7 +1111,9 @@ function selectCatalogAll(checked) {
 function updateCatalogSelectionCount() {
     const checked = document.querySelectorAll('.cb-catalog-select:checked').length;
     document.getElementById('catalog-selected-count').textContent = checked;
+    document.getElementById('catalog-selected-count-unmark').textContent = checked;
     document.getElementById('btn-catalog-mark-suivi').disabled = (checked === 0);
+    document.getElementById('btn-catalog-unmark-suivi').disabled = (checked === 0);
 }
 
 async function markSelectedCatalogAsSuivi() {
@@ -1121,6 +1138,43 @@ async function markSelectedCatalogAsSuivi() {
         const data = await res.json();
         if (data.status === 'ok') {
             showToast(`${data.count || points.length} point(s) marqués comme suivis !`);
+            runCatalogSearch(currentCatalogPage);
+        } else {
+            alert("Erreur : " + (data.message || "Échec"));
+        }
+    } catch (e) {
+        alert("Erreur réseau : " + e);
+    } finally {
+        btn.disabled = false;
+    }
+}
+
+async function unmarkSelectedCatalogAsSuivi() {
+    const cbs = Array.from(document.querySelectorAll('.cb-catalog-select:checked'));
+    if (cbs.length === 0) return;
+
+    if (!confirm(`Retirer le tag suivi de ${cbs.length} point(s) ? Ces points ne seront plus affich\u00e9s sur la page Suivi.`)) {
+        return;
+    }
+
+    const points = cbs.map(cb => ({
+        address: cb.dataset.address,
+        device_id: cb.dataset.deviceId,
+        object_id: cb.dataset.objectId,
+        object_name: cb.dataset.objectName
+    }));
+
+    const btn = document.getElementById('btn-catalog-unmark-suivi');
+    btn.disabled = true;
+    try {
+        const res = await fetch((baseUrl + '/api/bacnet/points/untrack').replace(/\/+/g, '/'), {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({points: points})
+        });
+        const data = await res.json();
+        if (data.status === 'ok') {
+            showToast(`${data.count || points.length} point(s) retir\u00e9(s) du suivi !`);
             runCatalogSearch(currentCatalogPage);
         } else {
             alert("Erreur : " + (data.message || "Échec"));

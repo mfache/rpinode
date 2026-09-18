@@ -17,8 +17,13 @@ SCHEMA_FILE = PROJECT_ROOT / "src" / "core" / "schema.sql"
 # IP Scan
 IPSCAN_RUNNING_FILE = DATA_DIR / "ip_last_scan.json.running"
 
-# Fichier en RAM contenant la session du chantier actif (effacé au redémarrage)
-CURRENT_SITE_FILE = Path("/tmp/rpinode_current_site.json")
+# Fichier en RAM contenant la session du chantier actif (effacé au redémarrage).
+# Peut être redirigé via la variable d'environnement RPINODE_CURRENT_SITE_FILE :
+# c'est ce que fait run_tests.sh, pour garantir que la suite de tests ne touche
+# JAMAIS le vrai fichier de session utilisé en production par le tracker (sous
+# peine de faire croire, même brièvement, que le boîtier se trouve sur un
+# chantier de test et de polluer des enregistrements BACnet/Modbus en cours).
+CURRENT_SITE_FILE = Path(os.environ.get("RPINODE_CURRENT_SITE_FILE") or "/tmp/rpinode_current_site.json")
 
 # Dossier de logs (en RAM pour préserver la carte SD)
 LOG_DIR = Path("/tmp/rpinode/log")

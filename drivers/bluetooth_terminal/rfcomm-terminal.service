@@ -1,0 +1,15 @@
+[Unit]
+Description=rpinode - Terminal serie Bluetooth (SPP -> login systeme)
+After=bluetooth.service bt-agent.service
+Requires=bluetooth.service
+Wants=bt-agent.service
+
+[Service]
+Type=simple
+ExecStartPre=/usr/bin/sdptool add --channel=1 SP
+ExecStart=/usr/bin/rfcomm -i hci0 watch 0 1 /usr/bin/setsid /sbin/agetty -L rfcomm0 115200 vt100
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
