@@ -93,6 +93,225 @@ validation) dans
 [HEADSCALE_AUTO_ENROLL.md](HEADSCALE_AUTO_ENROLL.md) plutôt que dupliqué
 ici, le sujet étant assez conséquent pour mériter son propre document.
 
+## 6. Schéma pour l'app mobile — catégorie d'utilisateur, activation, restriction chantier (2026-09-19)
+
+Première étape (schéma DB uniquement, aucune route `api.py` modifiée) du
+chantier décrit dans
+[`../mobile/CAHIER_DES_CHARGES_APP_MOBILE.md`](../mobile/CAHIER_DES_CHARGES_APP_MOBILE.md).
+
+**Sauvegarde préalable** : `mysqldump --single-transaction --triggers` des
+tables `utilisateurs`, `utilisateurs_emails`, `chantiers`, stockée dans
+`/var/backups/docs-app/mobile_migration_backup_20260919_112937.sql`
+(permissions `600 root:root`, même convention que le backup existant
+décrit dans `../operations/DOCS_BACKUP_STATUS.md`).
+
+**Colonnes ajoutées à `utilisateurs`** :
+
+- `externe` (`TINYINT(1)`, défaut `0`) : compte externe / sous-traitant
+  sans compte Deltathermic.
+- `mobile_valide` (`TINYINT(1)`, défaut `0`) : provisionné et validé par
+  un admin pour l'accès à l'application mobile (distinct des flags
+  existants `adm`/`wrk`/`cas`/`rot`, dont la sémantique exacte n'a pas été
+  documentée pendant le cadrage — voir point ouvert correspondant dans le
+  cahier des charges mobile).
+
+**Nouvelle table `utilisateurs_activation_mobile`** (clé d'activation à
+usage unique envoyée par email) :
+
+```sql
+CREATE TABLE utilisateurs_activation_mobile (
+  id INT(10) UNSIGNED NOT NULL AUTO_INCREMENT,
+  utilisateur_id INT(10) UNSIGNED NOT NULL,
+  cle_hash CHAR(64) NOT NULL,        -- sha256 hex, jamais la clé en clair
+  expire_at DATETIME NOT NULL,
+  utilisee_at DATETIME DEFAULT NULL,
+  date_creation TIMESTAMP NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (id),
+  UNIQUE KEY cle_hash_UNIQUE (cle_hash),
+  KEY utilisateur_id (utilisateur_id),
+  CONSTRAINT fk_activation_mobile_utilisateur
+    FOREIGN KEY (utilisateur_id) REFERENCES utilisateurs (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+```
+
+**Nouvelle table `utilisateurs_chantiers`** (restriction d'accès mobile par
+chantier, utilisée notamment pour les sous-traitants) :
+
+```sql
+CREATE TABLE utilisateurs_chantiers (
+  id INT(10) UNSIGNED NOT NULL AUTO_INCREMENT,
+  utilisateur_id INT(10) UNSIGNED NOT NULL,
+  chantier_id INT(10) UNSIGNED NOT NULL,
+  date_creation TIMESTAMP NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (id),
+  UNIQUE KEY uniq_utilisateur_chantier (utilisateur_id, chantier_id),
+  KEY chantier_id (chantier_id),
+  CONSTRAINT fk_uc_utilisateur FOREIGN KEY (utilisateur_id) REFERENCES utilisateurs (id) ON DELETE CASCADE,
+  CONSTRAINT fk_uc_chantier FOREIGN KEY (chantier_id) REFERENCES chantiers (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+```
+
+Aucune ligne existante modifiée (`externe`/`mobile_valide` par défaut à
+`0` pour les 9 utilisateurs déjà en base). Aucun impact sur `api.py` ni sur
+les endpoints existants — étape purement additive.
+
+**Reste à faire** (voir cahier des charges mobile, section 5.3) : nouvelle
+API dédiée mobile (émission des jetons, activation par clé, gestion des
+listes blanches), extension du payload `/sync` pour pousser la liste
+blanche par boîtier, et flux d'envoi d'email d'onboarding (relais SMTP
+existant identifié : `ssmtp` configuré vers `smtp.office365.com`, expéditeur
+`marc.fache@deltathermic.be`).
+
+## 7. API mobile — activation, sessions, liste des boîtiers (2026-09-19)
+
+Deuxième étape (suite de la section 6) : implémentation des routes pour
+l'application mobile décrites dans
+[`../mobile/CAHIER_DES_CHARGES_APP_MOBILE.md`](../mobile/CAHIER_DES_CHARGES_APP_MOBILE.md)
+section 14.3.
+
+**Découverte d'infrastructure importante** : `/var/www/reports/api.py`
+n'existe plus tel quel. Le code a été refactoré le 10 septembre 2026
+("sur le modèle rpinode") en trois espaces distincts sur le serveur
+`docs` :
+
+- `/opt/reports-dev` : bac à sable de développement, dépôt Git local
+  (remote `github-reports-dev:mfache/reports-dev.git`), base isolée
+  `dt_dev` (`/etc/boitier-fleet/db-dev.env`), servi sous `/reports-dev`.
+- `/opt/docs-infra` : dépôt Git "officiel" versionné et poussé sur GitHub
+  (`github-reports:mfache/docs-infra.git`), contient une copie
+  synchronisée par `rsync` de `reports-dev`.
+- `/var/www/reports` : déploiement de production servi sous `/reports`,
+  jamais modifié directement.
+
+Code applicatif désormais sous `src/` (comme `rpinode`) :
+`src/core/`, `src/services/*.py` (un fichier par domaine métier, monté sur
+`api_app` par effet de bord d'import), `src/web/api.py` (assemblage).
+Voir `/opt/reports-dev/CAHIER-DES-CHARGES-REFONTE.md` sur le serveur pour
+le détail de cette refonte (non versionné dans `rpinode`).
+
+**Contrainte nginx découverte** : seul le préfixe littéral `/reports/api`
+échappe à l'`auth_request` Google OAuth qui protège tout le reste de
+`/reports`. Le préfixe `/mobile-api/` initialement prévu dans le cahier
+des charges aurait donc été bloqué par une authentification interactive
+Google — inutilisable pour les sous-traitants sans compte Deltathermic.
+**Décision** : les routes mobiles vivent dans `src/services/mobile.py`,
+un domaine de plus monté sur le même `api_app`, sous
+`/reports/api/mobile/*`.
+
+**Nouvelle table `utilisateurs_sessions_mobile`** (créée sur `dt` et
+`dt_dev`, absente de la section 6 initiale) :
+
+```sql
+CREATE TABLE utilisateurs_sessions_mobile (
+  id INT(10) UNSIGNED NOT NULL AUTO_INCREMENT,
+  utilisateur_id INT(10) UNSIGNED NOT NULL,
+  token_hash CHAR(64) NOT NULL,
+  date_creation TIMESTAMP NOT NULL DEFAULT current_timestamp(),
+  derniere_utilisation DATETIME DEFAULT NULL,
+  revoque TINYINT(1) NOT NULL DEFAULT 0,
+  PRIMARY KEY (id),
+  UNIQUE KEY token_hash_UNIQUE (token_hash),
+  KEY utilisateur_id (utilisateur_id),
+  CONSTRAINT fk_sessions_mobile_utilisateur
+    FOREIGN KEY (utilisateur_id) REFERENCES utilisateurs (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+```
+
+**Nouvelle table `utilisateurs_acces_boitier`** (jetons courte durée par
+boîtier, lus plus tard par l'extension de `/sync`) :
+
+```sql
+CREATE TABLE utilisateurs_acces_boitier (
+  id INT(10) UNSIGNED NOT NULL AUTO_INCREMENT,
+  utilisateur_id INT(10) UNSIGNED NOT NULL,
+  boitier_id INT(10) UNSIGNED NOT NULL,
+  token_hash CHAR(64) NOT NULL,
+  expire_at DATETIME NOT NULL,
+  date_creation TIMESTAMP NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (id),
+  UNIQUE KEY token_hash_UNIQUE (token_hash),
+  KEY utilisateur_id (utilisateur_id),
+  KEY boitier_id (boitier_id),
+  CONSTRAINT fk_ab_utilisateur FOREIGN KEY (utilisateur_id) REFERENCES utilisateurs (id) ON DELETE CASCADE,
+  CONSTRAINT fk_ab_boitier FOREIGN KEY (boitier_id) REFERENCES boitier_registre (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+```
+
+**Code** : `src/services/mobile.py` (4 routes : `POST /mobile/activate`,
+`GET /mobile/boitiers`, `POST /mobile/boitiers/<hostname>/access-token`,
+`POST /mobile/logout`), réutilise `hash_token()` de `services/fleet.py`.
+`API_VERSION` `1.2.1` → `1.3.0`.
+
+**Sauvegardes avant déploiement** :
+- Schéma : mêmes tables ajoutées sur `dt` et `dt_dev` en parallèle.
+- Fichiers modifiés en production (`src/web/api.py`,
+  `tests/test_wsgi_mount.py`) sauvegardés dans
+  `/var/backups/docs-app/reports_prod_20260919/` avant écrasement.
+
+**Déploiement** : développé et testé dans `/opt/reports-dev` (39/39 tests
+pytest, `run.sh` : compilation + tests + `kill -HUP` ciblé), synchronisé
+vers `/opt/docs-infra` (commit `79aaf30`, poussé sur
+`github-reports:mfache/docs-infra.git`), puis copié vers
+`/var/www/reports` et rechargé via son propre `run.sh` (39/39 tests,
+reload ciblé).
+
+**Point annexe** : l'environnement virtuel de production
+(`/opt/venv/reports`) ne contenait pas `pytest`, contrairement à
+`reports-dev` — installé (`pytest==9.1.1`) pour que le garde-fou de
+`run.sh` fonctionne réellement en production, pas seulement en dev.
+
+## 8. Interface admin — flags externe/mobile_valide et invitation email (2026-09-19)
+
+Troisième étape : extension de la vue existante `/admin/utilisateurs`
+(`src/web/admin_users.py` + `templates/admin_users.tpl`), qui gérait déjà
+les flags de rôle `cas`/`adm`/`wrk`/`rot` (chargé d'affaires / admin /
+ouvrier / root) sous forme de checkboxes et badges. Réponse au point
+ouvert n°1 de la section 6 : ces flags existants n'ont pas été réutilisés
+pour la catégorie mobile, les colonnes dédiées `externe`/`mobile_valide`
+(section 6) le sont à la place, avec leurs propres checkboxes/badges
+("Ext"/"M") ajoutés au même endroit.
+
+**Nouveau module `src/services/email_sender.py`** : envoi d'email texte
+simple via `smtplib`, configuration lue depuis les mêmes fichiers
+`/etc/boitier-fleet/db.env` / `db-dev.env` que la base de données (clés
+`SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`,
+`MOBILE_APP_PLAY_STORE_URL` ajoutées à ces deux fichiers, avec sauvegarde
+préalable `*.bak_20260919_smtp`). Choix motivé par le fait que le process
+uwsgi tourne en utilisateur `mariadb`, qui n'a pas accès à
+`/etc/ssmtp/ssmtp.conf` (`root` uniquement) — réutilisation du mécanisme
+`_ENV` existant plutôt que de toucher aux permissions système.
+
+**Nouvelle route `POST /admin/utilisateurs/<id>/mobile-invite`** :
+ génère une clé d'activation à usage unique (48h, table
+`utilisateurs_activation_mobile` de la section 6), tente l'envoi par
+email. Garde-fous : refuse si `mobile_valide=0` ou si l'utilisateur n'a
+aucun email enregistré.
+
+**Problème rencontré et non résolu à ce stade** : l'envoi échoue
+systématiquement avec `535 5.7.3 Authentication unsuccessful` sur
+`smtp.office365.com`, y compris après mise à jour du mot de passe par
+Marc. Cause probable : authentification SMTP désactivée pour ce compte
+côté Microsoft 365, ou MFA actif nécessitant un mot de passe
+d'application dédié (à vérifier dans le centre d'administration M365).
+Voir point ouvert correspondant dans le cahier des charges mobile.
+
+**Repli implémenté en attendant** : si l'envoi échoue, la clé reste
+valide en base et l'admin voit une modale avec le contenu complet de
+l'invitation, copiable pour transmission manuelle (autre canal).
+
+**Tests** : nouveau fichier `tests/test_admin_users_mobile.py` (3 tests :
+création avec flags, refus d'invitation sans `mobile_valide`, génération
+de clé avec succès ou échec SMTP géré proprement). Garde-fou
+`test_nombre_de_routes_ui_inchange` : `37` → `38`.
+
+**Déploiement** : même procédure que la section 7 (test dans
+`reports-dev`, 42/42 tests, sauvegarde des fichiers de prod dans
+`/var/backups/docs-app/reports_prod_20260919_admin/`, copie vers
+`/var/www/reports`, rechargement via `run.sh`, archivage vers
+`docs-infra` **depuis la production** (pas depuis `reports-dev`, pour
+garder l'état archivé fidèle à ce qui tourne réellement), commit
+`fb7ae89` poussé sur GitHub.
+
 ## Validation effectuée
 
 - Compression gzip testée : ~20x de réduction sur un lot réaliste de points BACnet.

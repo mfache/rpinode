@@ -338,6 +338,12 @@ class FleetClient:
                 received_cols = data.get("table_columns", [])
                 if received_cols:
                     self._apply_columns_pull(received_cols)
+
+                # Liste blanche d'acces mobile pour ce boitier (toujours
+                # appliquee, meme liste vide, pour retirer les jetons
+                # revoques cote docs -- voir services/mobile_auth.py et
+                # docs/mobile/CAHIER_DES_CHARGES_APP_MOBILE.md section 5.1).
+                self._apply_mobile_access_pull(data.get("mobile_access", []))
                 
                 # 3. Marquer les locales comme synchronisées
                 if dirty_annotations:
@@ -375,6 +381,28 @@ class FleetClient:
             logger.error(f"Erreur lors de la synchronisation : {e}")
             mqtt_client.publish("rpinode/status/sync", {"sync_ok": False})
         return None
+
+    def _apply_mobile_access_pull(self, mobile_access):
+        """Remplace la liste blanche locale des jetons d'acces mobile par
+        l'instantane recu de docs (toujours un remplacement complet, jamais
+        incremental, pour que les revocations soient bien prises en compte).
+        Voir services/mobile_auth.py::is_access_token_valid."""
+        try:
+            with get_db_connection() as conn:
+                conn.execute("DELETE FROM mobile_access_tokens")
+                for entry in mobile_access or []:
+                    token_hash = entry.get("token_hash")
+                    expire_at = entry.get("expire_at")
+                    if not token_hash or not expire_at:
+                        continue
+                    conn.execute(
+                        "INSERT INTO mobile_access_tokens (token_hash, expire_at, utilisateur_ref) "
+                        "VALUES (?, ?, ?)",
+                        (token_hash, str(expire_at), entry.get("utilisateur_ref")),
+                    )
+                conn.commit()
+        except Exception as e:
+            logger.error(f"Erreur lors de la mise a jour de la liste blanche mobile : {e}")
 
     def _apply_annotations_pull(self, annotations):
         """Met à jour la base locale avec les annotations reçues du serveur."""

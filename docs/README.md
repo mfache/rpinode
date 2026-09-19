@@ -19,6 +19,10 @@ plus facile à retrouver.
 - Migration Headscale (historique) : [`operations/HEADSCALE_MIGRATION_STATUS.md`](operations/HEADSCALE_MIGRATION_STATUS.md)
 - CA interne "Deltathermic" et HTTPS des boîtiers : [`operations/INTERNAL_CA_TLS.md`](operations/INTERNAL_CA_TLS.md)
 
+## Projets
+
+- Cahier des charges de l'application mobile native (Android) : [`mobile/CAHIER_DES_CHARGES_APP_MOBILE.md`](mobile/CAHIER_DES_CHARGES_APP_MOBILE.md)
+
 ## Incidents et investigations
 
 - Conflit de processus et démon BACnet : [`incidents/INVESTIGATION_BACNET_DAEMON.md`](incidents/INVESTIGATION_BACNET_DAEMON.md)

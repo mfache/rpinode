@@ -22,6 +22,13 @@ from services.gsm import get_gsm_info
 from services.ipscan import (is_ipscan_running, load_ipscan_results,
                              start_ip_scan_in_background)
 from services.mqtt_service import mqtt_client
+from services.mobile_auth import (
+    SESSION_COOKIE_NAME,
+    SESSION_LIFETIME_SECONDS,
+    create_session_cookie_value,
+    is_access_token_valid,
+    verify_session_cookie,
+)
 from web.stream import handle_sse_stream, handle_mqtt_stream, handle_sse_monitor_stream
 from web.templating import escape, render
 
@@ -41,6 +48,60 @@ class WebAdminHandler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.end_headers()
 
+    def end_headers(self):
+        # Injecte le cookie de session mobile si _process_mobile_access en a
+        # prepare un (voir cette methode). N'affecte aucune autre requete.
+        cookie_value = getattr(self, "_mobile_session_cookie_to_set", None)
+        if cookie_value:
+            self.send_header(
+                "Set-Cookie",
+                f"{SESSION_COOKIE_NAME}={cookie_value}; Path=/; HttpOnly; SameSite=Lax; Max-Age={SESSION_LIFETIME_SECONDS}",
+            )
+            self._mobile_session_cookie_to_set = None
+        super().end_headers()
+
+    def _process_mobile_access(self, query):
+        """Valide/etablit une session pour l'app mobile native si un
+        access_token est fourni en query string, ou si un cookie de session
+        valide existe deja. Voir services/mobile_auth.py et
+        docs/mobile/CAHIER_DES_CHARGES_APP_MOBILE.md section 5
+        (depot rpinode) pour le contexte complet.
+
+        Ne bloque JAMAIS une requete qui ne fournit ni cookie ni
+        access_token : ce mecanisme ajoute uniquement un chemin de
+        validation pour l'app mobile, sans changer le comportement existant
+        (acces desktop/LAN, historiquement sans authentification).
+
+        Retourne False si la requete a deja ete traitee (acces refuse), True
+        si le traitement normal (routing) doit continuer.
+        """
+        cookie_header = self.headers.get("Cookie", "") or ""
+        existing_session = None
+        for part in cookie_header.split(";"):
+            part = part.strip()
+            if part.startswith(f"{SESSION_COOKIE_NAME}="):
+                existing_session = part[len(SESSION_COOKIE_NAME) + 1:]
+                break
+
+        if existing_session and verify_session_cookie(existing_session):
+            return True
+
+        access_token = (query.get("access_token") or [None])[0]
+        if not access_token:
+            # Ni cookie valide, ni tentative de jeton : comportement inchange.
+            return True
+
+        if not is_access_token_valid(access_token):
+            logger.warning("Tentative d'acces mobile refusee (access_token invalide/expire).")
+            self.send_response(401)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(json.dumps({"ok": False, "error": "Jeton d'acces invalide ou expire."}).encode("utf-8"))
+            return False
+
+        self._mobile_session_cookie_to_set = create_session_cookie_value()
+        return True
+
     def do_GET(self):
         parsed_url = urlparse(self.path)
         path = parsed_url.path
@@ -55,6 +116,9 @@ class WebAdminHandler(BaseHTTPRequestHandler):
             path = path[:-1]
 
         logger.debug(f"GET Request: {path} (original: {self.path})")
+
+        if not self._process_mobile_access(query):
+            return
 
         if path == "/sw.js":
             return self.serve_static("/static/sw.js")
@@ -106,6 +170,14 @@ class WebAdminHandler(BaseHTTPRequestHandler):
             return self.handle_logs_download()
 
         if path == "/":
+            return self.serve_home()
+        elif path == "/mobile/home":
+            # Point d'entree dedie pour l'app mobile native (cf.
+            # docs/mobile/CAHIER_DES_CHARGES_APP_MOBILE.md, section 7).
+            # V1 : simple passthrough vers la page d'accueil standard, sans
+            # personnalisation. Route conservee stable pour brancher plus
+            # tard un contenu different selon le profil de l'utilisateur
+            # mobile connecte, sans changer l'URL codee en dur dans l'app.
             return self.serve_home()
         elif path == "/network/overview":
             return self.serve_network_overview()
@@ -159,6 +231,7 @@ class WebAdminHandler(BaseHTTPRequestHandler):
     def do_POST(self):
         parsed_url = urlparse(self.path)
         path = parsed_url.path
+        query = parse_qs(parsed_url.query)
 
         if path.startswith("/rpinode/"):
             path = path[len("/rpinode"):]
@@ -169,6 +242,9 @@ class WebAdminHandler(BaseHTTPRequestHandler):
             path = path[:-1]
 
         logger.info(f"POST Request: {path} (original: {self.path})")
+
+        if not self._process_mobile_access(query):
+            return
 
         if path == "/api/restart":
             self.handle_restart()

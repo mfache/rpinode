@@ -280,3 +280,15 @@ CREATE TABLE IF NOT EXISTS device_qualifications (
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Liste blanche des jetons d'acces mobile valides pour CE boitier,
+-- synchronisee a chaque cycle /sync (voir services/fleet.py::sync_location
+-- et docs/mobile/CAHIER_DES_CHARGES_APP_MOBILE.md section 14.4/5.1).
+-- Instantane complet a chaque sync : la table est videe puis repeuplee,
+-- jamais de mise a jour partielle (voir services/mobile_auth.py).
+CREATE TABLE IF NOT EXISTS mobile_access_tokens (
+    token_hash TEXT PRIMARY KEY,        -- sha256 hex du jeton (jamais en clair)
+    expire_at TEXT NOT NULL,            -- ISO8601 / format DATETIME MySQL, fourni par docs
+    utilisateur_ref TEXT,               -- reference utilisateur (ex: TOM), pour les logs
+    synced_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
