@@ -84,11 +84,13 @@ class WebAdminHandler(BaseHTTPRequestHandler):
                 break
 
         if existing_session and verify_session_cookie(existing_session):
+            self._has_valid_mobile_session = True
             return True
 
         access_token = (query.get("access_token") or [None])[0]
         if not access_token:
             # Ni cookie valide, ni tentative de jeton : comportement inchange.
+            self._has_valid_mobile_session = False
             return True
 
         if not is_access_token_valid(access_token):
@@ -100,6 +102,7 @@ class WebAdminHandler(BaseHTTPRequestHandler):
             return False
 
         self._mobile_session_cookie_to_set = create_session_cookie_value()
+        self._has_valid_mobile_session = True
         return True
 
     def do_GET(self):
@@ -164,10 +167,12 @@ class WebAdminHandler(BaseHTTPRequestHandler):
         elif path == "/api/bacnet/mstp/stream":
             from web.stream import handle_bacnet_mstp_stream
             return handle_bacnet_mstp_stream(self)
-        elif path == "/api/monitor/logs":
+        if path == "/api/monitor/logs":
             return self.handle_logs_api(query)
         elif path == "/api/monitor/logs/download":
             return self.handle_logs_download()
+        elif path == "/api/points/value":
+            return self.serve_mobile_point_value(query)
 
         if path == "/":
             return self.serve_home()
@@ -3361,6 +3366,56 @@ class WebAdminHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.end_headers()
         self.wfile.write(json.dumps(data).encode("utf-8"))
+
+    def send_json_status(self, status_code, data):
+        self.send_response(status_code)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.end_headers()
+        self.wfile.write(json.dumps(data).encode("utf-8"))
+
+    def serve_mobile_point_value(self, query):
+        """Endpoint leger pour les widgets de l'app mobile : lit un seul
+        point a la demande (protocole + point_id local), sans lire tout le
+        chantier comme le font les pages de suivi completes. Voir
+        docs/mobile/CAHIER_DES_CHARGES_APP_MOBILE.md section 14.2.
+
+        Contrat : GET /api/points/value?protocol=modbus|bacnet&point_id=<id>
+        (point_id = identifiant local dans modbus_points/bacnet_points,
+        pas le triplet protocole/device/objet utilise cote docs pour les
+        trends -- plus simple et coherent avec le systeme de suivi local
+        existant, qui identifie deja ses points de cette maniere).
+        """
+        if not getattr(self, "_has_valid_mobile_session", False):
+            return self.send_json_status(401, {"ok": False, "error": "Session invalide ou expiree."})
+
+        protocol = (query.get("protocol") or [None])[0]
+        point_id_raw = (query.get("point_id") or [None])[0]
+
+        if protocol not in ("modbus", "bacnet") or not point_id_raw or not point_id_raw.isdigit():
+            return self.send_json_status(400, {"ok": False, "error": "Parametres protocol/point_id invalides."})
+
+        point_id = int(point_id_raw)
+        try:
+            if protocol == "modbus":
+                from services.modbus_mgr import read_single_point_live as read_single_modbus_point_live
+                result = read_single_modbus_point_live(point_id)
+            else:
+                from services.bacnet_mgr import read_single_point_live as read_single_bacnet_point_live
+                result = read_single_bacnet_point_live(point_id)
+        except Exception as e:
+            logger.error(f"Erreur lecture point mobile ({protocol}:{point_id}) : {e}")
+            return self.send_json_status(500, {"ok": False, "error": "Erreur interne."})
+
+        if result is None:
+            return self.send_json_status(404, {"ok": False, "error": "Point introuvable."})
+
+        self.send_json({
+            "ok": True,
+            "value": result.get("value"),
+            "display": result.get("display"),
+            "error": result.get("error"),
+            "ts": result.get("ts"),
+        })
 
 def start_server():
     config = load_config()

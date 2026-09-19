@@ -543,6 +543,72 @@ def read_point_value(protocol, address, port, unit, function, reg, type_str="int
     val_str = str(num)
     return val_str, val_str
 
+def read_single_point_live(point_id):
+    """Lit un seul point Modbus a la demande (identifie par son point_id
+    local), sans lire tout le chantier. Utilise par l'endpoint mobile
+    /api/points/value (voir docs/mobile/CAHIER_DES_CHARGES_APP_MOBILE.md
+    section 14.2). Retourne un dict {value, display, error, ts}, ou None
+    si le point est introuvable.
+    """
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT p.*, d.protocol, d.address, d.port,
+                   COALESCE(p.slave_unit, d.slave_unit, 1) as slave_unit
+            FROM modbus_points p
+            JOIN modbus_devices d ON p.device_id = d.id
+            WHERE p.id = ?
+            """,
+            (point_id,)
+        )
+        row = cursor.fetchone()
+    if not row:
+        return None
+    p = dict(row)
+
+    protocol = p["protocol"]
+    address = p["address"]
+    port = p["port"] or 502
+    unit = p["slave_unit"] or (int(address) if protocol == "mstp" else 1)
+    func = p["function"]
+    reg = p["reg"]
+    base = p.get("base") or 0
+    type_str = p["type"]
+    scale = p["scale"]
+    unit_str = f" {p['unit']}" if p["unit"] else ""
+    now = int(time.time())
+
+    try:
+        raw_val, disp_val = read_point_value(protocol, address, port, unit, func, reg, type_str, scale, base=base, timeout=0.4)
+        with get_db_connection() as conn:
+            conn.execute(
+                "UPDATE modbus_points SET last_value = ?, last_read_ts = ? WHERE id = ?",
+                (raw_val, now, point_id)
+            )
+        return {"value": raw_val, "display": f"{disp_val}{unit_str}", "error": None, "ts": now}
+    except ModbusError as e:
+        if p.get("last_value") is not None:
+            return {
+                "value": p["last_value"],
+                "display": f"{p['last_value']}{unit_str}",
+                "error": None,
+                "retained": True,
+                "ts": p.get("last_read_ts") or now,
+            }
+        return {"value": None, "display": "—", "error": str(e), "ts": now}
+    except Exception as e:
+        if p.get("last_value") is not None:
+            return {
+                "value": p["last_value"],
+                "display": f"{p['last_value']}{unit_str}",
+                "error": None,
+                "retained": True,
+                "ts": p.get("last_read_ts") or now,
+            }
+        return {"value": None, "display": "—", "error": str(e), "ts": now}
+
+
 def read_site_monitored_points_live(site_id):
     """
     Lit tous les points suivis (is_monitored=1) pour un chantier et renvoie un dict:

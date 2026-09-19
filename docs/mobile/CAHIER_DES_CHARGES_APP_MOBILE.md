@@ -422,38 +422,53 @@ décisions déjà actées**, pas de nouvelles décisions de fond — à ajuster 
 besoin en implémentation, mais elles évitent que l'app et le backend soient
 développés sur des hypothèses différentes.
 
-### 14.1 Convention d'identification d'un point (réutilisation de l'existant)
+### 14.1 Convention d'identification d'un point — **révisée le 2026-09-19**
 
-L'API flotte existante (`POST /trends`, `POST /points-config`, voir
-https://docs.deltathermic.be/reports/api/usage) identifie déjà un point
-via un schéma compact : `s` (site/chantier), `p` (protocole : `modbus` ou
-`bacnet`), `d` (device), `o` (objet/registre, ex: `AI:1`). **Réutiliser ce
-même schéma** pour le nouvel endpoint `/api/points/value` (section 14.2),
-plutôt que d'inventer un nouveau format d'identifiant.
+Proposition initiale abandonnée : réutiliser le schéma compact `s`/`p`/`d`/`o`
+de l'API flotte (`POST /trends`, `POST /points-config`) pour identifier un
+point sur `rpinode`. En implémentant l'endpoint, il s'est avéré que le
+système de suivi local de `rpinode` (tables `modbus_points`/`bacnet_points`,
+déjà utilisées par les pages de suivi existantes) identifie chaque point
+par un **`point_id` local** (entier, clé primaire SQLite), pas par un
+triplet protocole/device/objet. Réutiliser ce `point_id` local est plus
+simple et cohérent avec l'existant, plutôt que de faire cohabiter deux
+schémas d'identification différents sur le même boîtier.
 
-### 14.2 Nouvel endpoint sur `rpinode` : `GET /api/points/value`
+**Conséquence pour l'app mobile** : quel que soit le mécanisme retenu pour
+le point ouvert n°7 (sélection d'un point à suivre), l'app devra en bout
+de chaîne obtenir ce `point_id` local (propre à chaque boîtier) pour
+pouvoir appeler l'endpoint ci-dessous.
 
-- **Authentification** : cookie de session mobile obligatoire (section 5.2)
-  — comme toute autre route de `rpinode` une fois la session établie.
-- **Requête** : `GET /api/points/value?p=<protocole>&d=<device>&o=<objet>`
+### 14.2 Nouvel endpoint sur `rpinode` : `GET /api/points/value` — **Implémenté le 2026-09-19**
+
+- **Authentification** : session mobile obligatoire (cookie établi en
+  section 5.2 ; sans session valide → `401`). Contrairement aux autres
+  routes de `rpinode` (qui restent accessibles sans authentification pour
+  préserver l'accès desktop/LAN existant), cette route est **nouvelle**
+  et exige donc explicitement une session mobile valide dès sa création.
+- **Requête** : `GET /api/points/value?protocol=modbus|bacnet&point_id=<entier>`
   (un point par appel ; l'app fait un appel par widget à chaque cycle de
-  polling — accepter éventuellement une liste séparée par virgules dans
-  `d`/`o` en V2 si le volume de widgets le justifie, pas nécessaire pour la
-  V1).
-- **Réponse 200** :
+  polling).
+- **Implémentation** : `WebAdminHandler.serve_mobile_point_value()` dans
+  `src/web/server.py`, délègue à `services/modbus_mgr.py::read_single_point_live()`
+  ou `services/bacnet_mgr.py::read_single_point_live()` — nouvelles
+  fonctions qui lisent **un seul point** à la demande (lecture bus directe
+  pour Modbus, requête MQTT pour BACnet), sans lire tout le chantier comme
+  le font les pages de suivi complètes (`read_site_monitored_points_live`,
+  réutilisée telle quelle, non modifiée). Repli sur la dernière valeur
+  connue (`last_value`) en cas d'échec de lecture, comme le fait déjà le
+  suivi desktop.
+- **Réponse 200** (exemple réel, point Modbus) :
   ```json
-  {
-    "ok": true,
-    "value": "23.5",
-    "display": "23.5 °C",
-    "ts": "2026-09-19T11:30:00",
-    "error": null
-  }
+  {"ok": true, "value": "83", "display": "83 Pa", "error": null, "ts": 1789826876}
   ```
-- **Réponse point introuvable / paramètres invalides** : `404`,
-  `{"ok": false, "error": "point_introuvable"}`.
+  `ts` est un timestamp Unix (secondes), pas une chaîne ISO8601.
+- **Réponse paramètres invalides** : `400`,
+  `{"ok": false, "error": "Parametres protocol/point_id invalides."}`.
+- **Réponse point introuvable** : `404`,
+  `{"ok": false, "error": "Point introuvable."}`.
 - **Réponse session invalide/expirée** : `401`,
-  `{"ok": false, "error": "session_invalide"}` — l'app doit alors
+  `{"ok": false, "error": "Session invalide ou expiree."}` — l'app doit alors
   redemander un jeton d'accès (section 14.3) et recharger la WebView.
 
 ### 14.3 Nouvelle API mobile dédiée sur docs — Implémenté le 2026-09-19

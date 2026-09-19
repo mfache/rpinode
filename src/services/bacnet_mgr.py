@@ -702,6 +702,53 @@ def read_bacnet_points_live_raw(points, timeout=4.0):
 
     return results
 
+def read_single_point_live(point_id):
+    """Lit un seul point BACnet a la demande (identifie par son point_id
+    local), sans lire tout le chantier. Utilise par l'endpoint mobile
+    /api/points/value (voir docs/mobile/CAHIER_DES_CHARGES_APP_MOBILE.md
+    section 14.2). Retourne un dict {value, display, error, ts}, ou None
+    si le point est introuvable.
+    """
+    import time
+
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM bacnet_points WHERE id = ?", (point_id,))
+        row = cursor.fetchone()
+    if not row:
+        return None
+    p = dict(row)
+
+    now = int(time.time())
+    raw_results = read_bacnet_points_live_raw(
+        [{
+            "key": str(p["id"]),
+            "address": p["network_address"],
+            "object_id": p["object_id"],
+            "device_id": p["device_instance"],
+        }],
+        timeout=6.0,
+    )
+    item = raw_results.get(str(p["id"]))
+
+    if item and item.get("value") is not None:
+        with get_db_connection() as conn:
+            conn.execute(
+                "UPDATE bacnet_points SET last_value = ?, last_read_ts = ? WHERE id = ?",
+                (str(item["value"]), now, point_id),
+            )
+        return item
+    if p.get("last_value") is not None:
+        return {
+            "value": p["last_value"],
+            "display": str(p["last_value"]),
+            "error": None,
+            "retained": True,
+            "ts": p.get("last_read_ts") or now,
+        }
+    return item or {"value": None, "display": "—", "error": "Lecture impossible", "ts": now}
+
+
 def read_site_monitored_points_live(site_id):
     """
     Lit tous les points BACnet suivis (is_monitored=1) pour un chantier et renvoie un dict:
