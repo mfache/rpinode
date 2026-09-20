@@ -14,6 +14,7 @@ plus facile à retrouver.
 ## Documentation d’exploitation et d’intégration
 
 - Exploitation et interventions serveur : [`operations/DOCS_SERVER_ACCESS.md`](operations/DOCS_SERVER_ACCESS.md)
+- Cartographie d’architecture répartie `rpinode` / `docs` (Démons, MQTT, SSE, PWA) : [`integrations/ARCHITECTURE_REPARTIE_RPINODE_DOCS.md`](integrations/ARCHITECTURE_REPARTIE_RPINODE_DOCS.md)
 - Intégrations et changements d’API flotte : [`integrations/FLEET_API_CHANGES.md`](integrations/FLEET_API_CHANGES.md)
 - Enrôlement automatique Headscale (identité + réseau) : [`integrations/HEADSCALE_AUTO_ENROLL.md`](integrations/HEADSCALE_AUTO_ENROLL.md)
 - Migration Headscale (historique) : [`operations/HEADSCALE_MIGRATION_STATUS.md`](operations/HEADSCALE_MIGRATION_STATUS.md)
