@@ -136,10 +136,10 @@ Le champ `is_dirty` est fondamental pour le fonctionnement déconnecté / résil
 
 ---
 
-## 5. Protocole de Synchronisation (`/sync` & Reporter)
+## 5. Protocole de Synchronisation (`/sync`)
 
 ### A. Payload envoyé par `rpinode` au serveur `docs`
-Lors du push périodique (géré par `src/services/reporter.py` / `src/services/sync.py`), un bloc `devices` est intégré :
+Lors du push périodique (géré par `FleetClient.sync_location()` dans `src/services/fleet.py`), un bloc `devices` est intégré. Note : `src/services/reporter.py` ne participe pas à ce push, il publie uniquement l'état live sur MQTT (voir `src/services/sse.md`).
 
 ```json
 {
@@ -313,5 +313,5 @@ Vérifier ensuite les logs dans `/var/log/uwsgi/` ou `/var/log/nginx/` pour s'as
    - Mise à jour des routes BACnet et Modbus pour consommer la liste filtrée des ports selon leurs capacités déclarées.
 
 4. **Étape 4 : Télémétrie et Synchronisation avec `docs`**
-   - Intégration de l'inventaire matériel qualifié dans le payload périodique de `src/services/reporter.py` / `src/services/sync.py`.
+   - Intégration de l'inventaire matériel qualifié dans le payload périodique de `FleetClient.sync_location()` (`src/services/fleet.py`).
    - Documentation de l'API côté `docs.deltathermic.be` dans [docs/integrations/FLEET_API_CHANGES.md](../../docs/integrations/FLEET_API_CHANGES.md).
