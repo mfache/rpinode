@@ -279,7 +279,9 @@ class FleetClient:
                 except Exception as e:
                     logger.debug(f"Erreur collecte devices pour sync: {e}")
 
-                # Télémétrie d'usage des templates Modbus
+                # Télémétrie d'usage des templates (Modbus + BACnet), pour permettre
+                # à docs de retrouver le libellé d'un point via son template partagé,
+                # sans dupliquer ce libellé (voir docs/integrations/FLEET_API_CHANGES.md).
                 template_usages = []
                 try:
                     usage_rows = conn.execute("""
@@ -297,13 +299,45 @@ class FleetClient:
                             except (ValueError, TypeError):
                                 c_id = 0
                             template_usages.append({
+                                "protocol": "modbus",
                                 "template_uuid": r["template_uuid"],
                                 "revision_uuid": r["revision_uuid"],
                                 "device_name": r["device_name"] or r["template_name"],
                                 "chantier_id": c_id
                             })
                 except Exception as e:
-                    logger.debug(f"Erreur collecte usage templates : {e}")
+                    logger.debug(f"Erreur collecte usage templates Modbus : {e}")
+
+                try:
+                    # Note : coté trends, un point BACnet est identifié par le
+                    # device_instance (voir services/logger.py::record_trend et
+                    # run_bacnet_logging_cycle), pas par le nom de l'appareil.
+                    # On utilise donc device_instance comme clé "device_name"
+                    # pour rester cohérent avec le "d" envoyé dans /trends.
+                    usage_rows = conn.execute("""
+                        SELECT d.device_instance, d.site_id, s.external_id as site_external_id,
+                               t.template_uuid, t.revision_uuid
+                        FROM bacnet_devices d
+                        JOIN bacnet_templates t ON d.template_id = t.id
+                        LEFT JOIN sites s ON d.site_id = s.id
+                        WHERE d.device_instance IS NOT NULL
+                    """).fetchall()
+                    for r in usage_rows:
+                        if r["template_uuid"] and r["revision_uuid"]:
+                            c_id = r["site_external_id"]
+                            try:
+                                c_id = int(c_id) if c_id else 0
+                            except (ValueError, TypeError):
+                                c_id = 0
+                            template_usages.append({
+                                "protocol": "bacnet",
+                                "template_uuid": r["template_uuid"],
+                                "revision_uuid": r["revision_uuid"],
+                                "device_name": str(r["device_instance"]),
+                                "chantier_id": c_id
+                            })
+                except Exception as e:
+                    logger.debug(f"Erreur collecte usage templates BACnet : {e}")
         except Exception as e:
             logger.error(f"Erreur lors de la lecture des annotations dirty : {e}")
 

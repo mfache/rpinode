@@ -312,6 +312,88 @@ de clé avec succès ou échec SMTP géré proprement). Garde-fou
 garder l'état archivé fidèle à ce qui tourne réellement), commit
 `fb7ae89` poussé sur GitHub.
 
+## 9. Libellé des points via le template partagé, sans duplication (2026-09-20)
+
+Besoin : afficher un nom lisible (colonne « Description ») sur
+`https://docs.deltathermic.be/reports/chantier/*` pour les points Modbus/BACnet
+dont le template est partagé avec la flotte (`is_shared=1` côté `rpinode`),
+sans dupliquer ce libellé (le point a déjà un nom hérité du registre/objet du
+template, et le template lui-même est déjà synchronisé via
+`sync_modbus_templates`/`sync_bacnet_templates`).
+
+**Source de vérité retenue** : `boitier_template_usage` (associe déjà
+`device_name` → `revision_uuid` par chantier, alimente par
+`fleet.py::sync_location`) + la définition du template
+(`boitier_modbus_templates`/`boitier_bacnet_templates`). Un point est
+identifié par `(device, obj)` dans les trends ; `obj` encode déjà le
+registre (`FC04_200` = fonction 4 / adresse 200) ou l'objet BACnet
+(`analog-input:1`), ce qui suffit à retrouver le libellé correspondant
+dans `definition_json` sans qu'aucune donnée supplémentaire ne soit
+envoyée par le boîtier. Un endpoint `/points-config` +
+table `boitier_points_config` existaient déjà pour porter un libellé
+explicite par point (construit pour l'app mobile puis abandonné, voir
+`docs/mobile/CAHIER_DES_CHARGES_APP_MOBILE.md` §14.1) : conservé tel
+quel comme repli, mais plus alimenté par `rpinode` pour ce besoin.
+
+**Constat** : `boitier_template_usage` ne couvrait jusqu'ici que Modbus
+(le côté BACnet n'avait jamais été étendu). Ajout du support BACnet en
+parallèle, avec un champ `protocol` pour distinguer les deux espaces de
+noms (un appareil Modbus et un appareil BACnet peuvent théoriquement
+partager le même nom sur un chantier).
+
+**Migration de schéma** (`dt` et `dt_dev`) :
+
+```sql
+ALTER TABLE boitier_template_usage
+  ADD COLUMN protocol VARCHAR(16) NOT NULL DEFAULT 'modbus' AFTER chantier_id;
+ALTER TABLE boitier_template_usage
+  DROP PRIMARY KEY,
+  ADD PRIMARY KEY (boitier_id, chantier_id, protocol, template_uuid, device_name);
+```
+
+Note : juste après le premier `ALTER ADD COLUMN` combiné avec le
+changement de clé primaire en une seule commande, une lecture immediate
+de la colonne via une connexion pymysql distincte a échoué ("Unknown
+column 'protocol'") alors que `SHOW CREATE TABLE` via le client `mysql`
+la montrait déjà — très probablement un délai de propagation du cache de
+métadonnées InnoDB entre connexions. Résolu en séparant l'ajout de
+colonne et le changement de clé primaire en deux commandes espacées de
+quelques secondes, avec vérification croisée (mysql-cli + pymysql) entre
+les deux avant de continuer.
+
+**Côté `rpinode`** : `fleet.py::sync_location` pousse désormais l'usage
+de template pour les appareils BACnet en plus des appareils Modbus, avec
+`protocol`. Pour BACnet, la clé `device_name` transmise est en réalité le
+`device_instance` (entier converti en chaîne), car c'est ce identifiant
+— et non le nom convivial — qui sert de `d` dans `/trends` pour ce
+protocole (voir `services/logger.py::run_bacnet_logging_cycle`).
+
+**Côté serveur** (`src/services/sync.py`, `src/web/ui.py`) :
+
+- `_push_template_usage` accepte et persiste le champ `protocol`
+  (`"modbus"` par défaut pour les boîtiers pas encore mis à jour).
+- Nouvelles fonctions `_load_template_point_labels` et
+  `_resolve_point_label` dans `ui.py` : résolvent le libellé d'un point à
+  partir de `boitier_template_usage` + `definition_json` du template
+  (reparsing de `FC04_200` en `(fonction, adresse)` pour Modbus,
+  correspondance directe sur `obj` pour BACnet).
+- Utilisées dans `chantier_boitiers` (tableau des points) et
+  `chantier_chart_data` (graphiques), en complément de
+  `boitier_points_config` (qui reste prioritaire s'il contient déjà un
+  libellé, pour compatibilité future).
+
+**Déploiement** : testé dans `reports-dev`/`dt_dev` (script fonctionnel
+de bout en bout incluant Modbus et BACnet, puis `run_tests.sh` 42/42),
+puis migration appliquée sur `dt` (11 lignes, sans risque), rsync
+`/opt/reports-dev` → `/opt/docs-infra/var/www/reports` (commit
+`824e1cb`, poussé sur GitHub), copie vers `/var/www/reports`, rechargement
+via `run.sh` (exécuté en tant qu'utilisateur `marc`, pas `mariadb` :
+`__pycache__` appartient à `marc` et n'est pas inscriptible par
+`mariadb`). Vérifié en conditions réelles après coup : nouveaux PID de
+workers uwsgi correspondant à l'heure du rechargement, requête réelle
+`GET /chantier/9/boitiers` renvoyant `200` sans trace d'erreur dans
+`/var/log/uwsgi/app/reports.log`.
+
 ## Validation effectuée
 
 - Compression gzip testée : ~20x de réduction sur un lot réaliste de points BACnet.

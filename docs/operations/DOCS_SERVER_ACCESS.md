@@ -79,7 +79,51 @@ Conséquences pour une intervention future :
 - toute intervention sur le schéma MariaDB (`dt`) doit être répliquée sur
   `dt_dev` pour garder les deux environnements cohérents.
 
-## 6. Documentation liée
+## 6. Utilisateur système pour écrire ou compiler du code (`marc`, pas `mariadb`)
+
+**Découverte du 20 septembre 2026** : la connexion SSH se fait en tant que
+`mariadb`, mais tous les fichiers dans `/opt/reports-dev`, `/opt/docs-infra`
+et `/var/www/reports` (y compris les dossiers `__pycache__`) appartiennent à
+`marc:marc`. L'utilisateur `mariadb` n'est **pas** membre du groupe `marc` et
+n'a donc que des droits de lecture (`r-x`) sur ces dossiers, pas d'écriture.
+
+Conséquences concrètes :
+- **`scp`/écriture directe vers ces dossiers en tant que `mariadb` échoue**
+  (`Permission denied`). Passer par un fichier intermédiaire accessible par
+  `mariadb` (ex. `/tmp/`), puis `sudo cp` + `sudo chown marc:marc` vers la
+  destination finale (`mariadb` a un sudo `NOPASSWD: ALL`, donc ceci
+  fonctionne sans mot de passe).
+- **`run.sh` et un `python3 -m py_compile` direct échouent aussi en tant que
+  `mariadb`** : ce script écrit de nouveaux fichiers `.pyc` dans
+  `__pycache__`, ce qui nécessite d'être propriétaire ou membre du groupe.
+  Lancer `run.sh` via `sudo -u marc ./run.sh` (et non directement en tant
+  que `mariadb`). `run_tests.sh`, lui, fonctionne dans les deux cas car il
+  fait déjà lui-même `sudo -u mariadb ...` en interne.
+- `marc` a lui aussi un sudo `NOPASSWD: ALL` sur ce serveur, donc
+  `sudo -u marc <commande>` depuis une session `mariadb` fonctionne sans mot
+  de passe supplémentaire.
+
+## 7. Piège lors des migrations de schéma MariaDB (`ALTER TABLE`)
+
+**Découverte du 20 septembre 2026** : combiner un `ADD COLUMN` et un
+changement de clé primaire (`DROP PRIMARY KEY, ADD PRIMARY KEY (...)`) dans
+une seule commande `ALTER TABLE` peut laisser une incohérence **transitoire**
+du cache de métadonnées InnoDB : une connexion ouverte juste après peut ne
+pas encore voir la nouvelle colonne (`Unknown column ... in 'SELECT'`),
+alors qu'une autre connexion (ou le client `mysql` CLI) la voit déjà. Observé
+de façon reproductible sur `dt_dev` et sur `dt` (pas un cluster Galera :
+`wsrep_cluster_size = 0`, même `@@port`/`@@socket`/`@@datadir` des deux
+côtés — donc pas un problème de réplication, juste un délai de propagation).
+
+Bonne pratique retenue : séparer la migration en plusieurs commandes
+(`ALTER TABLE ... ADD COLUMN` puis, quelques secondes après,
+`ALTER TABLE ... DROP/ADD PRIMARY KEY`), et vérifier le schéma **par les deux
+voies** avant de continuer (`SHOW CREATE TABLE` via le client `mysql`, et une
+requête équivalente via une connexion `pymysql`/Python fraîche, comme le fait
+le code applicatif). Voir `../integrations/FLEET_API_CHANGES.md` section 9
+pour un exemple détaillé.
+
+## 8. Documentation liée
 
 - Documentation API distante :
   [https://docs.deltathermic.be/reports/api/usage](https://docs.deltathermic.be/reports/api/usage)
@@ -89,7 +133,7 @@ Conséquences pour une intervention future :
   [HEADSCALE_SSH_ACL.md](HEADSCALE_SSH_ACL.md), référence canonique dans
   `docs:/var/www/reports/HEADSCALE-ACL.md`.
 
-## 7. Redémarrage et précautions
+## 9. Redémarrage et précautions
 
 Un script de redémarrage est disponible :
 
@@ -100,7 +144,7 @@ Un script de redémarrage est disponible :
 Pour les détails opérationnels observés côté uWSGI et les limites de certaines
 commandes de reload, voir aussi [../integrations/FLEET_API_CHANGES.md](../integrations/FLEET_API_CHANGES.md).
 
-## 8. Règle pratique
+## 10. Règle pratique
 
 Si une tâche touche la synchronisation distante, l’API centrale ou la base
 MariaDB du serveur `docs`, ne suppose pas que tout se trouve dans le dépôt
