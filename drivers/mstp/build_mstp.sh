@@ -2,7 +2,7 @@
 # Compile l'outil de decouverte BACnet MS/TP (RS-485) a partir des sources
 # officielles de bacnet-stack (C, protocole MS/TP mature et tres repandu).
 #
-# Pourquoi pas du Python comme le reste du boitier-bacnet (bacpypes3) ?
+# Pourquoi pas du Python comme le reste du rpinode-bacnet (bacpypes3) ?
 # bacpypes3 n'a jamais implemente le data-link MS/TP (serie), et l'ancien
 # bacpypes (classique) a retire son module MS/TP des versions recentes tout
 # en dependant du module stdlib "asyncore", supprime en Python 3.12+ : aucune
@@ -25,11 +25,11 @@
 #     reception, en plus du tableau final laisse intact.
 #
 # Usage : sudo bash build_mstp.sh
-# Resultat : /opt/boitier-bacnet/mstp/bin/bacwi (Who-Is / decouverte MS/TP)
+# Resultat : /opt/rpinode-bacnet/mstp/bin/bacwi (Who-Is / decouverte MS/TP)
 set -e
 
-SRC_DIR="/opt/boitier-bacnet/bacnet-stack-src"
-OUT_DIR="/opt/boitier-bacnet/mstp/bin"
+SRC_DIR="/opt/rpinode-bacnet/bacnet-stack-src"
+OUT_DIR="/opt/rpinode-bacnet/mstp/bin"
 PATCH_FILE="$(cd "$(dirname "$0")" && pwd)/bacnet-stack-mstp.patch"
 
 # Version epinglee : un build reproductible vaut mieux qu'un "toujours a jour"

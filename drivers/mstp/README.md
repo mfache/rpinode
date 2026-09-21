@@ -11,4 +11,4 @@
 ```bash
 sudo bash drivers/mstp/build_mstp.sh
 ```
-Le binaire est installé dans `/opt/boitier-bacnet/mstp/bin/bacwi`.
+Le binaire est installé dans `/opt/rpinode-bacnet/mstp/bin/bacwi`.

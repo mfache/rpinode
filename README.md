@@ -1,6 +1,6 @@
-# Projet rpinode (Refonte de admin_boitier)
+# Projet rpinode
 
-Ce dossier `rpinode` contient la nouvelle architecture repensée et modulaire, extraite des concepts de l'ancienne version `admin_boitier`.
+Ce dossier `rpinode` contient la nouvelle architecture repensée et modulaire, conçue pour rester légère et sans framework lourd.
 L'objectif est d'offrir une meilleure maîtrise des emplacements de fichiers, du moteur de templates ("à la poupée russe") et des flux de données dynamiques, sans s'appuyer sur des frameworks lourds.
 
 ## Architecture & Maîtrise des Emplacements
@@ -12,7 +12,7 @@ Toute l'organisation du projet repose sur un fichier central : `src/core/paths.p
 - `templates/` : Les composants HTML purs avec marqueurs de variables.
 - `static/` : Fichiers statiques (JS, CSS, images).
 - `docs/` : Documentation technique, notes d'investigation et comptes-rendus d'incident. Point d'entrée conseillé : `docs/README.md`.
-- `tools/` : Scripts annexes rangés par usage (`migrations/`, `debug/`, `patches/`, `local/`), séparés du code applicatif principal. Point d'entrée conseillé : `tools/README.md`.
+- `tools/` : Scripts annexes rangés par usage (`debug/`, `patches/`, `local/`), séparés du code applicatif principal. Point d'entrée conseillé : `tools/README.md`.
 
 ## Le système de Template "À la Poupée Russe"
 
@@ -38,7 +38,7 @@ final_html = render("layout.html", title="Accueil", content=home_html)
 
 ## Mises à jour Dynamiques (SSE)
 
-Pour remplacer les mécanismes d'attente (pooling ou rafraîchissements forcés) complexes de `admin_boitier`, cette architecture implémente les **Server-Sent Events (SSE)**.
+Pour remplacer les mécanismes d'attente (pooling ou rafraîchissements forcés) complexes, cette architecture implémente les **Server-Sent Events (SSE)**.
 C'est un protocole natif HTML5 unidirectionnel (Serveur vers Client) extrêmement léger.
 
 - **Côté Serveur** : `src/web/stream.py` maintient la connexion HTTP ouverte et boucle pour faire des `handler.wfile.write("data: ...\n\n")`.

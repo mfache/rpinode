@@ -7,7 +7,7 @@ logger = logging.getLogger(__name__)
 def get_gsm_info():
     """
     Récupère les informations de la cellule GSM/LTE et le GPS via ModemManager (mmcli).
-    Cette méthode reprend la logique de l'ancienne version (admin_boitier/webadmin/location.py).
+    Cette méthode reprend la logique de l'ancienne version.
     """
     info = {
         "mcc": None,

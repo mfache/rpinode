@@ -25,7 +25,7 @@ class FleetClient:
         
         if not self.secret:
             # Essayer de lire le fichier d'environnement standard s'il existe
-            env_path = "/etc/boitier/fleet.env"
+            env_path = "/etc/rpinode/fleet.env"
             if os.path.exists(env_path):
                 try:
                     with open(env_path, "r") as f:

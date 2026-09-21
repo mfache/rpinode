@@ -5,7 +5,6 @@ l’application.
 
 ## Sous-dossiers
 
-- `migrations/` : scripts de migration ou d’import ponctuel
 - `debug/` : scripts de diagnostic et d’observation locale
 - `patches/` : scripts temporaires de patch ou de correction ciblée
 - `local/` : essais locaux non versionnés (ignorés par Git)

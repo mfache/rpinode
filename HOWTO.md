@@ -12,7 +12,7 @@
 - **Nouvelle page Périphériques & Passerelles (`/devices`, `templates/devices.html`)** : Remplacement de l'ancienne route `/storage/devices` par `/devices`. Inventaire exhaustif du matériel connecté (ports série RS-485, passerelles, modems 4G/GPS, hubs USB) avec carte héro dédiée pour la Moxa et raccourcis d'actions immédiates pour lancer l'investigation BACnet MS/TP ou Modbus RTU.
 - **Intégration complète de BACnet MS/TP (`src/services/bacnet_mstp.py`, `src/web/stream.py`, `templates/bacnet_tools.html`)** :
   - Écoute passive du bus RS-485 via `pyserial` pour détecter les nœuds présents, contrôler la circulation du jeton (Token), les statistiques de trames, erreurs CRC et parasites.
-  - Découverte active Who-Is via le binaire optimisé `bacwi` (`/opt/boitier-bacnet/mstp/bin/bacwi`, `Npoll=2`, émission I-Am temps réel).
+  - Découverte active Who-Is via le binaire optimisé `bacwi` (`/opt/rpinode-bacnet/mstp/bin/bacwi`, `Npoll=2`, émission I-Am temps réel).
   - Diffusion en direct des découvertes et de l'état de santé du bus via flux Server-Sent Events (`/api/bacnet/mstp/stream`).
   - Interface à onglets dans les outils BACnet permettant de basculer instantanément entre BACnet/IP et BACnet MS/TP avec pré-sélection de la passerelle.
 

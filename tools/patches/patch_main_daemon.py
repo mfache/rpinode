@@ -12,7 +12,7 @@ new_daemon_logic = """    # Démarrage du démon BACnet unifié (MQTT)
         import logging
         logger = logging.getLogger("BACnetDaemonRunner")
         daemon_path = os.path.join(os.path.dirname(__file__), "services", "bacnet_daemon.py")
-        bacnet_python = "/opt/boitier-bacnet/venv/bin/python"
+        bacnet_python = "/opt/rpinode-bacnet/venv/bin/python"
         
         if not os.path.exists(bacnet_python):
             bacnet_python = sys.executable

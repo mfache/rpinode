@@ -16,7 +16,7 @@ La connexion cellulaire est gérée par la combinaison de **ModemManager** (`mmc
 #### Évolution (Abandon de wwan0 / QMI au profit de PPP)
 Sur les modules Waveshare SIM7600E-H, le modem expose à la fois une interface série (AT via `/dev/ttyUSB2`) et une interface réseau haut débit (QMI via `/dev/cdc-wdm0` et l'interface réseau `wwan0`).
 
-Auparavant (dans l'ancien système `admin_boitier`), la connexion s'effectuait via des scripts personnalisés utilisant `qmicli` sur `wwan0`. Ce fonctionnement a été abandonné au profit d'une intégration 100% native avec NetworkManager et ModemManager pour des raisons de stabilité.
+Auparavant (dans l'ancien système), la connexion s'effectuait via des scripts personnalisés utilisant `qmicli` sur `wwan0`. Ce fonctionnement a été abandonné au profit d'une intégration 100% native avec NetworkManager et ModemManager pour des raisons de stabilité.
 
 **Le comportement actuel (Normal) :**
 - ModemManager détecte le modem SIM7600.

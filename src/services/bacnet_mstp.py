@@ -19,7 +19,7 @@ from services.device_mgr import list_serial_ports
 
 logger = logging.getLogger(__name__)
 
-MSTP_WHOIS_BIN = "/opt/boitier-bacnet/mstp/bin/bacwi"
+MSTP_WHOIS_BIN = "/opt/rpinode-bacnet/mstp/bin/bacwi"
 MSTP_STATE_FILE = paths.DATA_DIR / "bacnet_mstp_state.json"
 
 MSTP_BAUDS = [9600, 19200, 38400, 57600, 76800, 115200]

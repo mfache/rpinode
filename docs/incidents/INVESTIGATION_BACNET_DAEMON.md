@@ -17,7 +17,7 @@ Lors de l'inspection de la table des processus (`ps aux` / `ps -ef`), **plusieur
 | `2667883` | `root` | `sudo python3 -u src/main.py` | Lancé manuellement en tâche de fond (`nohup` / terminal) à 07:59 |
 | `2667888` | `root` | `python3 -u src/main.py` | Processus enfant du PID `2667883` |
 | `2718782` | `root` | `/usr/bin/python3 -u /home/marc/rpinode/src/main.py` | Service systemd `rpinode.service` (redémarré en boucle par `Restart=always`) |
-| *plusieurs* | `root` | `/opt/boitier-bacnet/venv/bin/python .../bacnet_daemon.py` | Démons BACnet concurrents spawned par chaque `main.py` |
+| *plusieurs* | `root` | `/opt/rpinode-bacnet/venv/bin/python .../bacnet_daemon.py` | Démons BACnet concurrents spawned par chaque `main.py` |
 
 ### Conséquences des doublons :
 1. **Conflit MQTT (Client ID unique) :** Les deux instances se connectaient au broker Mosquitto local (`127.0.0.1:1883`) avec le même identifiant client (`rpinode_local_broker`). Le broker expulsait continuellement la connexion précédente à chaque reconnexion.
