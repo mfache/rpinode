@@ -23,6 +23,7 @@ plus facile à retrouver.
 ## Projets
 
 - Cahier des charges de l'application mobile native (Android) : [`mobile/CAHIER_DES_CHARGES_APP_MOBILE.md`](mobile/CAHIER_DES_CHARGES_APP_MOBILE.md)
+- Cahier des charges de l'arbitrage des bus série (RS-485) et du Modbus RTU direct : [`serie/CAHIER_DES_CHARGES_ACCES_SERIE.md`](serie/CAHIER_DES_CHARGES_ACCES_SERIE.md)
 
 ## Incidents et investigations
 
