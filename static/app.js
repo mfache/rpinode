@@ -259,10 +259,14 @@ document.addEventListener("DOMContentLoaded", () => {
                     portsHtml.push(`<a href='${baseUrl}/modbus/tools?ip=${data.ip}' style='color: #2ecc71; font-weight: bold;'>502 (Modbus)</a>${m}`);
                 } else if (p === 47808) {
                     let b = [];
-                    if (data.bacnet_instance) b.push(`Inst: ${data.bacnet_instance}`);
+                    let instParam = '';
+                    if (data.bacnet_instance) {
+                        b.push(`Inst: ${data.bacnet_instance}`);
+                        instParam = `&instance=${encodeURIComponent(data.bacnet_instance)}`;
+                    }
                     if (data.bacnet_name && data.bacnet_name !== "Automate BACnet") b.push(data.bacnet_name);
                     let info = b.length ? ` <small style='color:#e67e22'>(${b.join(', ')})</small>` : '';
-                    portsHtml.push(`<a href='${baseUrl}/scan/bacnet?ip=${data.ip}' style='color: #e67e22; font-weight: bold;'>47808 (BACnet)</a>${info}`);
+                    portsHtml.push(`<a href='${baseUrl}/bacnet/tools?ip=${data.ip}${instParam}' style='color: #e67e22; font-weight: bold;'>47808 (BACnet)</a>${info}`);
                 } else if (p === 80) {
                     portsHtml.push(`<a href='http://${data.ip}' target='_blank' style='color: #3498db;'>80</a>`);
                 } else if (p === 443) {
