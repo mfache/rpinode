@@ -45,6 +45,32 @@ Espace disque sur `docs` : 77 Go libres sur 96 Go — aucune contrainte.
 
 ## 3. Fait : énumération complète des services sur `docs`
 
+> **Écarts constatés le 24 octobre 2026** (le tableau ci-dessous date du
+> 9 septembre) :
+>
+> - **mosquitto** n'écoute plus seulement en local : `0.0.0.0:1883`,
+>   toujours anonyme (`/etc/mosquitto/conf.d/local.conf`). UFW n'autorise
+>   `1883` que sur `tailscale0`, pour le bridge MQTT des boîtiers vers
+>   `100.64.0.4:1883`. Attention : la chaîne `ts-input` de tailscale
+>   accepte tout le trafic de `tailscale0` **avant** UFW, donc MariaDB
+>   (`3306`) est aussi joignable depuis tout le tailnet.
+> - **`/bottle` et `/bottledev`** ont disparu de la config nginx.
+> - **Azure AD est de nouveau actif** sur `/reports` (voir
+>   `README_FOR_HUMAN_ONLY.md`), et `/headscale-admin` passe aussi par
+>   `oauth2-proxy`.
+> - **SSH** : en plus du port public `9922` (redirigé vers `22`), le port
+>   `22` est lui aussi joignable depuis Internet, avec l'authentification
+>   par mot de passe active. Environ 15 600 tentatives de connexion
+>   échouées en 24 h avant l'installation de fail2ban.
+> - **fail2ban installé** (`/etc/fail2ban/jail.local`) : jail `sshd`, et
+>   jail `nginx-scan` (filtre `/etc/fail2ban/filter.d/nginx-scan.conf`,
+>   requêtes 4xx sur `.env`, `.git/`, `wp-`, `.php`…, jamais sur
+>   `/reports`, `/pdf`, `/ntfy-fleet` ni headscale). Le réseau local
+>   `10.10.10.0/24`, le tailnet et `10.70.1.45` ne sont jamais bannis.
+>   Pour débannir : `sudo fail2ban-client set <jail> unbanip <IP>`.
+> - Le `error_log` du vhost nginx est passé de `debug` à `warn` (il
+>   faisait environ 34 Mo par jour).
+
 ### Entrée réseau
 - UFW actif, seuls `22` et `443` autorisés en entrée. `MariaDB:3306` écoute
   sur `0.0.0.0` mais n'est pas exposé par le pare-feu.

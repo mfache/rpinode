@@ -110,6 +110,17 @@ menu, ou lien direct communiqué aux utilisateurs).
 
 ## Identification utilisateur : Azure AD sur `docs` désactivé temporairement, Google en attendant — 18 septembre 2026
 
+> **Mise à jour du 24 octobre 2026 (constat sur `docs`)** : la section
+> ci-dessous n'est plus d'actualité. **Azure AD est de nouveau actif** :
+> nginx envoie `auth_request` vers `oauth2-proxy` sur `127.0.0.1:4180`
+> (`/etc/oauth2-proxy/oauth2-proxy.cfg`, `provider = "azure"`), et
+> `https://docs.deltathermic.be/reports/` affiche la page de connexion
+> Microsoft. La configuration Google existe toujours
+> (`/etc/oauth2-proxy/oauth2-proxy-google.cfg`, port `4181`), mais
+> **aucun processus n'écoute sur ce port** : le contournement Google n'est
+> pas utilisé. Décision à prendre : le supprimer ou le garder en secours.
+> Le texte d'origine est conservé ci-dessous comme historique.
+
 Suite à une question sur l'identité utilisateur via Headscale (remplaçant de
 Tailscale) : Marc a précisé que le service d'identification dont il parle se
 trouve sur le serveur **`docs`** (pas sur les boîtiers `rpinode`). C'est donc

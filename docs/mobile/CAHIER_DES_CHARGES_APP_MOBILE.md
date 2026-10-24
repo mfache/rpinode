@@ -166,7 +166,13 @@ valide l'accès**.
 1. L'app charge la WebView du boîtier avec l'URL
    `https://<hostname>.dt.net/?access_token=<jeton>` (voir section 5.4 pour
    le détail du transport HTTPS — **jamais** de connexion en clair ni via
-   le port interne `8082`, qui n'est même pas exposé hors du boîtier).
+   le port interne `8082`). **Correction du 24 octobre 2026** : contrairement
+   à ce qui était écrit ici, `8082` (backend Python) et `8081`
+   (superviseur Rust) écoutent sur `0.0.0.0`, et le boîtier n'a pas de
+   pare-feu. Ils sont donc joignables depuis toutes les interfaces (eth0,
+   wlan0, 4G, tailnet), sans authentification pour les routes historiques.
+   L'app ne doit pas s'en servir. Les limiter à `127.0.0.1` ou les filtrer
+   par pare-feu est à décider.
 2. Le `rpinode` valide ce jeton contre sa liste blanche locale
    (`src/services/mobile_auth.py::is_access_token_valid`), puis établit
    une **session** : cookie `rpinode_mobile_session` signé HMAC-SHA256,
@@ -204,8 +210,9 @@ connues).
 Conséquences pour l'app mobile :
 
 - **Toujours se connecter en `https://<hostname>.dt.net/`**, jamais en
-  `http://` ni sur un port interne (`8081`/`8082`, qui ne sont de toute
-  façon pas exposés en dehors du boîtier lui-même).
+  `http://` ni sur un port interne (`8081`/`8082`). Ces ports sont
+  aujourd'hui exposés sur toutes les interfaces du boîtier (constat du
+  24 octobre 2026, voir section 5.2), mais l'app ne doit pas les utiliser.
 - **Android ne fait pas confiance à cette CA par défaut** : sans action
   spécifique, la WebView refusera la connexion (erreur de certificat). Il
   ne faut **pas** demander à l'utilisateur d'installer manuellement la CA

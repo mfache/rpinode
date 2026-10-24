@@ -21,6 +21,16 @@ Commande de connexion :
 ssh -p 9922 mariadb@docs.deltathermic.be
 ```
 
+### fail2ban (depuis le 24 octobre 2026)
+
+`docs` bannit automatiquement les IP qui échouent trop souvent : 5 échecs
+SSH en 10 minutes, ou 3 requêtes de scan nginx en 1 heure. Le ban dure
+1 h et s'allonge à chaque récidive. Le réseau local de `docs`
+(`10.10.10.0/24`), le tailnet Headscale (`100.64.0.0/10`) et `10.70.1.45`
+ne sont jamais bannis. Depuis une autre IP, après plusieurs mots de passe
+erronés, passer par le tailnet ou attendre la fin du ban. Commande pour
+débannir : `sudo fail2ban-client set sshd unbanip <IP>`.
+
 ## 3. Rôle du serveur
 
 Le serveur `docs.deltathermic.be` est le serveur central de synchronisation.

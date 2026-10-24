@@ -13,6 +13,29 @@ Toutes ces configurations sont persistées par chantier (site) et synchronisées
 
 La connexion cellulaire est gérée par la combinaison de **ModemManager** (`mmcli`) et **NetworkManager** (`nmcli`).
 
+> **Constat du 24 octobre 2026 sur `rpi01`** : la description PPP
+> ci-dessous ne correspond pas à ce qui tourne. ModemManager utilise le
+> port **QMI `cdc-wdm0`** comme port principal (`mmcli -m 0` →
+> `primary port: cdc-wdm0`), donc la session de données passe par
+> **`wwan0`**, pas par `ppp0`. C'est aussi l'interface que surveille
+> `rpinode-watchdog` (`ping -I wwan0`). Les scripts `qmicli` manuels du
+> rapport de juin (`~/RAPPORT_ECHEC_4G.md`) restent abandonnés : c'est
+> ModemManager qui pilote le QMI, via le profil NetworkManager
+> `proximus-4g` (APN `internet.proximus.be`).
+>
+> **Incident en cours (24 octobre 2026)** : 4G hors service sur `rpi01`.
+> ModemManager affiche `failed / sim-missing`, mais la carte est bien lue
+> (`AT+CPIN?` → `READY`, ICCID lisible). L'enregistrement échoue :
+> `AT+CEER` → `EMM attach failed`, et `AT+COPS=1,2,"20601",7` →
+> `+CME ERROR: 13` (SIM failure). Le scan voit bien Proximus, Orange et
+> BASE en LTE et GSM : l'antenne et la couverture sont correctes. Cause
+> probable : la SIM elle-même, une nano-SIM utilisée dans un adaptateur
+> qui perd le contact au moindre choc. Pendant le diagnostic, le modem a
+> été mis en sélection manuelle sur Proximus
+> (`qmicli -p -d /dev/cdc-wdm0 --nas-set-system-selection-preference="gsm|umts|lte,manual=20601"`,
+> retour en automatique avec `…,automatic`) et le profil `proximus-4g` a
+> reçu `gsm.network-id 20601`.
+
 #### Évolution (Abandon de wwan0 / QMI au profit de PPP)
 Sur les modules Waveshare SIM7600E-H, le modem expose à la fois une interface série (AT via `/dev/ttyUSB2`) et une interface réseau haut débit (QMI via `/dev/cdc-wdm0` et l'interface réseau `wwan0`).
 
