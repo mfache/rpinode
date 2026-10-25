@@ -79,6 +79,12 @@ class WebAdminHandler(BaseHTTPRequestHandler):
             return prefixe
         return config.get("base_url", "")
 
+    def _user_name(self):
+        """Personne identifiée par le reverse proxy de docs (X-Forwarded-User,
+        email Azure), sinon « accès local ». Affichage seulement : rien n'est
+        autorisé sur la foi de cet en-tête."""
+        return (self.headers.get("X-Forwarded-User") or "").strip()[:120] or "accès local"
+
     def _process_mobile_access(self, query):
         """Valide/etablit une session pour l'app mobile native si un
         access_token est fourni en query string, ou si un cookie de session
@@ -492,7 +498,7 @@ class WebAdminHandler(BaseHTTPRequestHandler):
 
         nav_html = render("nav.html", base_url=base_url)
         content = render("home.html", user="Admin", widgets=all_widgets)
-        final_html = render("layout.html", title="Accueil", site_name=escape(site_name), base_url=escape(base_url), version=version, nav=nav_html, content=content)
+        final_html = render("layout.html", user_name=escape(self._user_name()), title="Accueil", site_name=escape(site_name), base_url=escape(base_url), version=version, nav=nav_html, content=content)
 
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -508,7 +514,7 @@ class WebAdminHandler(BaseHTTPRequestHandler):
         from services.network import get_network_overview
         net = get_network_overview()
         content = render("network_overview.html", net=net)
-        final_html = render("layout.html", title="État Réseau", hostname=escape(hostname), base_url=escape(base_url), version=version, nav=nav_html, content=content)
+        final_html = render("layout.html", user_name=escape(self._user_name()), title="État Réseau", hostname=escape(hostname), base_url=escape(base_url), version=version, nav=nav_html, content=content)
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.end_headers()
@@ -622,7 +628,7 @@ class WebAdminHandler(BaseHTTPRequestHandler):
         context = {"site_name": site_name, "base_url": base_url, **eth0_ctx, **wlan0_ctx}
         content = render("network_interfaces.html", **context)
         nav_html = render("nav.html", base_url=base_url)
-        final_html = render("layout.html", title="Configuration Interfaces", hostname=escape(hostname), base_url=escape(base_url), version=version, nav=nav_html, content=content)
+        final_html = render("layout.html", user_name=escape(self._user_name()), title="Configuration Interfaces", hostname=escape(hostname), base_url=escape(base_url), version=version, nav=nav_html, content=content)
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.end_headers()
@@ -712,7 +718,7 @@ class WebAdminHandler(BaseHTTPRequestHandler):
 
         content = render("modbus_suivi.html", site_name=site_name, suivi_rows_html=rows_html, base_url=base_url)
         nav_html = render("nav.html", base_url=base_url)
-        final_html = render("layout.html", title="Suivi Modbus (Live)", hostname=escape(hostname), base_url=escape(base_url), version=version, nav=nav_html, content=content)
+        final_html = render("layout.html", user_name=escape(self._user_name()), title="Suivi Modbus (Live)", hostname=escape(hostname), base_url=escape(base_url), version=version, nav=nav_html, content=content)
 
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -946,7 +952,7 @@ class WebAdminHandler(BaseHTTPRequestHandler):
             base_url=base_url
         )
         nav_html = render("nav.html", base_url=base_url)
-        final_html = render("layout.html", title="Appareils Modbus", hostname=escape(hostname), base_url=escape(base_url), version=version, nav=nav_html, content=content)
+        final_html = render("layout.html", user_name=escape(self._user_name()), title="Appareils Modbus", hostname=escape(hostname), base_url=escape(base_url), version=version, nav=nav_html, content=content)
 
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -1054,7 +1060,7 @@ class WebAdminHandler(BaseHTTPRequestHandler):
                          base_url=base_url)
 
         nav_html = render("nav.html", base_url=base_url)
-        final_html = render("layout.html", title=device["name"], hostname=escape(hostname), base_url=escape(base_url), version=version, nav=nav_html, content=content)
+        final_html = render("layout.html", user_name=escape(self._user_name()), title=device["name"], hostname=escape(hostname), base_url=escape(base_url), version=version, nav=nav_html, content=content)
 
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -1144,7 +1150,7 @@ class WebAdminHandler(BaseHTTPRequestHandler):
             base_url=base_url
         )
         nav_html = render("nav.html", base_url=base_url)
-        final_html = render("layout.html", title="Templates Modbus", hostname=escape(hostname), base_url=escape(base_url), version=version, nav=nav_html, content=content)
+        final_html = render("layout.html", user_name=escape(self._user_name()), title="Templates Modbus", hostname=escape(hostname), base_url=escape(base_url), version=version, nav=nav_html, content=content)
 
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -1252,7 +1258,7 @@ class WebAdminHandler(BaseHTTPRequestHandler):
             site_id=str(site_id or 0)
         )
         nav_html = render("nav.html", base_url=base_url)
-        final_html = render("layout.html", title="Outils Modbus", hostname=escape(hostname), base_url=escape(base_url), version=version, nav=nav_html, content=content)
+        final_html = render("layout.html", user_name=escape(self._user_name()), title="Outils Modbus", hostname=escape(hostname), base_url=escape(base_url), version=version, nav=nav_html, content=content)
 
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -1386,7 +1392,7 @@ class WebAdminHandler(BaseHTTPRequestHandler):
             base_url=base_url
         )
         nav_html = render("nav.html", base_url=base_url)
-        final_html = render("layout.html", title="Appareils BACnet", hostname=escape(hostname), base_url=escape(base_url), version=version, nav=nav_html, content=content)
+        final_html = render("layout.html", user_name=escape(self._user_name()), title="Appareils BACnet", hostname=escape(hostname), base_url=escape(base_url), version=version, nav=nav_html, content=content)
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.end_headers()
@@ -1450,7 +1456,7 @@ class WebAdminHandler(BaseHTTPRequestHandler):
 
         content = render("bacnet_suivi.html", site_name=site_name, suivi_rows_html=rows_html, base_url=base_url)
         nav_html = render("nav.html", base_url=base_url)
-        final_html = render("layout.html", title="Suivi BACnet (Live)", hostname=escape(hostname), base_url=escape(base_url), version=version, nav=nav_html, content=content)
+        final_html = render("layout.html", user_name=escape(self._user_name()), title="Suivi BACnet (Live)", hostname=escape(hostname), base_url=escape(base_url), version=version, nav=nav_html, content=content)
 
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -1552,7 +1558,7 @@ class WebAdminHandler(BaseHTTPRequestHandler):
             base_url=base_url
         )
         nav_html = render("nav.html", base_url=base_url)
-        final_html = render("layout.html", title=f"Points BACnet - {escape(device['name'])}", hostname=escape(hostname), base_url=escape(base_url), version=version, nav=nav_html, content=content)
+        final_html = render("layout.html", user_name=escape(self._user_name()), title=f"Points BACnet - {escape(device['name'])}", hostname=escape(hostname), base_url=escape(base_url), version=version, nav=nav_html, content=content)
 
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -1751,7 +1757,7 @@ class WebAdminHandler(BaseHTTPRequestHandler):
             base_url=base_url
         )
         nav_html = render("nav.html", base_url=base_url)
-        final_html = render("layout.html", title="Templates BACnet", hostname=escape(hostname), base_url=escape(base_url), version=version, nav=nav_html, content=content)
+        final_html = render("layout.html", user_name=escape(self._user_name()), title="Templates BACnet", hostname=escape(hostname), base_url=escape(base_url), version=version, nav=nav_html, content=content)
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.end_headers()
@@ -1811,7 +1817,7 @@ class WebAdminHandler(BaseHTTPRequestHandler):
             base_url=base_url
         )
         nav_html = render("nav.html", base_url=base_url)
-        final_html = render("layout.html", title="Outils BACnet", hostname=escape(hostname), base_url=escape(base_url), version=version, nav=nav_html, content=content)
+        final_html = render("layout.html", user_name=escape(self._user_name()), title="Outils BACnet", hostname=escape(hostname), base_url=escape(base_url), version=version, nav=nav_html, content=content)
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.end_headers()
@@ -1838,7 +1844,7 @@ class WebAdminHandler(BaseHTTPRequestHandler):
             total_usb=dev_components["total_usb"],
         )
         nav_html = render("nav.html", base_url=base_url)
-        final_html = render("layout.html", title="Périphériques & Passerelles", hostname=escape(hostname), base_url=escape(base_url), version=version, nav=nav_html, content=content)
+        final_html = render("layout.html", user_name=escape(self._user_name()), title="Périphériques & Passerelles", hostname=escape(hostname), base_url=escape(base_url), version=version, nav=nav_html, content=content)
 
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -2310,7 +2316,7 @@ class WebAdminHandler(BaseHTTPRequestHandler):
 
         content = render("trends.html", site_name=site_name, trends_rows_html=rows_html, base_url=base_url)
         nav_html = render("nav.html", base_url=base_url)
-        final_html = render("layout.html", title="Suivi Global des Points", hostname=escape(hostname), base_url=escape(base_url), version=version, nav=nav_html, content=content)
+        final_html = render("layout.html", user_name=escape(self._user_name()), title="Suivi Global des Points", hostname=escape(hostname), base_url=escape(base_url), version=version, nav=nav_html, content=content)
 
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -2418,7 +2424,7 @@ class WebAdminHandler(BaseHTTPRequestHandler):
             custom_headers += f"<th><div style='display:flex; align-items:center; justify-content:space-between;'>{escape(col['column_label'])}<button class='btn-icon-sm' onclick=\"deleteColumn('{col['column_key']}', '{escape(col['column_label'])}')\">×</button></div></th>"
         scan_content = render("ip_scan.html", scanned_at=scanned_at, devices_rows=devices_rows, custom_headers=custom_headers, is_running_class="running" if is_ipscan_running() else "idle", is_running_text="Scan en cours..." if is_ipscan_running() else "Prêt")
         nav_html = render("nav.html", base_url=base_url)
-        final_html = render("layout.html", title="Inventaire Réseau", hostname=escape(hostname), base_url=escape(base_url), version=version, nav=nav_html, content=scan_content)
+        final_html = render("layout.html", user_name=escape(self._user_name()), title="Inventaire Réseau", hostname=escape(hostname), base_url=escape(base_url), version=version, nav=nav_html, content=scan_content)
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.end_headers()
@@ -2975,7 +2981,7 @@ class WebAdminHandler(BaseHTTPRequestHandler):
             fleet_last_log_display=sync_recent_logs_html
         )
         nav_html = render("nav.html", base_url=base_url)
-        final_html = render("layout.html", title="État Système & Synchronisation", hostname=escape(hostname), base_url=escape(base_url), version=version, nav=nav_html, content=content)
+        final_html = render("layout.html", user_name=escape(self._user_name()), title="État Système & Synchronisation", hostname=escape(hostname), base_url=escape(base_url), version=version, nav=nav_html, content=content)
 
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -3012,7 +3018,7 @@ class WebAdminHandler(BaseHTTPRequestHandler):
             log_file_size=escape(log_file_size)
         )
         nav_html = render("nav.html", base_url=base_url)
-        final_html = render("layout.html", title="Journaux d'activité (Logs)", hostname=escape(hostname), base_url=escape(base_url), version=version, nav=nav_html, content=content)
+        final_html = render("layout.html", user_name=escape(self._user_name()), title="Journaux d'activité (Logs)", hostname=escape(hostname), base_url=escape(base_url), version=version, nav=nav_html, content=content)
 
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -3034,7 +3040,7 @@ class WebAdminHandler(BaseHTTPRequestHandler):
                          logger_retries=logger_retries,
                          modbus_timeout=modbus_timeout,
                          bacnet_timeout=bacnet_timeout)
-        final_html = render("layout.html", title="Configuration Enregistreurs", hostname=escape(hostname), base_url=escape(base_url), version=version, nav=nav_html, content=content)
+        final_html = render("layout.html", user_name=escape(self._user_name()), title="Configuration Enregistreurs", hostname=escape(hostname), base_url=escape(base_url), version=version, nav=nav_html, content=content)
 
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -3049,7 +3055,7 @@ class WebAdminHandler(BaseHTTPRequestHandler):
 
         nav_html = render("nav.html", base_url=base_url)
         content = render("configuration_mqtt.html")
-        final_html = render("layout.html", title="Moniteur MQTT", hostname=escape(hostname), base_url=escape(base_url), version=version, nav=nav_html, content=content)
+        final_html = render("layout.html", user_name=escape(self._user_name()), title="Moniteur MQTT", hostname=escape(hostname), base_url=escape(base_url), version=version, nav=nav_html, content=content)
 
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -3064,7 +3070,7 @@ class WebAdminHandler(BaseHTTPRequestHandler):
 
         nav_html = render("nav.html", base_url=base_url)
         content = render("configuration_sse.html")
-        final_html = render("layout.html", title="Moniteur SSE", hostname=escape(hostname), base_url=escape(base_url), version=version, nav=nav_html, content=content)
+        final_html = render("layout.html", user_name=escape(self._user_name()), title="Moniteur SSE", hostname=escape(hostname), base_url=escape(base_url), version=version, nav=nav_html, content=content)
 
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")

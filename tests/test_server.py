@@ -81,6 +81,16 @@ class TestServer(unittest.TestCase):
         self.assertNotIn("<script>alert(1)", content)
         self.assertIn(f'baseUrl: "{load_config().get("base_url", "")}"', content)
 
+    def test_utilisateur_du_proxy_affiche_et_echappe(self):
+        """Derrière docs, l'email Azure transmis (X-Forwarded-User) remplace
+        « accès local », toujours échappé (il finit dans le HTML)."""
+        url = f"http://localhost:{self.test_port}/"
+        req = urllib.request.Request(url, headers={"X-Forwarded-User": "marc@fache.be<b>"})
+        content = urllib.request.urlopen(req, timeout=5).read().decode('utf-8')
+        self.assertIn('<span class="user-name">marc@fache.be&lt;b&gt;</span>', content)
+        direct = urllib.request.urlopen(url, timeout=5).read().decode('utf-8')
+        self.assertIn('<span class="user-name">accès local</span>', direct)
+
     def test_modbus_suivi_page(self):
         """Vérifie que la page /modbus/suivi est servie."""
         url = f"http://localhost:{self.test_port}/modbus/suivi"
