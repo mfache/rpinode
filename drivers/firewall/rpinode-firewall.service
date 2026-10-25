@@ -1,0 +1,16 @@
+[Unit]
+Description=rpinode - Pare-feu du boîtier (table nftables inet rpinode_pf)
+# Après nftables.service : son « flush ruleset » effacerait cette table.
+After=nftables.service
+Wants=nftables.service
+Before=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/sbin/nft -f /etc/rpinode/rpinode-firewall.nft
+ExecReload=/usr/sbin/nft -f /etc/rpinode/rpinode-firewall.nft
+ExecStop=/usr/sbin/nft delete table inet rpinode_pf
+
+[Install]
+WantedBy=multi-user.target
