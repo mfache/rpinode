@@ -62,6 +62,25 @@ class TestServer(unittest.TestCase):
         except Exception as e:
             self.fail(f"Le fichier statique n'est pas accessible : {e}")
 
+    def test_prefixe_du_reverse_proxy_applique_aux_liens(self):
+        """Derrière docs (/rpi/<boîtier>/), les liens et window.CONFIG.baseUrl
+        doivent porter le préfixe, sinon le navigateur appelle /api/... sur docs."""
+        url = f"http://localhost:{self.test_port}/"
+        req = urllib.request.Request(url, headers={"X-Forwarded-Prefix": "/rpi/rpi01/"})
+        content = urllib.request.urlopen(req, timeout=5).read().decode('utf-8')
+        self.assertIn('baseUrl: "/rpi/rpi01"', content)
+        self.assertIn('href="/rpi/rpi01/static/style.css', content)
+        self.assertIn('href="/rpi/rpi01/modbus/suivi"', content)
+
+    def test_prefixe_malforme_ignore(self):
+        """Un en-tête X-Forwarded-Prefix hors format ne doit jamais atteindre le
+        HTML/JS (risque d'injection) : on retombe sur le comportement direct."""
+        url = f"http://localhost:{self.test_port}/"
+        req = urllib.request.Request(url, headers={"X-Forwarded-Prefix": '/x"><script>alert(1)</script>'})
+        content = urllib.request.urlopen(req, timeout=5).read().decode('utf-8')
+        self.assertNotIn("<script>alert(1)", content)
+        self.assertIn(f'baseUrl: "{load_config().get("base_url", "")}"', content)
+
     def test_modbus_suivi_page(self):
         """Vérifie que la page /modbus/suivi est servie."""
         url = f"http://localhost:{self.test_port}/modbus/suivi"

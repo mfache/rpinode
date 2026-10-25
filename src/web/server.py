@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import queue
+import re
 import socket
 import subprocess
 import sys
@@ -34,6 +35,12 @@ from web.templating import escape, render
 
 logger = logging.getLogger(__name__)
 
+# Préfixe d'URL envoyé par un reverse proxy (en-tête X-Forwarded-Prefix, ex.
+# "/rpi/rpi01" quand docs relaie l'interface). Format strict : il est injecté
+# tel quel dans le HTML et le JavaScript des pages.
+# Voir docs/operations/PREFIXE_REVERSE_PROXY.md.
+PREFIXE_PROXY_VALIDE = re.compile(r"(/[A-Za-z0-9._-]+)+")
+
 class ThreadingHTTPServer(ThreadingMixIn, HTTPServer):
     daemon_threads = True
 
@@ -53,12 +60,24 @@ class WebAdminHandler(BaseHTTPRequestHandler):
         # prepare un (voir cette methode). N'affecte aucune autre requete.
         cookie_value = getattr(self, "_mobile_session_cookie_to_set", None)
         if cookie_value:
+            # Derrière un proxy, plusieurs boîtiers partagent le même domaine :
+            # le cookie doit rester limité au préfixe de CE boîtier.
+            cookie_path = self._base_url(load_config()) + "/"
             self.send_header(
                 "Set-Cookie",
-                f"{SESSION_COOKIE_NAME}={cookie_value}; Path=/; HttpOnly; SameSite=Lax; Max-Age={SESSION_LIFETIME_SECONDS}",
+                f"{SESSION_COOKIE_NAME}={cookie_value}; Path={cookie_path}; HttpOnly; SameSite=Lax; Max-Age={SESSION_LIFETIME_SECONDS}",
             )
             self._mobile_session_cookie_to_set = None
         super().end_headers()
+
+    def _base_url(self, config):
+        """Préfixe des URL à générer dans les pages : celui annoncé par le
+        reverse proxy (X-Forwarded-Prefix) s'il est valide, sinon le
+        ``base_url`` de la configuration (vide en accès direct)."""
+        prefixe = (self.headers.get("X-Forwarded-Prefix") or "").strip().rstrip("/")
+        if prefixe and PREFIXE_PROXY_VALIDE.fullmatch(prefixe):
+            return prefixe
+        return config.get("base_url", "")
 
     def _process_mobile_access(self, query):
         """Valide/etablit une session pour l'app mobile native si un
@@ -460,7 +479,7 @@ class WebAdminHandler(BaseHTTPRequestHandler):
 
     def serve_home(self):
         config = load_config()
-        base_url = config.get("base_url", "")
+        base_url = self._base_url(config)
         hostname = socket.gethostname()
         version = str(int(time.time()))
 
@@ -482,7 +501,7 @@ class WebAdminHandler(BaseHTTPRequestHandler):
 
     def serve_network_overview(self):
         config = load_config()
-        base_url = config.get("base_url", "")
+        base_url = self._base_url(config)
         hostname = socket.gethostname()
         version = str(int(time.time()))
         nav_html = render("nav.html", base_url=base_url)
@@ -497,7 +516,7 @@ class WebAdminHandler(BaseHTTPRequestHandler):
 
     def serve_network_interfaces(self):
         config = load_config()
-        base_url = config.get("base_url", "")
+        base_url = self._base_url(config)
         hostname = socket.gethostname()
         version = str(int(time.time()))
         from core.database import get_db_connection
@@ -634,7 +653,7 @@ class WebAdminHandler(BaseHTTPRequestHandler):
 
     def serve_modbus_suivi(self):
         config = load_config()
-        base_url = config.get("base_url", "")
+        base_url = self._base_url(config)
         hostname = socket.gethostname()
         version = str(int(time.time()))
         from services.modbus_mgr import get_site_modbus_points
@@ -792,7 +811,7 @@ class WebAdminHandler(BaseHTTPRequestHandler):
 
     def serve_modbus_devices(self):
         config = load_config()
-        base_url = config.get("base_url", "")
+        base_url = self._base_url(config)
         hostname = socket.gethostname()
         version = str(int(time.time()))
         from services.modbus_mgr import get_all_templates, get_site_devices
@@ -941,7 +960,7 @@ class WebAdminHandler(BaseHTTPRequestHandler):
             return
 
         config = load_config()
-        base_url = config.get("base_url", "")
+        base_url = self._base_url(config)
         hostname = socket.gethostname()
         version = str(int(time.time()))
 
@@ -1044,7 +1063,7 @@ class WebAdminHandler(BaseHTTPRequestHandler):
 
     def serve_modbus_templates(self):
         config = load_config()
-        base_url = config.get("base_url", "")
+        base_url = self._base_url(config)
         hostname = socket.gethostname()
         version = str(int(time.time()))
         from services.modbus_mgr import get_templates_overview
@@ -1134,7 +1153,7 @@ class WebAdminHandler(BaseHTTPRequestHandler):
 
     def serve_modbus_tools(self, query):
         config = load_config()
-        base_url = config.get("base_url", "")
+        base_url = self._base_url(config)
         hostname = socket.gethostname()
         version = str(int(time.time()))
         from core.database import get_db_connection
@@ -1242,7 +1261,7 @@ class WebAdminHandler(BaseHTTPRequestHandler):
 
     def serve_bacnet_devices(self, query=None):
         config = load_config()
-        base_url = config.get("base_url", "")
+        base_url = self._base_url(config)
         hostname = socket.gethostname()
         version = str(int(time.time()))
         from services.bacnet_mgr import get_all_templates, get_site_devices
@@ -1375,7 +1394,7 @@ class WebAdminHandler(BaseHTTPRequestHandler):
 
     def serve_bacnet_suivi(self):
         config = load_config()
-        base_url = config.get("base_url", "")
+        base_url = self._base_url(config)
         hostname = socket.gethostname()
         version = str(int(time.time()))
         from services.bacnet_mgr import get_site_bacnet_points
@@ -1462,7 +1481,7 @@ class WebAdminHandler(BaseHTTPRequestHandler):
             return
 
         config = load_config()
-        base_url = config.get("base_url", "")
+        base_url = self._base_url(config)
         hostname = socket.gethostname()
         version = str(int(time.time()))
 
@@ -1652,7 +1671,7 @@ class WebAdminHandler(BaseHTTPRequestHandler):
 
     def serve_bacnet_templates(self):
         config = load_config()
-        base_url = config.get("base_url", "")
+        base_url = self._base_url(config)
         hostname = socket.gethostname()
         version = str(int(time.time()))
         from services.bacnet_mgr import get_templates_overview
@@ -1740,7 +1759,7 @@ class WebAdminHandler(BaseHTTPRequestHandler):
 
     def serve_bacnet_tools(self, query=None):
         config = load_config()
-        base_url = config.get("base_url", "")
+        base_url = self._base_url(config)
         hostname = socket.gethostname()
         version = str(int(time.time()))
 
@@ -1800,7 +1819,7 @@ class WebAdminHandler(BaseHTTPRequestHandler):
 
     def serve_devices(self):
         config = load_config()
-        base_url = config.get("base_url", "")
+        base_url = self._base_url(config)
         hostname = socket.gethostname()
         version = str(int(time.time()))
 
@@ -2189,7 +2208,7 @@ class WebAdminHandler(BaseHTTPRequestHandler):
 
     def serve_trends_view(self):
         config = load_config()
-        base_url = config.get("base_url", "")
+        base_url = self._base_url(config)
         hostname = socket.gethostname()
         version = str(int(time.time()))
         from services.modbus_mgr import get_site_modbus_points
@@ -2381,13 +2400,13 @@ class WebAdminHandler(BaseHTTPRequestHandler):
 
     def serve_ip_scan_results(self):
         config = load_config()
-        base_url = config.get("base_url", "")
+        base_url = self._base_url(config)
         devices_rows, scanned_at, _ = self._render_ip_scan_rows(base_url)
         self.send_json({"scanned_at": scanned_at, "html": devices_rows})
 
     def serve_ip_scan(self):
         config = load_config()
-        base_url = config.get("base_url", "")
+        base_url = self._base_url(config)
         hostname = socket.gethostname()
         version = str(int(time.time()))
         from services.ipscan import load_ipscan_results, is_ipscan_running
@@ -2681,7 +2700,7 @@ class WebAdminHandler(BaseHTTPRequestHandler):
         from services.fleet import fleet
 
         config = load_config()
-        base_url = config.get("base_url", "")
+        base_url = self._base_url(config)
         hostname = socket.gethostname()
         version = str(int(time.time()))
         site_name = get_current_site_name()
@@ -2969,7 +2988,7 @@ class WebAdminHandler(BaseHTTPRequestHandler):
         from services.presence import get_current_site_name
 
         config = load_config()
-        base_url = config.get("base_url", "")
+        base_url = self._base_url(config)
         hostname = socket.gethostname()
         version = str(int(time.time()))
         site_name = get_current_site_name()
@@ -3002,7 +3021,7 @@ class WebAdminHandler(BaseHTTPRequestHandler):
 
     def serve_configuration_logger(self):
         config = load_config()
-        base_url = config.get("base_url", "")
+        base_url = self._base_url(config)
         hostname = socket.gethostname()
         version = config.get("version", str(int(time.time())))
 
@@ -3024,7 +3043,7 @@ class WebAdminHandler(BaseHTTPRequestHandler):
 
     def serve_configuration_mqtt(self):
         config = load_config()
-        base_url = config.get("base_url", "")
+        base_url = self._base_url(config)
         hostname = socket.gethostname()
         version = config.get("version", str(int(time.time())))
 
@@ -3039,7 +3058,7 @@ class WebAdminHandler(BaseHTTPRequestHandler):
 
     def serve_configuration_sse(self):
         config = load_config()
-        base_url = config.get("base_url", "")
+        base_url = self._base_url(config)
         hostname = socket.gethostname()
         version = config.get("version", str(int(time.time())))
 

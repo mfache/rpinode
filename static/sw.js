@@ -1,9 +1,11 @@
-const CACHE_NAME = 'rpinode-v10';
+const CACHE_NAME = 'rpinode-v11';
+// Chemins relatifs à sw.js : valables en accès direct (/sw.js) comme derrière
+// un reverse proxy qui ajoute un préfixe (/rpi/rpi01/sw.js).
 const ASSETS = [
-  '/manifest.json',
-  '/static/style.css',
-  '/static/app.js',
-  '/static/DELTA-Thermic-v3_reverse.png'
+  'manifest.json',
+  'static/style.css',
+  'static/app.js',
+  'static/DELTA-Thermic-v3_reverse.png'
 ];
 
 self.addEventListener('install', (event) => {
