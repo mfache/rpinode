@@ -43,15 +43,17 @@ def main():
     try:
         from services.network_config import (apply_site_network_profiles,
                                              publish_tailscale_routes)
-        from services.presence import get_current_site_id, clear_current_location
+        from services.presence import get_current_site_id, clear_current_location_if_new_boot
 
         logging.info("--- DEMARRAGE RPINODE ---")
 
-        # 0. Effacement systématique du chantier en cours (fichier /tmp volatile)
-        # Assure qu'après un redémarrage physique, la machine ne devine jamais sa
+        # 0. Effacement du chantier en cours après un redémarrage physique
+        # (fichier /tmp volatile). Assure qu'après un tel redémarrage, la machine ne devine jamais sa
         # position depuis la base de données. Elle doit attendre une position 4G 
         # stable ou une confirmation de l'utilisateur pour reprendre le flux de données.
-        clear_current_location()
+        # Une simple relance de rpinode (même boot système) conserve le chantier :
+        # voir clear_current_location_if_new_boot().
+        clear_current_location_if_new_boot()
 
         # 1. Résoudre immédiatement la localisation réelle avant de réappliquer un
         # profil réseau persistant. Sans cela, un boîtier déplacé au repos peut

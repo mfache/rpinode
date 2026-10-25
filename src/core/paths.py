@@ -25,6 +25,10 @@ IPSCAN_RUNNING_FILE = DATA_DIR / "ip_last_scan.json.running"
 # chantier de test et de polluer des enregistrements BACnet/Modbus en cours).
 CURRENT_SITE_FILE = Path(os.environ.get("RPINODE_CURRENT_SITE_FILE") or "/tmp/rpinode_current_site.json")
 
+# Identifiant du démarrage en cours du système (change à chaque boot) : permet
+# de distinguer un vrai redémarrage du boîtier d'une simple relance de rpinode.
+BOOT_ID_FILE = Path("/proc/sys/kernel/random/boot_id")
+
 # Dossier de logs (en RAM pour préserver la carte SD)
 LOG_DIR = Path("/tmp/rpinode/log")
 LOG_FILE = LOG_DIR / "rpinode.log"

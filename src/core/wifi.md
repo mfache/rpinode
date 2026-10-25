@@ -13,5 +13,5 @@ Changement (services/wifi_mgr.py, règle A) : en cas de perte de wwan0, l'ordre 
 1. RPIRESCUE s'il est visible (intervention volontaire, inchangé) ;
 2. le WiFi du chantier courant s'il est configuré ET visible ;
 3. sinon l'AP.
-Le chantier courant vient de la base (node_presence.is_current). Sans 4G il n'y a pas d'antenne pour le déterminer : il a été désigné à la main avec `python3 src/services/presence.py H66` (effacé au redémarrage, comme prévu).
+Le chantier courant vient de la base (node_presence.is_current). Sans 4G il n'y a pas d'antenne pour le déterminer : il a été désigné à la main avec `python3 src/services/presence.py H66` (effacé au redémarrage du boîtier, conservé lors d'une simple relance de rpinode depuis le 2026-10-25).
 À revoir quand la 4G fonctionnera : garder cet ordre, ou revenir à « sauf perte de wwan0 ».

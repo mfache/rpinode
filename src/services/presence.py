@@ -4,10 +4,40 @@ import os
 import socket
 
 from core.database import get_db_connection
-from core.paths import CURRENT_SITE_FILE
+from core.paths import BOOT_ID_FILE, CURRENT_SITE_FILE
 from services.gsm import get_gsm_info
 
 logger = logging.getLogger(__name__)
+
+def _boot_id():
+    """Identifiant du démarrage en cours du système, ou None s'il est illisible."""
+    try:
+        return BOOT_ID_FILE.read_text(encoding="utf-8").strip() or None
+    except OSError:
+        return None
+
+
+def clear_current_location_if_new_boot():
+    """
+    Au lancement de rpinode : efface le chantier courant seulement après un vrai
+    redémarrage du boîtier (identifiant de boot différent de celui enregistré
+    avec le chantier, ou absent). Une simple relance de l'interface (« Relancer
+    Interface », ./run.sh) conserve le chantier : le boîtier n'a pas pu être
+    déplacé entre-temps. Retourne True si le chantier a été effacé.
+    """
+    boot_actuel = _boot_id()
+    if boot_actuel and CURRENT_SITE_FILE.exists():
+        try:
+            with open(CURRENT_SITE_FILE, "r", encoding="utf-8") as f:
+                session = json.load(f)
+            if session.get("boot_id") == boot_actuel:
+                logger.info(f"Relance sans redémarrage du boîtier : chantier '{session.get('name')}' conservé.")
+                return False
+        except Exception:
+            pass
+    clear_current_location()
+    return True
+
 
 def clear_current_location():
     """
@@ -178,7 +208,8 @@ def label_current_location(site_name, is_provisional=False, external_id=None):
             json.dump({
                 "id": site_id,
                 "name": site_name,
-                "is_provisional": is_provisional
+                "is_provisional": is_provisional,
+                "boot_id": _boot_id(),
             }, f)
         try:
             os.chmod(CURRENT_SITE_FILE, 0o666)
