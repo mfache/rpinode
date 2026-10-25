@@ -17,6 +17,8 @@ echo "==> Installation des unites systemd"
 sudo install -D -m 644 "$DIR/bt-agent.service" /etc/systemd/system/bt-agent.service
 sudo install -D -m 644 "$DIR/rfcomm-terminal.service" /etc/systemd/system/rfcomm-terminal.service
 sudo install -D -m 755 "$DIR/rfcomm-pty-terminal" /usr/local/bin/rfcomm-pty-terminal
+sudo install -D -m 644 "$DIR/rfcomm-ssh.service" /etc/systemd/system/rfcomm-ssh.service
+sudo install -D -m 755 "$DIR/rfcomm-ssh-relay" /usr/local/bin/rfcomm-ssh-relay
 
 echo "==> Deblocage rfkill (au cas ou le Bluetooth soit bloque logiciellement)"
 sudo rfkill unblock bluetooth || true
@@ -26,6 +28,7 @@ sudo systemctl daemon-reload
 sudo systemctl restart bluetooth
 sudo systemctl enable --now bt-agent.service
 sudo systemctl enable --now rfcomm-terminal.service
+sudo systemctl enable --now rfcomm-ssh.service
 
 echo "==> Statut"
 systemctl --no-pager status bluetooth bt-agent.service rfcomm-terminal.service || true

@@ -1,0 +1,13 @@
+[Unit]
+Description=rpinode - SSH par Bluetooth (RFCOMM canal 2 -> sshd local)
+After=bluetooth.service ssh.service
+Requires=bluetooth.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/rfcomm-ssh-relay
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

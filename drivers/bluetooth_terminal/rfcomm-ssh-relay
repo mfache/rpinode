@@ -1,0 +1,56 @@
+#!/usr/bin/env python3
+"""SSH par Bluetooth : relaie le canal RFCOMM 2 vers le serveur SSH local.
+
+Accès de secours quand le boîtier n'a aucun réseau IP : un client appairé
+ouvre une socket RFCOMM sur le canal 2 et y parle SSH comme sur un port TCP
+(authentification SSH normale : clé ou mot de passe).
+"""
+import os, select, socket, sys
+
+CHANNEL = int(os.environ.get("RFCOMM_SSH_CHANNEL", "2"))
+SSH = ("127.0.0.1", 22)
+
+
+def log(msg):
+    print(msg, flush=True)
+
+
+def relayer(bt, peer):
+    try:
+        tcp = socket.create_connection(SSH, timeout=5)
+    except OSError as echec:
+        log(f"{peer} : sshd injoignable ({echec})")
+        bt.close()
+        return
+    tcp.settimeout(None)
+    log(f"{peer} connecté")
+    try:
+        while True:
+            r, _, _ = select.select([bt, tcp], [], [])
+            for src, dst in ((bt, tcp), (tcp, bt)):
+                if src in r:
+                    data = src.recv(65536)
+                    if not data:
+                        return
+                    dst.sendall(data)
+    except OSError as echec:
+        log(f"{peer} : {echec}")
+    finally:
+        tcp.close()
+        bt.close()
+        log(f"{peer} déconnecté")
+
+
+def main():
+    srv = socket.socket(socket.AF_BLUETOOTH, socket.SOCK_STREAM, socket.BTPROTO_RFCOMM)
+    srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    srv.bind((socket.BDADDR_ANY, CHANNEL))
+    srv.listen(1)
+    log(f"en écoute sur le canal RFCOMM {CHANNEL} -> {SSH[0]}:{SSH[1]}")
+    while True:
+        bt, (addr, _) = srv.accept()
+        relayer(bt, addr)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

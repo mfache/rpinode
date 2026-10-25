@@ -46,6 +46,10 @@ Shell système normal (bash), droits Unix habituels de l'utilisateur
   `rfcomm watch`, qui libère la liaison au moindre hangup du tty
   (`RELEASE_ONHUP`) : comme `login` fait toujours un `vhangup()`, la connexion
   tombait juste après la saisie du nom d'utilisateur.
+- `rfcomm-ssh-relay` + `rfcomm-ssh.service` : SSH par Bluetooth. Relaie le
+  canal RFCOMM 2 vers le sshd local (127.0.0.1:22) ; le client parle SSH
+  directement sur la socket RFCOMM, avec l'authentification SSH habituelle.
+  Côté PC Windows : `bt-ssh-bridge.py` (TCP 127.0.0.1:2222 -> RFCOMM canal 2).
 - `install.sh` : installe le paquet `bluez-tools`, pose les 3 fichiers
   ci-dessus dans `/etc/systemd/...` et active les services.
 
