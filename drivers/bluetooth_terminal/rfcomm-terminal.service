@@ -7,7 +7,7 @@ Wants=bt-agent.service
 [Service]
 Type=simple
 ExecStartPre=/usr/bin/sdptool add --channel=1 SP
-ExecStart=/usr/bin/rfcomm -i hci0 watch 0 1 /usr/bin/setsid /sbin/agetty -L rfcomm0 115200 vt100
+ExecStart=/usr/local/bin/rfcomm-pty-terminal
 Restart=always
 RestartSec=3
 

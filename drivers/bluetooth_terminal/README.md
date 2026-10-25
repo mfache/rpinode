@@ -21,10 +21,10 @@ Client (PC / téléphone)
 bluetoothd (mode --compat)
    │  2. Connexion SPP sur le canal RFCOMM 1 (annoncé en SDP)
    ▼
-rfcomm watch (systemd: rfcomm-terminal.service)
-   │  3. Crée /dev/rfcomm0 et lance agetty dessus
+rfcomm-pty-terminal (systemd: rfcomm-terminal.service)
+   │  3. Accepte la socket RFCOMM et lance agetty sur un pseudo-terminal
    ▼
-agetty rfcomm0 → /bin/login
+agetty pts/N → /bin/login
    │  4. Prompt "login:" / "Password:" — comptes système réels (ex: marc)
    ▼
 Shell système normal (bash), droits Unix habituels de l'utilisateur
@@ -40,8 +40,12 @@ Shell système normal (bash), droits Unix habituels de l'utilisateur
   code à saisir, pas d'écran nécessaire). S'occupe aussi de rendre l'adaptateur
   `powered`, `discoverable` et `pairable` au démarrage.
 - `rfcomm-terminal.service` : enregistre le profil Serial Port (SDP, canal 1)
-  et lance `rfcomm watch` qui attend une connexion et exécute `agetty` sur
-  `/dev/rfcomm0` à chaque connexion (boucle automatique après déconnexion).
+  et lance `rfcomm-pty-terminal`, qui attend une connexion et exécute `agetty` sur
+  un pseudo-terminal à chaque connexion (boucle automatique après déconnexion).
+- `rfcomm-pty-terminal` : relais socket RFCOMM <-> pty (Python). Remplace
+  `rfcomm watch`, qui libère la liaison au moindre hangup du tty
+  (`RELEASE_ONHUP`) : comme `login` fait toujours un `vhangup()`, la connexion
+  tombait juste après la saisie du nom d'utilisateur.
 - `install.sh` : installe le paquet `bluez-tools`, pose les 3 fichiers
   ci-dessus dans `/etc/systemd/...` et active les services.
 

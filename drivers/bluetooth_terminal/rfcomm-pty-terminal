@@ -1,0 +1,83 @@
+#!/usr/bin/env python3
+"""Terminal série Bluetooth (SPP, canal RFCOMM 1) -> agetty/login sur un pseudo-terminal.
+
+Remplace `rfcomm watch ... agetty rfcomm0` : rfcomm libère la liaison au moindre
+hangup du tty (RFCOMM_RELEASE_ONHUP), or login fait toujours un vhangup() au
+démarrage, ce qui coupait la connexion juste après la saisie du nom d'utilisateur.
+Ici le hangup ne touche que le pty ; la socket Bluetooth reste ouverte.
+"""
+import errno, os, pty, select, signal, socket, sys, time
+
+CHANNEL = int(os.environ.get("RFCOMM_CHANNEL", "1"))
+AGETTY = ["/sbin/agetty", "-L", "--noclear"]
+
+
+def log(msg):
+    print(msg, flush=True)
+
+
+def session(conn, peer):
+    master, slave = pty.openpty()
+    tty = os.ttyname(slave)
+    pid = os.fork()
+    if pid == 0:
+        os.close(master)
+        os.close(slave)
+        conn.close()
+        os.setsid()
+        os.execv(AGETTY[0], AGETTY + [tty[len("/dev/"):], "115200", "vt100"])
+    os.close(slave)
+    log(f"{peer} connecté, agetty pid {pid} sur {tty}")
+    try:
+        while True:
+            if os.waitpid(pid, os.WNOHANG)[0]:
+                pid = 0
+                break
+            r, _, _ = select.select([conn, master], [], [], 1.0)
+            if conn in r:
+                data = conn.recv(4096)
+                if not data:
+                    break
+                os.write(master, data)
+            if master in r:
+                try:
+                    data = os.read(master, 4096)
+                except OSError as e:
+                    # EIO pendant le vhangup de login : le pty n'a momentanément plus de lecteur
+                    if e.errno == errno.EIO:
+                        time.sleep(0.1)
+                        continue
+                    raise
+                conn.sendall(data)
+    except OSError as e:
+        log(f"{peer} : {e}")
+    finally:
+        if pid:
+            try:
+                os.killpg(os.getpgid(pid), signal.SIGHUP)
+            except ProcessLookupError:
+                pass
+            time.sleep(0.5)
+            try:
+                os.killpg(os.getpgid(pid), signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            os.waitpid(pid, 0)
+        os.close(master)
+        conn.close()
+        log(f"{peer} déconnecté")
+
+
+def main():
+    srv = socket.socket(socket.AF_BLUETOOTH, socket.SOCK_STREAM, socket.BTPROTO_RFCOMM)
+    srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    srv.bind((socket.BDADDR_ANY, CHANNEL))
+    srv.listen(1)
+    log(f"en écoute sur le canal RFCOMM {CHANNEL}")
+    while True:
+        conn, (addr, _) = srv.accept()
+        session(conn, addr)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

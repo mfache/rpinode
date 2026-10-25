@@ -16,6 +16,7 @@ sudo install -D -m 644 "$DIR/bluetooth-compat.conf" \
 echo "==> Installation des unites systemd"
 sudo install -D -m 644 "$DIR/bt-agent.service" /etc/systemd/system/bt-agent.service
 sudo install -D -m 644 "$DIR/rfcomm-terminal.service" /etc/systemd/system/rfcomm-terminal.service
+sudo install -D -m 755 "$DIR/rfcomm-pty-terminal" /usr/local/bin/rfcomm-pty-terminal
 
 echo "==> Deblocage rfkill (au cas ou le Bluetooth soit bloque logiciellement)"
 sudo rfkill unblock bluetooth || true
