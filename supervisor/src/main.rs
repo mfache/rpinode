@@ -218,7 +218,10 @@ const FALLBACK_HTML: &str = r#"<!DOCTYPE html>
             terminal.scrollTop = terminal.scrollHeight;
         }
 
-        let evtSource = new EventSource('/supervisor/stream');
+        // Préfixe injecté par le superviseur (X-Forwarded-Prefix, ex. /rpi/rpi01
+        // derrière docs) : sans lui, /supervisor/... n'atteint pas le boîtier.
+        const prefixe = '__RPINODE_PREFIX__';
+        let evtSource = new EventSource(`${prefixe}/supervisor/stream`);
 
         function setupSSE() {
             evtSource.onmessage = (event) => {
@@ -251,7 +254,7 @@ const FALLBACK_HTML: &str = r#"<!DOCTYPE html>
         // Fallback de polling robuste (contourne la perte d'état du SSE lors du reboot réseau)
         setInterval(async () => {
             try {
-                const res = await fetch('/supervisor/status', { cache: 'no-cache' });
+                const res = await fetch(`${prefixe}/supervisor/status`, { cache: 'no-cache' });
                 if (res.ok) {
                     const data = await res.json();
                     if (data.ready) {
@@ -261,7 +264,7 @@ const FALLBACK_HTML: &str = r#"<!DOCTYPE html>
                         }, 600);
                     } else if (evtSource.readyState === EventSource.CLOSED) {
                         // Le réseau est revenu mais SSE est fermé, on le relance pour ravoir les logs
-                        evtSource = new EventSource('/supervisor/stream');
+                        evtSource = new EventSource(`${prefixe}/supervisor/stream`);
                         setupSSE();
                     }
                 }
@@ -429,12 +432,33 @@ async fn handle_supervisor_status(State(state): State<AppState>) -> impl IntoRes
     axum::Json(serde_json::json!({ "ready": is_alive }))
 }
 
+/// Préfixe annoncé par un reverse proxy (X-Forwarded-Prefix, ex. "/rpi/rpi01"),
+/// ou "" s'il est absent ou hors format. Même règle que rpinode
+/// (`(/[A-Za-z0-9._-]+)+`) : la valeur est injectée telle quelle dans le JS.
+fn prefixe_proxy(headers: &axum::http::HeaderMap) -> String {
+    let brut = headers
+        .get("x-forwarded-prefix")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .trim()
+        .trim_end_matches('/');
+    let valide = brut.starts_with('/')
+        && brut[1..].split('/').all(|segment| {
+            !segment.is_empty()
+                && segment
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
+        });
+    if valide { brut.to_string() } else { String::new() }
+}
+
 /// Handler principal : proxy vers le backend Python ou affichage de la page de boot
 async fn handle_proxy_or_fallback(
     State(state): State<AppState>,
     req: Request,
 ) -> Response {
     let method = req.method().clone();
+    let prefixe = prefixe_proxy(req.headers());
     let uri = req.uri();
     let path_and_query = uri.path_and_query().map(|pq| pq.as_str()).unwrap_or("/");
 
@@ -492,7 +516,7 @@ async fn handle_proxy_or_fallback(
             // Le backend Python est indisponible / en cours de reboot
             if method == axum::http::Method::GET || method == axum::http::Method::HEAD {
                 // Servir la page de live log / maintenance
-                Html(FALLBACK_HTML).into_response()
+                Html(FALLBACK_HTML.replace("__RPINODE_PREFIX__", &prefixe)).into_response()
             } else {
                 let err_json = serde_json::json!({
                     "status": "restarting",
@@ -501,5 +525,34 @@ async fn handle_proxy_or_fallback(
                 (StatusCode::SERVICE_UNAVAILABLE, axum::Json(err_json)).into_response()
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::prefixe_proxy;
+    use axum::http::{HeaderMap, HeaderValue};
+
+    fn avec(valeur: &str) -> String {
+        let mut h = HeaderMap::new();
+        h.insert("x-forwarded-prefix", HeaderValue::from_str(valeur).unwrap());
+        prefixe_proxy(&h)
+    }
+
+    #[test]
+    fn prefixe_valide_conserve_sans_barre_finale() {
+        assert_eq!(avec("/rpi/rpi01/"), "/rpi/rpi01");
+    }
+
+    #[test]
+    fn prefixe_malforme_ignore() {
+        assert_eq!(avec("/rpi/x'+alert(1)+'"), "");
+        assert_eq!(avec("rpi01"), "");
+        assert_eq!(avec("/rpi//rpi01"), "");
+    }
+
+    #[test]
+    fn sans_en_tete_prefixe_vide() {
+        assert_eq!(prefixe_proxy(&HeaderMap::new()), "");
     }
 }

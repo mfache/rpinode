@@ -86,36 +86,59 @@ function showBootScreen(title = "Redémarrage de rpinode...") {
         terminal.scrollTop = terminal.scrollHeight;
     }
 
-    // Connexion SSE au superviseur Rust
-    try {
-        const evtSource = new EventSource('/supervisor/stream');
+    // Préfixe obligatoire derrière le proxy de docs (/rpi/<boîtier>/) : sans
+    // lui, /supervisor/... part vers docs et l'écran reste figé indéfiniment.
+    const baseUrl = window.CONFIG?.baseUrl || "";
+    let rechargementDemande = false;
 
-        evtSource.onmessage = (event) => {
-            if (!event.data) return;
-            try {
-                const payload = JSON.parse(event.data);
-                if (payload.type === 'log') {
-                    appendLog(payload.message);
-                } else if (payload.type === 'status') {
-                    if (statusDesc) statusDesc.textContent = payload.message;
-                    if (payload.ready) {
-                        if (statusDesc) statusDesc.textContent = "✅ Serveur rpinode prêt ! Rechargement...";
-                        setTimeout(() => {
-                            window.location.reload();
-                        }, 500);
-                    }
-                }
-            } catch (e) {
-                appendLog(event.data);
-            }
-        };
-
-        evtSource.onerror = () => {
-            if (statusDesc) statusDesc.textContent = "En attente du service...";
-        };
-    } catch (e) {
-        console.error("Erreur connexion SSE superviseur :", e);
+    function recharger() {
+        if (rechargementDemande) return;
+        rechargementDemande = true;
+        if (statusDesc) statusDesc.textContent = "✅ Serveur rpinode prêt ! Rechargement...";
+        setTimeout(() => window.location.reload(), 500);
     }
+
+    // On n'écoute qu'après 2 s : juste après POST /api/restart, Python répond
+    // encore quelques centaines de ms et le superviseur l'annoncerait « prêt »,
+    // provoquant des rechargements inutiles.
+    setTimeout(() => {
+        // Connexion SSE au superviseur Rust
+        try {
+            const evtSource = new EventSource(`${baseUrl}/supervisor/stream`);
+
+            evtSource.onmessage = (event) => {
+                if (!event.data) return;
+                try {
+                    const payload = JSON.parse(event.data);
+                    if (payload.type === 'log') {
+                        appendLog(payload.message);
+                    } else if (payload.type === 'status') {
+                        if (statusDesc) statusDesc.textContent = payload.message;
+                        if (payload.ready) recharger();
+                    }
+                } catch (e) {
+                    appendLog(event.data);
+                }
+            };
+
+            evtSource.onerror = () => {
+                if (statusDesc && !rechargementDemande) statusDesc.textContent = "En attente du service...";
+            };
+        } catch (e) {
+            console.error("Erreur connexion SSE superviseur :", e);
+        }
+
+        // Repli par sondage, comme la page du superviseur : le flux SSE peut
+        // se perdre pendant un reboot complet (réseau coupé).
+        setInterval(async () => {
+            try {
+                const res = await fetch(`${baseUrl}/supervisor/status`, { cache: 'no-cache' });
+                if (res.ok && (await res.json()).ready) recharger();
+            } catch (e) {
+                // Réseau momentanément coupé : on réessaie au tour suivant.
+            }
+        }, 2500);
+    }, 2000);
 }
 
 /**
