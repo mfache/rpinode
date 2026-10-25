@@ -59,30 +59,38 @@ def manage_wifi(force=False):
             logger.info(f"SSID {RESCUE_SSID} détecté. Activation du mode secours.")
             _ensure_client_mode(RESCUE_CON_NAME, force=force)
             return
-        else:
-            logger.info(f"Secours {RESCUE_SSID} non détecté. Passage en mode AP pour accès local.")
-            _ensure_ap_mode()
+        # Adaptation du 2026-10-25 (voir wifi.md) : sans 4G, le WiFi du chantier
+        # courant, s'il est visible, passe avant le mode AP. Sinon un boîtier
+        # dont la SIM est hors service reste sans Internet sur un chantier équipé.
+        if wifi_config and wifi_config['ssid'] and _is_ssid_visible(wifi_config['ssid']):
+            logger.info(f"wwan0 hors ligne. WiFi chantier {wifi_config['ssid']} visible, connexion.")
+            _connect_site_wifi(site_id, wifi_config, force=force)
             return
+        logger.info(f"Secours {RESCUE_SSID} non détecté. Passage en mode AP pour accès local.")
+        _ensure_ap_mode()
+        return
 
     # RÈGLE B: wwan0 est OK. On regarde si on a une config chantier pour wlan0
     if wifi_config and wifi_config['ssid']:
         logger.info(f"wwan0 OK. Application de la config WiFi chantier: {wifi_config['ssid']}")
-        # On utilise une connexion nommée d'après le chantier pour nmcli
-        con_name = f"site-{site_id}-wifi"
-        _ensure_client_mode(
-            con_name,
-            wifi_config['ssid'],
-            wifi_config['psk'],
-            method=wifi_config['method'],
-            addresses=wifi_config['addresses'],
-            gateway=wifi_config['gateway'],
-            dhcp_range=wifi_config.get('dhcp_range'),
-            force=force
-        )
+        _connect_site_wifi(site_id, wifi_config, force=force)
     else:
         # RÈGLE C: Pas de config chantier, on se comporte en AP
         logger.info("wwan0 OK mais pas de config WiFi chantier. Passage en mode AP.")
         _ensure_ap_mode()
+
+def _connect_site_wifi(site_id, wifi_config, force=False):
+    # On utilise une connexion nommée d'après le chantier pour nmcli
+    _ensure_client_mode(
+        f"site-{site_id}-wifi",
+        wifi_config['ssid'],
+        wifi_config['psk'],
+        method=wifi_config['method'],
+        addresses=wifi_config['addresses'],
+        gateway=wifi_config['gateway'],
+        dhcp_range=wifi_config.get('dhcp_range'),
+        force=force
+    )
 
 def _get_current_site_info():
     hostname = socket.gethostname()
