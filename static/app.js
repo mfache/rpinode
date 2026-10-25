@@ -255,367 +255,382 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // Connexion SSE pour mettre à jour les éléments dynamiques
     const baseUrl = window.CONFIG?.baseUrl || "";
-    const evtSource = new EventSource(`${baseUrl}/api/stream`);
+    // Le flux est rouvert s'il se ferme : un EventSource abandonne pour de bon
+    // quand le serveur répond autre chose qu'un flux SSE (ex. pendant une
+    // relance de rpinode déclenchée par quelqu'un d'autre). Sans cela, le point
+    // de pulsation restait rouge jusqu'au rafraîchissement manuel de la page.
+    let delaiReconnexion = 2000;
 
-    evtSource.addEventListener('host_ready', (e) => {
-        if (!window.location.pathname.includes('/scan/ip')) return;
-        try {
-            const data = JSON.parse(e.data);
-            const tbody = document.getElementById('ipscan-results-body');
-            if (!tbody) return;
+    function ouvrirFluxDonnees() {
+        const evtSource = new EventSource(`${baseUrl}/api/stream`);
+        evtSource.addEventListener('open', () => { delaiReconnexion = 2000; });
 
-            let row = null;
-            if (data.mac) {
-                for (let tr of tbody.rows) {
-                    if (tr.cells.length > 1 && tr.cells[1].textContent.trim().toLowerCase() === data.mac.toLowerCase()) {
-                        row = tr;
-                        break;
+        evtSource.addEventListener('host_ready', (e) => {
+            if (!window.location.pathname.includes('/scan/ip')) return;
+            try {
+                const data = JSON.parse(e.data);
+                const tbody = document.getElementById('ipscan-results-body');
+                if (!tbody) return;
+
+                let row = null;
+                if (data.mac) {
+                    for (let tr of tbody.rows) {
+                        if (tr.cells.length > 1 && tr.cells[1].textContent.trim().toLowerCase() === data.mac.toLowerCase()) {
+                            row = tr;
+                            break;
+                        }
                     }
                 }
-            }
 
-            let portsHtml = [];
-            const portsList = Array.isArray(data.ports) ? data.ports : [];
-            for (let p of portsList) {
-                if (p === 502) {
-                    let m = data.modbus_info ? ` <small style='color:#2ecc71'>(${data.modbus_info})</small>` : '';
-                    portsHtml.push(`<a href='${baseUrl}/modbus/tools?ip=${data.ip}' style='color: #2ecc71; font-weight: bold;'>502 (Modbus)</a>${m}`);
-                } else if (p === 47808) {
-                    let b = [];
-                    let instParam = '';
-                    if (data.bacnet_instance) {
-                        b.push(`Inst: ${data.bacnet_instance}`);
-                        instParam = `&instance=${encodeURIComponent(data.bacnet_instance)}`;
+                let portsHtml = [];
+                const portsList = Array.isArray(data.ports) ? data.ports : [];
+                for (let p of portsList) {
+                    if (p === 502) {
+                        let m = data.modbus_info ? ` <small style='color:#2ecc71'>(${data.modbus_info})</small>` : '';
+                        portsHtml.push(`<a href='${baseUrl}/modbus/tools?ip=${data.ip}' style='color: #2ecc71; font-weight: bold;'>502 (Modbus)</a>${m}`);
+                    } else if (p === 47808) {
+                        let b = [];
+                        let instParam = '';
+                        if (data.bacnet_instance) {
+                            b.push(`Inst: ${data.bacnet_instance}`);
+                            instParam = `&instance=${encodeURIComponent(data.bacnet_instance)}`;
+                        }
+                        if (data.bacnet_name && data.bacnet_name !== "Automate BACnet") b.push(data.bacnet_name);
+                        let info = b.length ? ` <small style='color:#e67e22'>(${b.join(', ')})</small>` : '';
+                        portsHtml.push(`<a href='${baseUrl}/bacnet/tools?ip=${data.ip}${instParam}' style='color: #e67e22; font-weight: bold;'>47808 (BACnet)</a>${info}`);
+                    } else if (p === 80) {
+                        portsHtml.push(`<a href='http://${data.ip}' target='_blank' style='color: #3498db;'>80</a>`);
+                    } else if (p === 443) {
+                        portsHtml.push(`<a href='https://${data.ip}' target='_blank' style='color: #9b59b6;'>443</a>`);
+                    } else {
+                        portsHtml.push(p);
                     }
-                    if (data.bacnet_name && data.bacnet_name !== "Automate BACnet") b.push(data.bacnet_name);
-                    let info = b.length ? ` <small style='color:#e67e22'>(${b.join(', ')})</small>` : '';
-                    portsHtml.push(`<a href='${baseUrl}/bacnet/tools?ip=${data.ip}${instParam}' style='color: #e67e22; font-weight: bold;'>47808 (BACnet)</a>${info}`);
-                } else if (p === 80) {
-                    portsHtml.push(`<a href='http://${data.ip}' target='_blank' style='color: #3498db;'>80</a>`);
-                } else if (p === 443) {
-                    portsHtml.push(`<a href='https://${data.ip}' target='_blank' style='color: #9b59b6;'>443</a>`);
+                }
+                let portsStr = portsHtml.length ? portsHtml.join(', ') : "<span style='opacity:0.4;'>Aucun</span>";
+
+                if (row) {
+                    row.classList.remove('row-offline');
+                    const ipCell = row.cells[0];
+                    ipCell.style.opacity = '1';
+                    ipCell.style.textDecoration = 'none';
+                    ipCell.style.fontWeight = 'bold';
+                    ipCell.innerHTML = `<span title='En ligne' style='color: #2ecc71; font-size: 0.8em; margin-right: 5px;'>🟢</span>${data.ip}`;
+                    row.cells[3].innerHTML = portsStr;
+
+                    row.style.transition = 'background 0.3s';
+                    row.style.background = '#e8f8f5';
+                    setTimeout(() => { row.style.background = ''; }, 600);
                 } else {
-                    portsHtml.push(p);
+                    if (tbody.rows.length === 1 && tbody.rows[0].cells.length === 1) tbody.innerHTML = '';
+                    // Nouvelle ligne, rechargement silencieux pour rafraîchir toutes les annotations custom
+                    const refreshTableSilently = async () => {
+                        try {
+                            const url = (baseUrl + '/api/scan/ip/results').replace(/\/+/g, '/');
+                            const res = await fetch(url);
+                            const resData = await res.json();
+                            if (resData.html) tbody.innerHTML = resData.html;
+                            if (typeof filterTable === 'function') filterTable();
+                        } catch(err) {}
+                    };
+                    refreshTableSilently();
                 }
+            } catch (err) { console.error("Erreur SSE host_ready:", err); }
+        });
+
+        // Événement SSE Modbus en direct (poussé par MQTT)
+        evtSource.addEventListener('modbus_point', (e) => {
+            try {
+                const data = JSON.parse(e.data);
+                const el = document.getElementById(`val-${data.point_id}`);
+                if (!el) return;
+
+                const newDisplay = data.display || "—";
+                if (data.error) {
+                    el.className = "live-val badge-error";
+                    el.textContent = "Err";
+                    el.title = data.error;
+                } else {
+                    el.className = "live-val badge-success";
+                    el.textContent = newDisplay;
+                    el.title = `Mis à jour à ${new Date(data.ts * 1000).toLocaleTimeString()}`;
+
+                    el.classList.remove("suivi-flash");
+                    void el.offsetWidth;
+                    el.classList.add("suivi-flash");
+                }
+            } catch (err) {
+                console.error("Erreur SSE modbus_point:", err);
             }
-            let portsStr = portsHtml.length ? portsHtml.join(', ') : "<span style='opacity:0.4;'>Aucun</span>";
+        });
 
-            if (row) {
-                row.classList.remove('row-offline');
-                const ipCell = row.cells[0];
-                ipCell.style.opacity = '1';
-                ipCell.style.textDecoration = 'none';
-                ipCell.style.fontWeight = 'bold';
-                ipCell.innerHTML = `<span title='En ligne' style='color: #2ecc71; font-size: 0.8em; margin-right: 5px;'>🟢</span>${data.ip}`;
-                row.cells[3].innerHTML = portsStr;
+        evtSource.onmessage = function(event) {
+            try {
+                // Réinitialisation du "watchdog" et du compteur
+                clearTimeout(heartbeatTimeout);
+                clearInterval(errorTimerInterval);
+                errorTimerInterval = null;
+                secondsSinceLastUpdate = 0;
 
-                row.style.transition = 'background 0.3s';
-                row.style.background = '#e8f8f5';
-                setTimeout(() => { row.style.background = ''; }, 600);
-            } else {
-                if (tbody.rows.length === 1 && tbody.rows[0].cells.length === 1) tbody.innerHTML = '';
-                // Nouvelle ligne, rechargement silencieux pour rafraîchir toutes les annotations custom
-                const refreshTableSilently = async () => {
-                    try {
-                        const url = (baseUrl + '/api/scan/ip/results').replace(/\/+/g, '/');
-                        const res = await fetch(url);
-                        const resData = await res.json();
-                        if (resData.html) tbody.innerHTML = resData.html;
-                        if (typeof filterTable === 'function') filterTable();
-                    } catch(err) {}
-                };
-                refreshTableSilently();
-            }
-        } catch (err) { console.error("Erreur SSE host_ready:", err); }
-    });
+                const timer = document.getElementById("heartbeat-timer");
+                if (timer) {
+                    timer.style.display = "none";
+                    timer.textContent = "";
+                }
 
-    // Événement SSE Modbus en direct (poussé par MQTT)
-    evtSource.addEventListener('modbus_point', (e) => {
-        try {
-            const data = JSON.parse(e.data);
-            const el = document.getElementById(`val-${data.point_id}`);
-            if (!el) return;
+                heartbeatTimeout = setTimeout(showHeartbeatError, 5000);
 
-            const newDisplay = data.display || "—";
-            if (data.error) {
-                el.className = "live-val badge-error";
-                el.textContent = "Err";
-                el.title = data.error;
-            } else {
-                el.className = "live-val badge-success";
-                el.textContent = newDisplay;
-                el.title = `Mis à jour à ${new Date(data.ts * 1000).toLocaleTimeString()}`;
-
-                el.classList.remove("suivi-flash");
-                void el.offsetWidth;
-                el.classList.add("suivi-flash");
-            }
-        } catch (err) {
-            console.error("Erreur SSE modbus_point:", err);
-        }
-    });
-
-    evtSource.onmessage = function(event) {
-        try {
-            // Réinitialisation du "watchdog" et du compteur
-            clearTimeout(heartbeatTimeout);
-            clearInterval(errorTimerInterval);
-            errorTimerInterval = null;
-            secondsSinceLastUpdate = 0;
-
-            const timer = document.getElementById("heartbeat-timer");
-            if (timer) {
-                timer.style.display = "none";
-                timer.textContent = "";
-            }
-
-            heartbeatTimeout = setTimeout(showHeartbeatError, 5000);
-
-            const updates = JSON.parse(event.data);
-            console.log("Mises à jour reçues:", updates);
+                const updates = JSON.parse(event.data);
+                console.log("Mises à jour reçues:", updates);
             
-            // Mise à jour générique : cherche tout ID ou CLASSE commençant par "subt_"
-            // correspondant à une clé dans le JSON reçu.
-            for (const [key, value] of Object.entries(updates)) {
-                try {
-                    if (value === undefined || value === null) continue;
+                // Mise à jour générique : cherche tout ID ou CLASSE commençant par "subt_"
+                // correspondant à une clé dans le JSON reçu.
+                for (const [key, value] of Object.entries(updates)) {
+                    try {
+                        if (value === undefined || value === null) continue;
                     
-                    // Traitement spécial pour le chantier provisoire
-                    if (key === 'is_provisional') {
-                        const banner = document.getElementById('subt_is_provisional');
-                        if (banner) {
-                            banner.style.display = value ? 'block' : 'none';
-                            if (value) checkFleetRegistration();
-                        }
-                        continue; // On ne veut pas que updateElement mette "true" dans la bannière
-                    }
-
-                    // Traitement spécial pour le mode WiFi
-                    if (key === 'wifi_mode') {
-                        const apZone = document.getElementById('ap-info-zone');
-                        if (apZone && typeof value === 'string') {
-                            apZone.style.display = value.includes('Access Point') ? 'block' : 'none';
-                        }
-                    }
-
-                    // Traitement spécial pour le statut de synchronisation
-                    if (key === 'sync_ok') {
-                        const syncDot = document.getElementById('subt_sync_ok');
-                        if (syncDot) {
-                            syncDot.style.display = (value === true || value === "true") ? 'none' : 'inline-block';
-                        }
-                        continue;
-                    }
-
-                    const targetKey = `subt_${key}`;
-
-                    // 1. Chercher par ID
-                    const elById = document.getElementById(targetKey);
-                    if (elById) {
-                        if (key === 'net_wlan0_clients_html') console.log("Mise à jour clients DHCP:", value);
-                        updateElement(elById, value, key);
-                    }
-
-                    // 2. Chercher par Classe (pour les éléments répétés)
-                    const elsByClass = document.getElementsByClassName(targetKey);
-                    for (const el of elsByClass) {
-                        updateElement(el, value, key);
-                    }
-
-                    // Traitement spécial pour les états actifs (couleurs des nodes, pills et indicateurs)
-                    if (key.endsWith('_active') || key.startsWith('net_eth0_') || key.startsWith('net_wlan0_') || key.startsWith('net_wwan0_')) {
-                        let iface = null;
-                        if (key.startsWith('net_eth0_')) iface = 'eth0';
-                        else if (key.startsWith('net_wlan0_')) iface = 'wlan0';
-                        else if (key.startsWith('net_wwan0_')) iface = 'wwan0';
-                        else if (key.endsWith('_active')) iface = key.replace('net_', '').replace('_active', '');
-
-                        if (iface) {
-                            window.ifaceState = window.ifaceState || {};
-                            window.ifaceState[iface] = window.ifaceState[iface] || {};
-
-                            if (key.startsWith(`net_${iface}_`)) {
-                                window.ifaceState[iface][key.replace(`net_${iface}_`, '')] = value;
-                            } else if (key.endsWith('_active')) {
-                                window.ifaceState[iface]['active'] = value;
+                        // Traitement spécial pour le chantier provisoire
+                        if (key === 'is_provisional') {
+                            const banner = document.getElementById('subt_is_provisional');
+                            if (banner) {
+                                banner.style.display = value ? 'block' : 'none';
+                                if (value) checkFleetRegistration();
                             }
+                            continue; // On ne veut pas que updateElement mette "true" dans la bannière
+                        }
 
-                            const node = document.getElementById(`node-${iface}`);
-                            const pill = document.getElementById(`pill-${iface}`);
-                            const indicator = document.getElementById(`status-indicator-${iface}`);
-                            const statusLabel = document.getElementById(`status-text-${iface}`);
-
-                            const s = window.ifaceState[iface] || {};
-                            const isActive = (s.active === true || s.active === "true");
-                            const hasCable = s.cable !== undefined ? (s.cable === true || s.cable === "true") : true;
-                            const isDhcp = (s.dhcp === true || s.dhcp === "true");
-                            const hasIp = (s.has_ip === true || s.has_ip === "true");
-
-                            let pillText = 'Inactif';
-                            let indicatorText = 'Inactif';
-                            let isOnline = false;
-
-                            if (!hasCable && iface === 'eth0') {
-                                pillText = 'Débranché';
-                                indicatorText = 'Câble débranché';
-                                isOnline = false;
-                            } else if (isActive && hasIp) {
-                                pillText = 'Connecté';
-                                indicatorText = 'En ligne';
-                                isOnline = true;
-                            } else if (isDhcp && !hasIp && hasCable) {
-                                pillText = 'En attente';
-                                indicatorText = 'En attente DHCP';
-                                isOnline = false;
-                            } else if (isActive) {
-                                pillText = 'Connecté';
-                                indicatorText = 'En ligne';
-                                isOnline = true;
-                            } else {
-                                pillText = 'Coupé';
-                                indicatorText = 'Inactif';
-                                isOnline = false;
+                        // Traitement spécial pour le mode WiFi
+                        if (key === 'wifi_mode') {
+                            const apZone = document.getElementById('ap-info-zone');
+                            if (apZone && typeof value === 'string') {
+                                apZone.style.display = value.includes('Access Point') ? 'block' : 'none';
                             }
+                        }
 
-                            if (node && pill) {
-                                if (isOnline) {
-                                    node.classList.add('active');
-                                    pill.className = 'status-pill active';
-                                } else {
-                                    node.classList.remove('active');
-                                    pill.className = 'status-pill inactive';
+                        // Traitement spécial pour le statut de synchronisation
+                        if (key === 'sync_ok') {
+                            const syncDot = document.getElementById('subt_sync_ok');
+                            if (syncDot) {
+                                syncDot.style.display = (value === true || value === "true") ? 'none' : 'inline-block';
+                            }
+                            continue;
+                        }
+
+                        const targetKey = `subt_${key}`;
+
+                        // 1. Chercher par ID
+                        const elById = document.getElementById(targetKey);
+                        if (elById) {
+                            if (key === 'net_wlan0_clients_html') console.log("Mise à jour clients DHCP:", value);
+                            updateElement(elById, value, key);
+                        }
+
+                        // 2. Chercher par Classe (pour les éléments répétés)
+                        const elsByClass = document.getElementsByClassName(targetKey);
+                        for (const el of elsByClass) {
+                            updateElement(el, value, key);
+                        }
+
+                        // Traitement spécial pour les états actifs (couleurs des nodes, pills et indicateurs)
+                        if (key.endsWith('_active') || key.startsWith('net_eth0_') || key.startsWith('net_wlan0_') || key.startsWith('net_wwan0_')) {
+                            let iface = null;
+                            if (key.startsWith('net_eth0_')) iface = 'eth0';
+                            else if (key.startsWith('net_wlan0_')) iface = 'wlan0';
+                            else if (key.startsWith('net_wwan0_')) iface = 'wwan0';
+                            else if (key.endsWith('_active')) iface = key.replace('net_', '').replace('_active', '');
+
+                            if (iface) {
+                                window.ifaceState = window.ifaceState || {};
+                                window.ifaceState[iface] = window.ifaceState[iface] || {};
+
+                                if (key.startsWith(`net_${iface}_`)) {
+                                    window.ifaceState[iface][key.replace(`net_${iface}_`, '')] = value;
+                                } else if (key.endsWith('_active')) {
+                                    window.ifaceState[iface]['active'] = value;
                                 }
-                                pill.textContent = pillText;
-                            }
 
-                            if (indicator && statusLabel) {
-                                indicator.className = `status-indicator ${isOnline ? 'status-online' : 'status-offline'}`;
-                                statusLabel.textContent = indicatorText;
-                            }
-                        }
-                    }
+                                const node = document.getElementById(`node-${iface}`);
+                                const pill = document.getElementById(`pill-${iface}`);
+                                const indicator = document.getElementById(`status-indicator-${iface}`);
+                                const statusLabel = document.getElementById(`status-text-${iface}`);
 
-                    // Traitement spécial pour Tailscale exit et IP
-                    if (key === 'net_ts_exit' || key === 'net_ts_ip') {
-                        const exitIface = updates['net_ts_exit'] || window.lastTsExit;
-                        const tsIp = updates['net_ts_ip'] || window.lastTsIp;
-                        
-                        if (exitIface) {
-                            // Masquer tous les blocs TS
-                            document.querySelectorAll('.ts-integrated-info').forEach(m => m.style.display = 'none');
-                            
-                            // Afficher et mettre à jour le bon bloc
-                            const tsBlock = document.getElementById(`ts-info-${exitIface}`);
-                            const tsIpDisplay = document.getElementById(`subt_net_ts_ip_${exitIface}`);
-                            
-                            if (tsBlock) tsBlock.style.display = 'block';
-                            if (tsIpDisplay && tsIp) tsIpDisplay.textContent = tsIp;
-                            
-                            window.lastTsExit = exitIface;
-                        }
-                        if (tsIp) window.lastTsIp = tsIp;
-                    }
+                                const s = window.ifaceState[iface] || {};
+                                const isActive = (s.active === true || s.active === "true");
+                                const hasCable = s.cable !== undefined ? (s.cable === true || s.cable === "true") : true;
+                                const isDhcp = (s.dhcp === true || s.dhcp === "true");
+                                const hasIp = (s.has_ip === true || s.has_ip === "true");
 
-                    // Traitement spécial pour le scanner IP
-                    if (key === 'ipscan_running') {
-                        const btn = document.getElementById('btn-start-scan');
-                        const status = document.getElementById('scan-status');
-                        
-                        if (btn && status) {
-                            const isRunning = (value === true || value === "true");
-                            const wasRunning = status.classList.contains('running');
-                            
-                            btn.disabled = isRunning;
-                            status.textContent = isRunning ? 'Scan en cours...' : 'Prêt';
-                            status.className = `status-badge ${isRunning ? 'running' : 'idle'}`;
-                            
-                            // Si le scan vient de se terminer, on rafraîchit la table en arrière-plan
-                            if (wasRunning && !isRunning && window.location.pathname.includes('/scan/ip')) {
-                                setTimeout(async () => {
-                                    try {
-                                        const url = (baseUrl + '/api/scan/ip/results').replace(/\/+/g, '/');
-                                        const res = await fetch(url);
-                                        const data = await res.json();
-                                        
-                                        const tbody = document.getElementById('ipscan-results-body');
-                                        const lastScan = document.getElementById('subt_ipscan_last_scan');
-                                        const table = document.getElementById('inventory-table');
+                                let pillText = 'Inactif';
+                                let indicatorText = 'Inactif';
+                                let isOnline = false;
 
-                                        if (tbody && data.html) {
-                                            tbody.innerHTML = data.html;
-                                        }
-                                        if (lastScan && data.scanned_at) {
-                                            lastScan.textContent = data.scanned_at;
-                                        }
-                                        if (table) {
-                                            table.classList.remove('scanning');
-                                        }
+                                if (!hasCable && iface === 'eth0') {
+                                    pillText = 'Débranché';
+                                    indicatorText = 'Câble débranché';
+                                    isOnline = false;
+                                } else if (isActive && hasIp) {
+                                    pillText = 'Connecté';
+                                    indicatorText = 'En ligne';
+                                    isOnline = true;
+                                } else if (isDhcp && !hasIp && hasCable) {
+                                    pillText = 'En attente';
+                                    indicatorText = 'En attente DHCP';
+                                    isOnline = false;
+                                } else if (isActive) {
+                                    pillText = 'Connecté';
+                                    indicatorText = 'En ligne';
+                                    isOnline = true;
+                                } else {
+                                    pillText = 'Coupé';
+                                    indicatorText = 'Inactif';
+                                    isOnline = false;
+                                }
 
-                                        // Réappliquer les filtres/tris/visibilités
-                                        if (typeof initColumnPicker === 'function') {
-                                            const hiddenColLabels = JSON.parse(localStorage.getItem('ipscan_hidden_labels') || '[]');
-                                            const table = document.getElementById("inventory-table");
-                                            const headers = table.querySelectorAll("thead th");
-                                            headers.forEach((th, index) => {
-                                                if (index === 0) return;
-                                                const label = th.textContent.replace(' ↕', '').replace('×', '').trim();
-                                                if (hiddenColLabels.includes(label)) {
-                                                    applyColumnVisibility(index, false);
-                                                }
-                                            });
-                                        }
-                                        if (typeof filterTable === 'function') filterTable();
-                                    } catch(e) {
-                                        console.error("Erreur lors du rafraîchissement du tableau:", e);
+                                if (node && pill) {
+                                    if (isOnline) {
+                                        node.classList.add('active');
+                                        pill.className = 'status-pill active';
+                                    } else {
+                                        node.classList.remove('active');
+                                        pill.className = 'status-pill inactive';
                                     }
-                                }, 500);
+                                    pill.textContent = pillText;
+                                }
+
+                                if (indicator && statusLabel) {
+                                    indicator.className = `status-indicator ${isOnline ? 'status-online' : 'status-offline'}`;
+                                    statusLabel.textContent = indicatorText;
+                                }
                             }
                         }
-                    }
-                    if (key === 'ipscan_last_at') {
-                        // Si le scan a été mis à jour pendant qu'on regarde la page
-                        // On update juste le label du timestamp pour éviter de recharger la grille de manière agressive.
-                        // Les mises à jour fines sont gérées par host_ready.
-                        if (window.location.pathname.includes('/scan/ip')) {
-                            const lastScan = document.getElementById('subt_ipscan_last_scan');
-                            if (lastScan && window.lastIpscanAt && window.lastIpscanAt !== value) {
-                                lastScan.textContent = value;
+
+                        // Traitement spécial pour Tailscale exit et IP
+                        if (key === 'net_ts_exit' || key === 'net_ts_ip') {
+                            const exitIface = updates['net_ts_exit'] || window.lastTsExit;
+                            const tsIp = updates['net_ts_ip'] || window.lastTsIp;
+                        
+                            if (exitIface) {
+                                // Masquer tous les blocs TS
+                                document.querySelectorAll('.ts-integrated-info').forEach(m => m.style.display = 'none');
+                            
+                                // Afficher et mettre à jour le bon bloc
+                                const tsBlock = document.getElementById(`ts-info-${exitIface}`);
+                                const tsIpDisplay = document.getElementById(`subt_net_ts_ip_${exitIface}`);
+                            
+                                if (tsBlock) tsBlock.style.display = 'block';
+                                if (tsIpDisplay && tsIp) tsIpDisplay.textContent = tsIp;
+                            
+                                window.lastTsExit = exitIface;
                             }
-                            window.lastIpscanAt = value;
+                            if (tsIp) window.lastTsIp = tsIp;
                         }
+
+                        // Traitement spécial pour le scanner IP
+                        if (key === 'ipscan_running') {
+                            const btn = document.getElementById('btn-start-scan');
+                            const status = document.getElementById('scan-status');
+                        
+                            if (btn && status) {
+                                const isRunning = (value === true || value === "true");
+                                const wasRunning = status.classList.contains('running');
+                            
+                                btn.disabled = isRunning;
+                                status.textContent = isRunning ? 'Scan en cours...' : 'Prêt';
+                                status.className = `status-badge ${isRunning ? 'running' : 'idle'}`;
+                            
+                                // Si le scan vient de se terminer, on rafraîchit la table en arrière-plan
+                                if (wasRunning && !isRunning && window.location.pathname.includes('/scan/ip')) {
+                                    setTimeout(async () => {
+                                        try {
+                                            const url = (baseUrl + '/api/scan/ip/results').replace(/\/+/g, '/');
+                                            const res = await fetch(url);
+                                            const data = await res.json();
+                                        
+                                            const tbody = document.getElementById('ipscan-results-body');
+                                            const lastScan = document.getElementById('subt_ipscan_last_scan');
+                                            const table = document.getElementById('inventory-table');
+
+                                            if (tbody && data.html) {
+                                                tbody.innerHTML = data.html;
+                                            }
+                                            if (lastScan && data.scanned_at) {
+                                                lastScan.textContent = data.scanned_at;
+                                            }
+                                            if (table) {
+                                                table.classList.remove('scanning');
+                                            }
+
+                                            // Réappliquer les filtres/tris/visibilités
+                                            if (typeof initColumnPicker === 'function') {
+                                                const hiddenColLabels = JSON.parse(localStorage.getItem('ipscan_hidden_labels') || '[]');
+                                                const table = document.getElementById("inventory-table");
+                                                const headers = table.querySelectorAll("thead th");
+                                                headers.forEach((th, index) => {
+                                                    if (index === 0) return;
+                                                    const label = th.textContent.replace(' ↕', '').replace('×', '').trim();
+                                                    if (hiddenColLabels.includes(label)) {
+                                                        applyColumnVisibility(index, false);
+                                                    }
+                                                });
+                                            }
+                                            if (typeof filterTable === 'function') filterTable();
+                                        } catch(e) {
+                                            console.error("Erreur lors du rafraîchissement du tableau:", e);
+                                        }
+                                    }, 500);
+                                }
+                            }
+                        }
+                        if (key === 'ipscan_last_at') {
+                            // Si le scan a été mis à jour pendant qu'on regarde la page
+                            // On update juste le label du timestamp pour éviter de recharger la grille de manière agressive.
+                            // Les mises à jour fines sont gérées par host_ready.
+                            if (window.location.pathname.includes('/scan/ip')) {
+                                const lastScan = document.getElementById('subt_ipscan_last_scan');
+                                if (lastScan && window.lastIpscanAt && window.lastIpscanAt !== value) {
+                                    lastScan.textContent = value;
+                                }
+                                window.lastIpscanAt = value;
+                            }
+                        }
+                    } catch (innerError) {
+                        console.error(`Erreur lors de la mise à jour de la clé ${key}:`, innerError);
                     }
-                } catch (innerError) {
-                    console.error(`Erreur lors de la mise à jour de la clé ${key}:`, innerError);
                 }
-            }
 
-            // Animation du point de pulsation (Heartbeat)
-            // Animation du point de pulsation (Heartbeat) : Flash (pop) puis Fondu (fade)
-            const dot = document.getElementById("heartbeat-dot");
-            if (dot) {
-                dot.style.transition = "none";      // Apparition instantanée
-                dot.style.backgroundColor = "#2ecc71"; // Vert Delta
-                dot.style.opacity = "1";
+                // Animation du point de pulsation (Heartbeat)
+                // Animation du point de pulsation (Heartbeat) : Flash (pop) puis Fondu (fade)
+                const dot = document.getElementById("heartbeat-dot");
+                if (dot) {
+                    dot.style.transition = "none";      // Apparition instantanée
+                    dot.style.backgroundColor = "#2ecc71"; // Vert Delta
+                    dot.style.opacity = "1";
                 
-                dot.offsetHeight; // Force le recalcul (reflow) pour appliquer 'transition: none' immédiatement
+                    dot.offsetHeight; // Force le recalcul (reflow) pour appliquer 'transition: none' immédiatement
 
-                setTimeout(() => { 
-                    // On ne lance le fondu que si on est toujours "en vie" (fond vert)
-                    if (dot.style.backgroundColor.includes("rgb(46, 204, 113)") || dot.style.backgroundColor === "#2ecc71") {
-                        dot.style.transition = "opacity 1s ease-out"; // Disparition lente
-                        dot.style.opacity = "0"; 
-                    }
-                }, 100);
+                    setTimeout(() => { 
+                        // On ne lance le fondu que si on est toujours "en vie" (fond vert)
+                        if (dot.style.backgroundColor.includes("rgb(46, 204, 113)") || dot.style.backgroundColor === "#2ecc71") {
+                            dot.style.transition = "opacity 1s ease-out"; // Disparition lente
+                            dot.style.opacity = "0"; 
+                        }
+                    }, 100);
+                }
+            } catch (e) {
+                console.error("Erreur parsing SSE JSON:", e);
             }
-        } catch (e) {
-            console.error("Erreur parsing SSE JSON:", e);
-        }
-    };
+        };
 
-    evtSource.onerror = function(err) {
-        console.error("Erreur de connexion au flux SSE:", err);
-        showHeartbeatError();
-    };
+        evtSource.onerror = function(err) {
+            console.error("Erreur de connexion au flux SSE:", err);
+            showHeartbeatError();
+            if (evtSource.readyState === EventSource.CLOSED) {
+                setTimeout(ouvrirFluxDonnees, delaiReconnexion);
+                delaiReconnexion = Math.min(delaiReconnexion * 2, 15000);
+            }
+        };
+    }
+
+    ouvrirFluxDonnees();
 
     // Gestion de la recherche de chantiers
     const siteInput = document.getElementById('site-search');

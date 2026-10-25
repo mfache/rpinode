@@ -452,6 +452,15 @@ fn prefixe_proxy(headers: &axum::http::HeaderMap) -> String {
     if valide { brut.to_string() } else { String::new() }
 }
 
+/// La requête vient-elle d'une navigation (page HTML attendue) ?
+fn accepte_html(headers: &axum::http::HeaderMap) -> bool {
+    headers
+        .get(header::ACCEPT)
+        .and_then(|v| v.to_str().ok())
+        .map(|a| a.contains("text/html"))
+        .unwrap_or(false)
+}
+
 /// Handler principal : proxy vers le backend Python ou affichage de la page de boot
 async fn handle_proxy_or_fallback(
     State(state): State<AppState>,
@@ -459,6 +468,7 @@ async fn handle_proxy_or_fallback(
 ) -> Response {
     let method = req.method().clone();
     let prefixe = prefixe_proxy(req.headers());
+    let navigation = accepte_html(req.headers());
     let uri = req.uri();
     let path_and_query = uri.path_and_query().map(|pq| pq.as_str()).unwrap_or("/");
 
@@ -513,8 +523,13 @@ async fn handle_proxy_or_fallback(
             builder.body(body).unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
         }
         Err(e) => {
-            // Le backend Python est indisponible / en cours de reboot
-            if method == axum::http::Method::GET || method == axum::http::Method::HEAD {
+            // Le backend Python est indisponible / en cours de reboot.
+            // La page d'attente ne sert qu'aux navigations : un flux SSE
+            // (/api/stream) qui recevrait ce HTML serait abandonné pour de bon
+            // par le navigateur, et un fichier statique serait remplacé (voire
+            // mis en cache par le service worker) par cette page.
+            let lecture = method == axum::http::Method::GET || method == axum::http::Method::HEAD;
+            if lecture && navigation {
                 // Servir la page de live log / maintenance
                 Html(FALLBACK_HTML.replace("__RPINODE_PREFIX__", &prefixe)).into_response()
             } else {
@@ -549,6 +564,18 @@ mod tests {
         assert_eq!(avec("/rpi/x'+alert(1)+'"), "");
         assert_eq!(avec("rpi01"), "");
         assert_eq!(avec("/rpi//rpi01"), "");
+    }
+
+    #[test]
+    fn seule_une_navigation_recoit_la_page_d_attente() {
+        use super::accepte_html;
+        let mut nav = HeaderMap::new();
+        nav.insert("accept", HeaderValue::from_static("text/html,application/xhtml+xml,*/*;q=0.8"));
+        assert!(accepte_html(&nav));
+        let mut sse = HeaderMap::new();
+        sse.insert("accept", HeaderValue::from_static("text/event-stream"));
+        assert!(!accepte_html(&sse));
+        assert!(!accepte_html(&HeaderMap::new()));
     }
 
     #[test]
