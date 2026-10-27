@@ -9,7 +9,6 @@ import urwid
 sys.path.append(str(Path(__file__).parent.parent / "src"))
 
 from core.database import get_db_connection
-from services.wifi_mgr import get_ap_config
 
 def get_current_site_info():
     try:
@@ -62,10 +61,8 @@ class TuiApp:
 
     def refresh_infos(self):
         site_name = get_current_site_info()
-        ap_info = get_ap_config()
         self.info_text = (
             f"Chantier : {site_name}\n"
-            f"WiFi (AP): {ap_info.get('ssid')} / {ap_info.get('password')}\n"
         )
 
     def menu_button(self, caption, shortcut, callback, is_quit=False):

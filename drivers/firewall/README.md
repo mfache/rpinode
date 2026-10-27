@@ -12,11 +12,13 @@ joignables sur toutes les interfaces, y compris la 4G.
 | `tailscale0` | tout : administration, et proxy du portail docs (`/rpi/<boîtier>/`) |
 | `wwan0` (4G) | rien d'autre |
 | réseaux du chantier (`eth0`, `wlan0` client) | BACnet UDP 47808, SSH 22 (secours `RPIRESCUE`) |
-| point d'accès `10.42.0.0/24` | DNS, DHCP, interface (80, 443, 8081), SSH |
 | transfert | tout, sauf les nouvelles connexions venant de `wwan0` |
 
-L'accès normal à l'interface passe par le portail de docs (Azure + droits
-reports) ; sur place sans Internet, par le point d'accès de secours.
+L'interface n'est joignable que par Tailscale : portail de docs (Azure +
+droits reports) ou administration. Le point d'accès WiFi de secours
+(`RPINODE-<boîtier>`, mot de passe partagé) a été supprimé le 27 octobre
+2026 : sur place sans Internet, on passe par `RPIRESCUE` (SSH) ou par le
+terminal Bluetooth.
 
 ## Pourquoi une table et un service à part
 

@@ -6,9 +6,6 @@
 # nftables.service (cela effacerait aussi les règles de Tailscale).
 # Recharger cette table seule : sudo nft -f /etc/rpinode/rpinode-firewall.nft
 
-# Réseau du point d'accès de secours (wifi_mgr : rpinode-ap, ipv4.method shared).
-define AP_NET = 10.42.0.0/24
-
 table inet rpinode_pf
 delete table inet rpinode_pf
 
@@ -34,17 +31,15 @@ table inet rpinode_pf {
 		# n'est plus joignable depuis Internet que par Tailscale.
 		iifname "wwan0" drop
 
-		# Réseaux du chantier (eth0, wlan0 client) et point d'accès.
+		# Réseaux du chantier (eth0, wlan0 client). L'interface web n'est
+		# joignable que par Tailscale (plus de point d'accès depuis le 2026-10-27).
 		udp dport 47808 accept comment "BACnet/IP (I-Am diffusés)"
-		tcp dport 22 accept comment "SSH de secours (RPIRESCUE, point d'accès, LAN)"
-
-		iifname "wlan0" ip saddr $AP_NET udp dport { 53, 67 } accept comment "AP : DNS et DHCP"
-		iifname "wlan0" ip saddr $AP_NET tcp dport { 53, 80, 443, 8081 } accept comment "AP : interface locale"
+		tcp dport 22 accept comment "SSH de secours (RPIRESCUE, LAN)"
 	}
 
 	chain forward {
-		# Routage conservé : clients du point d'accès vers 4G/LAN, et LAN du
-		# chantier publié sur le tailnet (route 192.168.x.0/24 vers headscale).
+		# Routage conservé : LAN du chantier publié sur le tailnet (routes
+		# annoncées à headscale par publish_tailscale_routes).
 		type filter hook forward priority filter - 10; policy accept;
 		ct state established,related accept
 		iifname "wwan0" drop

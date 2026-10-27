@@ -13,16 +13,7 @@ logger = logging.getLogger(__name__)
 # Constantes
 RESCUE_SSID = "RPIRESCUE"
 RESCUE_CON_NAME = "rpirescue"  # Correspond à ce qui existe déjà dans nmcli
-AP_CON_NAME = "rpinode-ap"
 WLAN_IFACE = "wlan0"
-
-def get_ap_config():
-    """Retourne l'identifiant et le mot de passe du point d'accès."""
-    hostname = socket.gethostname()
-    return {
-        "ssid": f"RPINODE-{hostname.upper()}",
-        "password": "deltathermic"
-    }
 
 def run_wifi_manager():
     """
@@ -60,14 +51,15 @@ def manage_wifi(force=False):
             _ensure_client_mode(RESCUE_CON_NAME, force=force)
             return
         # Adaptation du 2026-10-25 (voir wifi.md) : sans 4G, le WiFi du chantier
-        # courant, s'il est visible, passe avant le mode AP. Sinon un boîtier
-        # dont la SIM est hors service reste sans Internet sur un chantier équipé.
+        # courant, s'il est visible, est utilisé. Sinon un boîtier dont la SIM
+        # est hors service reste sans Internet sur un chantier équipé.
         if wifi_config and wifi_config['ssid'] and _is_ssid_visible(wifi_config['ssid']):
             logger.info(f"wwan0 hors ligne. WiFi chantier {wifi_config['ssid']} visible, connexion.")
             _connect_site_wifi(site_id, wifi_config, force=force)
             return
-        logger.info(f"Secours {RESCUE_SSID} non détecté. Passage en mode AP pour accès local.")
-        _ensure_ap_mode()
+        # Plus de point d'accès local depuis le 2026-10-27 (voir wifi.md) :
+        # sur place, l'accès de secours est RPIRESCUE ou le Bluetooth.
+        logger.info(f"Ni {RESCUE_SSID} ni WiFi chantier visible : wlan0 laissé tel quel.")
         return
 
     # RÈGLE B: wwan0 est OK. On regarde si on a une config chantier pour wlan0
@@ -75,9 +67,8 @@ def manage_wifi(force=False):
         logger.info(f"wwan0 OK. Application de la config WiFi chantier: {wifi_config['ssid']}")
         _connect_site_wifi(site_id, wifi_config, force=force)
     else:
-        # RÈGLE C: Pas de config chantier, on se comporte en AP
-        logger.info("wwan0 OK mais pas de config WiFi chantier. Passage en mode AP.")
-        _ensure_ap_mode()
+        # RÈGLE C: Pas de config chantier, la 4G suffit (plus de point d'accès).
+        logger.debug("wwan0 OK et pas de config WiFi chantier : rien à faire sur wlan0.")
 
 def _connect_site_wifi(site_id, wifi_config, force=False):
     # On utilise une connexion nommée d'après le chantier pour nmcli
@@ -229,52 +220,3 @@ def _ensure_client_mode(con_name, ssid=None, psk=None, method="auto", addresses=
 
     # 3. Basculer
     subprocess.run(["sudo", "nmcli", "con", "up", con_name], timeout=30)
-
-def _ensure_ap_mode():
-    """S'assure que wlan0 est en mode Access Point."""
-    status = subprocess.run(["nmcli", "-t", "-f", "DEVICE,CONNECTION", "dev", "status"], capture_output=True, text=True, timeout=5)
-    if f"wlan0:{AP_CON_NAME}" in status.stdout:
-        return # Déjà OK
-
-    logger.info("Activation du mode Access Point.")
-    hostname = socket.gethostname()
-    ssid = f"RPINODE-{hostname.upper()}"
-    password = "deltathermic"
-    
-    # Construction de la config
-    opts = (
-        f"mode ap ssid {ssid} "
-        "ipv4.method shared "
-        "802-11-wireless-security.key-mgmt wpa-psk "
-        f"802-11-wireless-security.psk {password} "
-        "connection.autoconnect no "
-        "connection.autoconnect-priority 10 "
-    )
-    
-    # 1. Libérer wlan0
-    subprocess.run(["sudo", "nmcli", "device", "disconnect", "wlan0"], capture_output=True, timeout=10)
-    
-    # 2. Configurer NetworkManager pour l'AP
-    check = subprocess.run(["nmcli", "con", "show", AP_CON_NAME], capture_output=True, timeout=5)
-    if check.returncode == 0:
-        subprocess.run(f"sudo nmcli con mod '{AP_CON_NAME}' {opts}", shell=True, timeout=10)
-    else:
-        subprocess.run(f"sudo nmcli con add type wifi ifname wlan0 con-name '{AP_CON_NAME}' {opts}", shell=True, timeout=10)
-    
-    # 3. Lancer l'AP
-    subprocess.run(["sudo", "nmcli", "con", "up", AP_CON_NAME], timeout=30, capture_output=True)
-
-    # 4. Activer le routage et le NAT de manière robuste
-    _setup_routing_and_nat()
-
-def _setup_routing_and_nat():
-    """Configure le routage IP au niveau du noyau.
-    Le NAT (masquerade) est géré de manière robuste par /etc/nftables.conf.
-    """
-    try:
-        # Activation du routage IPv4 dans le noyau (persistant via /etc/sysctl.d/99-forwarding.conf normalement)
-        # On le force ici par sécurité à chaque bascule de mode.
-        subprocess.run(["sudo", "sysctl", "-w", "net.ipv4.ip_forward=1"], capture_output=True, timeout=5)
-
-    except Exception as e:
-        logger.error(f"Erreur lors de l'activation du routage noyau : {e}")

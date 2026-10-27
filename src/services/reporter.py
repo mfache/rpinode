@@ -29,7 +29,6 @@ from services.mqtt_service import mqtt_client
 from services.network import get_network_overview
 from services.presence import (get_current_site_name,
                                is_current_site_provisional)
-from services.wifi_mgr import get_ap_config
 
 logger = logging.getLogger(__name__)
 
@@ -76,7 +75,6 @@ class StatusReporter(threading.Thread):
         gsm = get_gsm_info() if net['wwan0']['active'] else {}
         site_name = get_current_site_name()
         is_prov = is_current_site_provisional()
-        ap_config = get_ap_config()
 
         # Données Système
         system_data = {
@@ -109,8 +107,6 @@ class StatusReporter(threading.Thread):
         services_data = {
             "ipscan_running": is_ipscan_running(),
             "ipscan_last_at": ipscan_info.get("scanned_at", ""),
-            "wifi_ap_ssid": ap_config["ssid"],
-            "wifi_ap_pass": ap_config["password"]
         }
         mqtt_client.publish("rpinode/status/services", services_data)
 

@@ -9,8 +9,10 @@ port série physique ou un TTY local.
 
 Ce mécanisme est indépendant de l'application Python `rpinode` : il fonctionne
 même si le serveur web/`src/main.py` est arrêté ou plante. C'est un complément
-au mode secours WiFi (`RPIRESCUE` / AP `RPINODE-<hostname>`, voir
-`src/core/wifi.md`), pas un remplacement.
+au mode secours WiFi (`RPIRESCUE`, voir `src/core/wifi.md`), pas un
+remplacement. Depuis la suppression du point d'accès WiFi (2026-10-27), c'est
+le seul accès sur place quand ni la 4G, ni le WiFi du chantier, ni
+`RPIRESCUE` ne sont disponibles.
 
 ## Architecture
 
@@ -83,10 +85,8 @@ sudo sdptool records local | grep -A6 "Serial Port"
 ## ⚠️ Implications de sécurité — à valider avant déploiement flotte
 
 - **Le pairing est "Just Works"** : n'importe quel appareil à portée Bluetooth
-  (~10 m) peut s'appairer sans code secret, exactement comme le point d'accès
-  WiFi de secours est protégé uniquement par un mot de passe partagé
-  (`deltathermic`). Ici, il n'y a même pas ce mot de passe au niveau de
-  l'appairage : **la seule barrière réelle est le login système** (utilisateur
+  (~10 m) peut s'appairer sans code secret : il n'y a aucun mot de passe au
+  niveau de l'appairage : **la seule barrière réelle est le login système** (utilisateur
   + mot de passe Unix).
 - Le compte `root` est verrouillé (`passwd -S root` → `L`) sur les boîtiers
   actuels : une tentative de login `root` échouera même via ce canal.

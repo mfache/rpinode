@@ -9,7 +9,6 @@ class TestStatusReporter(unittest.TestCase):
     @patch("src.services.reporter.get_gsm_info")
     @patch("src.services.reporter.get_current_site_name")
     @patch("src.services.reporter.is_current_site_provisional")
-    @patch("src.services.reporter.get_ap_config")
     @patch("src.services.reporter.get_sys")
     @patch("src.services.reporter.load_ipscan_results")
     @patch("src.services.reporter.is_ipscan_running")
@@ -18,7 +17,6 @@ class TestStatusReporter(unittest.TestCase):
         mock_ipscan_running,
         mock_load_ipscan,
         mock_get_sys,
-        mock_get_ap,
         mock_is_prov,
         mock_get_site_name,
         mock_get_gsm,
@@ -28,7 +26,6 @@ class TestStatusReporter(unittest.TestCase):
         mock_ipscan_running.return_value = False
         mock_load_ipscan.return_value = {"scanned_at": "2026-09-05 12:00:00"}
         mock_get_sys.return_value = "45.0"
-        mock_get_ap.return_value = {"ssid": "RPINODE-TEST", "password": "secretpassword"}
         mock_is_prov.return_value = False
         mock_get_site_name.return_value = "Chantier Test"
         mock_get_gsm.return_value = {"mcc": "208", "mnc": "10", "enodeb": "12345"}

@@ -8,7 +8,6 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).parent.parent / "src"))
 
 from core.database import get_db_connection
-from services.wifi_mgr import get_ap_config
 
 def clear_screen():
     print("\033[2J\033[H", end="")
@@ -42,13 +41,11 @@ def main_menu():
     while True:
         clear_screen()
         site_name = get_current_site_info()
-        ap_info = get_ap_config()
         
         print("=" * 60)
         print("   RPINODE - TERMINAL DE SECURITE / MAINTENANCE (ASCII)")
         print("=" * 60)
         print(f" [ Chantier actuel  ] {site_name}")
-        print(f" [ WiFi Secours (AP)] SSID: {ap_info.get('ssid')} | Pass: {ap_info.get('password')}")
         print("-" * 60)
         print("  1. Afficher l'etat des interfaces reseau (IPs)")
         print("  2. Lancer un test de connexion (ping 8.8.8.8)")
