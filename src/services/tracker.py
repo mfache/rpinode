@@ -167,6 +167,13 @@ def start_tracker(interval=30):
             check_and_update_site()
         except Exception as e:
             logger.exception(f"Erreur dans le tracker de localisation : {e}")
+        # Routes des raccourcis : suit les changements de chantier, et retente
+        # si docs n'a pas pu les approuver (sans effet si rien n'a changé).
+        try:
+            from services.network_config import publish_tailscale_routes
+            publish_tailscale_routes()
+        except Exception as e:
+            logger.exception(f"Erreur lors de la publication des routes : {e}")
         time.sleep(interval)
 
 if __name__ == "__main__":

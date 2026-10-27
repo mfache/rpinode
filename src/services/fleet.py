@@ -357,6 +357,16 @@ class FleetClient:
         if site_hint_name:
             payload["site_hint_name"] = site_hint_name
 
+        # Raccourcis du chantier : liste complète (docs remplace la sienne),
+        # envoyée seulement quand elle a changé depuis le dernier envoi réussi.
+        try:
+            from services.shortcuts import sync_payload
+            shortcuts = sync_payload()
+            if shortcuts is not None and shortcuts != getattr(self, "_shortcuts_pushed", None):
+                payload["shortcuts"] = shortcuts
+        except Exception as e:
+            logger.debug(f"Erreur collecte des raccourcis : {e}")
+
         try:
             response = requests.post(url, json=payload, headers=self._headers(), timeout=10)
             data = response.json()
@@ -378,6 +388,9 @@ class FleetClient:
                 # revoques cote docs -- voir services/mobile_auth.py et
                 # docs/mobile/CAHIER_DES_CHARGES_APP_MOBILE.md section 5.1).
                 self._apply_mobile_access_pull(data.get("mobile_access", []))
+
+                if "shortcuts" in payload:
+                    self._shortcuts_pushed = payload["shortcuts"]
                 
                 # 3. Marquer les locales comme synchronisées
                 if dirty_annotations:

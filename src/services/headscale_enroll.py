@@ -242,20 +242,11 @@ def ensure_docs_admin_access():
 
 
 def _local_routes():
-    """Sous-réseaux locaux (eth0/wlan0) à annoncer sur Headscale, au même
-    format que services.network_config.publish_tailscale_routes()."""
-    from services.network import get_interface_status
+    """Routes à annoncer sur Headscale : celles des raccourcis du chantier
+    (même calcul que services.network_config.publish_tailscale_routes())."""
+    from services.shortcuts import current_routes
 
-    routes = []
-    for iface in ["eth0", "wlan0"]:
-        status = get_interface_status(iface)
-        if status["active"] and "/" in status["ip"]:
-            try:
-                net = ipaddress.IPv4Interface(status["ip"]).network
-                routes.append(str(net))
-            except Exception:
-                continue
-    return sorted(set(routes))
+    return current_routes()
 
 
 def ensure_headscale_enrolled():

@@ -1,0 +1,66 @@
+<section class="network-shortcuts">
+    <div class="header-with-actions">
+        <h2>Raccourcis du chantier</h2>
+    </div>
+    <p class="hint">
+        Chantier <strong>${site_name}</strong>. Chaque raccourci rend l'équipement joignable par Tailscale
+        et apparaît sur docs (page « Boîtiers ») pour les personnes qui ont accès au chantier.
+        Il s'ouvre depuis un poste équipé de Tailscale.
+    </p>
+
+    <div class="card" style="margin-bottom: 20px;">
+        <form id="shortcut-form" onsubmit="addShortcut(event)" style="display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end;">
+            <label style="flex:1; min-width:180px;">Libellé
+                <input type="text" id="shortcut-label" maxlength="64" placeholder="GTC Johnson Controls" required>
+            </label>
+            <label style="flex:2; min-width:240px;">Adresse
+                <input type="text" id="shortcut-url" maxlength="255" placeholder="https://10.103.40.7/" value="${prefill_url}" required>
+            </label>
+            <button type="submit" class="btn-primary">＋ Ajouter</button>
+        </form>
+    </div>
+
+    <table class="data-table">
+        <thead><tr><th>Libellé</th><th>Adresse</th><th></th></tr></thead>
+        <tbody>${rows}</tbody>
+    </table>
+</section>
+
+<script>
+    const baseUrl = window.CONFIG?.baseUrl || '';
+
+    async function postShortcut(path, body) {
+        const url = (baseUrl + path).replace(/\/+/g, '/');
+        const res = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+        });
+        return res.json();
+    }
+
+    async function addShortcut(event) {
+        event.preventDefault();
+        try {
+            const data = await postShortcut('/api/shortcuts/save', {
+                label: document.getElementById('shortcut-label').value,
+                url: document.getElementById('shortcut-url').value
+            });
+            if (data.status === 'ok') window.location.href = (baseUrl + '/network/shortcuts').replace(/\/+/g, '/');
+            else alert("Erreur : " + data.message);
+        } catch (e) {
+            alert("Erreur réseau lors de l'enregistrement");
+        }
+    }
+
+    async function deleteShortcut(id, label) {
+        if (!confirm("Supprimer le raccourci « " + label + " » ?")) return;
+        try {
+            const data = await postShortcut('/api/shortcuts/delete', { id: id });
+            if (data.status === 'ok') window.location.reload();
+            else alert("Erreur : " + data.message);
+        } catch (e) {
+            alert("Erreur réseau lors de la suppression");
+        }
+    }
+</script>

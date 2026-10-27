@@ -213,6 +213,8 @@ class WebAdminHandler(BaseHTTPRequestHandler):
             return self.serve_network_overview()
         elif path == "/network/interfaces":
             return self.serve_network_interfaces()
+        elif path == "/network/shortcuts":
+            return self.serve_network_shortcuts(query)
         elif path == "/modbus/devices":
             return self.serve_modbus_devices()
         elif path == "/modbus/suivi":
@@ -356,6 +358,10 @@ class WebAdminHandler(BaseHTTPRequestHandler):
             self.handle_column_delete()
         elif path == "/api/network/profile/save":
             self.handle_network_profile_save()
+        elif path == "/api/shortcuts/save":
+            self.handle_shortcut_save()
+        elif path == "/api/shortcuts/delete":
+            self.handle_shortcut_delete()
         elif path == "/api/fleet/register":
             self.handle_fleet_register()
         elif path == "/api/scan/ip/start":
@@ -519,6 +525,74 @@ class WebAdminHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.end_headers()
         self.wfile.write(final_html.encode("utf-8"))
+
+    def serve_network_shortcuts(self, query):
+        """Raccourcis du chantier courant (services/shortcuts.py)."""
+        from services.presence import get_current_site_id, get_current_site_name
+        from services.shortcuts import list_shortcuts
+
+        config = load_config()
+        base_url = self._base_url(config)
+        hostname = socket.gethostname()
+        version = str(int(time.time()))
+
+        rows = ""
+        for s in list_shortcuts(get_current_site_id()):
+            label, url = escape(s["label"]), escape(s["url"])
+            rows += (f"<tr><td>{label}</td><td><a href='{url}' target='_blank' rel='noopener'>{url}</a></td>"
+                     f"<td style='text-align:center;'><button class='btn-icon-sm' title='Supprimer' data-label='{label}' "
+                     f"onclick=\"deleteShortcut({int(s['id'])}, this.dataset.label)\">🗑️</button></td></tr>")
+        if not rows:
+            rows = "<tr><td colspan='3' style='text-align:center; padding: 30px; color: #999;'>Aucun raccourci.</td></tr>"
+
+        content = render("network_shortcuts.html", site_name=escape(get_current_site_name()), rows=rows,
+                         prefill_url=escape(query.get("url", [""])[0]))
+        nav_html = render("nav.html", base_url=base_url)
+        final_html = render("layout.html", user_name=escape(self._user_name()), title="Raccourcis", hostname=escape(hostname), base_url=escape(base_url), version=version, nav=nav_html, content=content)
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.end_headers()
+        self.wfile.write(final_html.encode("utf-8"))
+
+    def _shortcut_request(self):
+        """Corps JSON d'une requête sur les raccourcis, et chantier courant."""
+        from services.presence import get_current_site_id
+        content_length = int(self.headers.get("Content-Length", 0))
+        params = json.loads(self.rfile.read(content_length) or b"{}")
+        return params, get_current_site_id()
+
+    @staticmethod
+    def _publish_routes_in_background():
+        import threading
+        from services.network_config import publish_tailscale_routes
+        threading.Thread(target=publish_tailscale_routes, daemon=True).start()
+
+    def handle_shortcut_save(self):
+        try:
+            params, site_id = self._shortcut_request()
+            if not site_id:
+                return self.send_json({"status": "error", "message": "Aucun chantier actif"})
+            from services.shortcuts import add_shortcut
+            add_shortcut(site_id, params.get("label"), params.get("url"))
+            self._publish_routes_in_background()
+            self.send_json({"status": "ok", "message": "Raccourci enregistré"})
+        except ValueError as e:
+            self.send_json({"status": "error", "message": str(e)})
+        except Exception as e:
+            logger.error(f"Erreur enregistrement raccourci : {e}")
+            self.send_json({"status": "error", "message": str(e)})
+
+    def handle_shortcut_delete(self):
+        try:
+            params, site_id = self._shortcut_request()
+            from services.shortcuts import delete_shortcut
+            if not site_id or not delete_shortcut(site_id, int(params.get("id", 0))):
+                return self.send_json({"status": "error", "message": "Raccourci introuvable"})
+            self._publish_routes_in_background()
+            self.send_json({"status": "ok", "message": "Raccourci supprimé"})
+        except Exception as e:
+            logger.error(f"Erreur suppression raccourci : {e}")
+            self.send_json({"status": "error", "message": str(e)})
 
     def serve_network_interfaces(self):
         config = load_config()
@@ -2385,8 +2459,8 @@ class WebAdminHandler(BaseHTTPRequestHandler):
                         if d.get("bacnet_name") and d.get("bacnet_name") != "Automate BACnet": bacnet_info.append(d["bacnet_name"])
                         info_str = f" <small style='color:#e67e22'>({', '.join(bacnet_info)})</small>" if bacnet_info else ""
                         formatted_ports.append(f"<a href='{base_url}/bacnet/tools?ip={d['ip']}{inst_param}' style='color: #e67e22; font-weight: bold;'>47808 (BACnet)</a>{info_str}")
-                    elif p == 80: formatted_ports.append(f"<a href='http://{d['ip']}' target='_blank' style='color: #3498db;'>80</a>")
-                    elif p == 443: formatted_ports.append(f"<a href='https://{d['ip']}' target='_blank' style='color: #9b59b6;'>443</a>")
+                    elif p == 80: formatted_ports.append(f"<a href='http://{d['ip']}' target='_blank' style='color: #3498db;'>80</a> <a href='{base_url}/network/shortcuts?url=http://{d['ip']}/' title='Créer un raccourci sur docs'>＋</a>")
+                    elif p == 443: formatted_ports.append(f"<a href='https://{d['ip']}' target='_blank' style='color: #9b59b6;'>443</a> <a href='{base_url}/network/shortcuts?url=https://{d['ip']}/' title='Créer un raccourci sur docs'>＋</a>")
                     else: formatted_ports.append(str(p))
                 ports_str = ", ".join(formatted_ports) if formatted_ports else "<span style='opacity:0.4;'>Aucun</span>"
                 annots = d.get("annotations_json")

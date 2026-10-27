@@ -61,6 +61,17 @@ CREATE TABLE IF NOT EXISTS node_presence (
     FOREIGN KEY (site_id) REFERENCES sites(id) ON DELETE CASCADE
 );
 
+-- Raccourcis du chantier : adresses web d'équipements du LAN (GTC…), routées
+-- en /32 sur Tailscale et affichées sur docs (voir services/shortcuts.py).
+CREATE TABLE IF NOT EXISTS site_shortcuts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    site_id INTEGER NOT NULL,
+    label TEXT NOT NULL,
+    url TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (site_id) REFERENCES sites(id) ON DELETE CASCADE
+);
+
 -- Profils réseau (IP fixe ou DHCP) associés à un chantier.
 -- Permet de restaurer la configuration IP lors d'un déplacement.
 CREATE TABLE IF NOT EXISTS site_network_profiles (

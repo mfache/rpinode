@@ -47,40 +47,43 @@ def apply_site_network_profiles(site_id):
         logger.info(f"Pas de profil spécifique pour eth0 sur le site {site_id}. Reset en DHCP.")
         _apply_eth0_profile("auto", None, None, None)
 
-def publish_tailscale_routes():
-    """Publie les réseaux locaux sur Headscale pour l'accès distant."""
-    import ipaddress
+# Dernier ensemble de routes publié avec succès (None : rien encore publié).
+_routes_publiees = None
 
-    from services.network import get_interface_status
-    
-    routes = []
-    for iface in ["eth0", "wlan0"]:
-        status = get_interface_status(iface)
-        if status["active"] and "/" in status["ip"]:
-            try:
-                # On extrait le réseau correspondant à l'IP
-                net = ipaddress.IPv4Interface(status["ip"]).network
-                routes.append(str(net))
-            except Exception:
-                continue
-    
-    if routes:
-        routes_str = ",".join(set(routes))
-        logger.info(f"Publication des routes sur Headscale : {routes_str}")
-        subprocess.run(f"sudo tailscale set --advertise-routes={routes_str}", shell=True)
 
-        # Si l'appareil est rattache a Headscale, les nouvelles routes
-        # annoncees doivent aussi etre approuvees cote serveur (Headscale ne
-        # les route pas tant qu'elles ne sont pas explicitement approuvees,
-        # contrairement au SaaS Tailscale). Sans effet si l'appareil n'est
-        # pas (encore) sur Headscale, ou si le noeud n'existe pas encore.
-        try:
-            from services.headscale_enroll import is_headscale_active
-            if is_headscale_active():
-                from services.fleet import fleet
-                fleet.headscale_sync_routes(sorted(set(routes)))
-        except Exception as e:
-            logger.debug(f"Synchronisation des routes Headscale ignoree : {e}")
+def publish_tailscale_routes(force=False):
+    """Annonce sur Headscale les routes /32 des raccourcis du chantier courant
+    (services/shortcuts.py) : seuls ces équipements du LAN sont joignables par
+    Tailscale, pas les réseaux entiers. Appelée au démarrage, à chaque
+    modification des raccourcis et à chaque passage du tracker ; ne fait rien
+    si les routes n'ont pas changé depuis la dernière publication réussie."""
+    global _routes_publiees
+    from services.shortcuts import current_routes
+
+    routes = current_routes()
+    if routes == _routes_publiees and not force:
+        return
+
+    logger.info(f"Publication des routes sur Headscale : {','.join(routes) or 'aucune'}")
+    res = subprocess.run(["sudo", "tailscale", "set", f"--advertise-routes={','.join(routes)}"],
+                         capture_output=True, text=True, timeout=15)
+    if res.returncode != 0:
+        logger.error(f"tailscale set --advertise-routes a échoué : {res.stderr.strip()}")
+        return
+
+    # Headscale ne route pas une route annoncée tant qu'elle n'est pas
+    # approuvée côté serveur (contrairement au SaaS Tailscale) : docs
+    # l'approuve. En cas d'échec, on retentera au prochain passage.
+    try:
+        from services.headscale_enroll import is_headscale_active
+        if is_headscale_active():
+            from services.fleet import fleet
+            if not fleet.headscale_sync_routes(routes):
+                return
+    except Exception as e:
+        logger.debug(f"Synchronisation des routes Headscale ignoree : {e}")
+        return
+    _routes_publiees = routes
 
 def _apply_eth0_profile(method, addresses, gateway, dhcp_range=None):
     """Applique la config sur eth0 via nmcli."""
