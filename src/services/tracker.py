@@ -5,7 +5,7 @@ from core.database import get_db_connection
 from services.fleet import fleet
 from services.gsm import get_gsm_info
 from services.network_config import apply_site_network_profiles
-from services.presence import (get_current_site_name,
+from services.presence import (get_current_site_name, get_forced_site,
                                is_current_site_provisional,
                                label_current_location)
 
@@ -69,6 +69,16 @@ def check_and_update_site():
     current_site = get_current_site_name()
     current_is_prov = is_current_site_provisional()
     local_site = _find_local_site_for_gsm(gsm)
+
+    # 0. Chantier forcé à la main : la 4G et le serveur ne le remplacent pas ;
+    # on continue la synchro (annotations) en l'annonçant au serveur.
+    forced = get_forced_site()
+    if forced:
+        if fleet.is_registered():
+            fleet.sync_location(gsm, site_hint_name=forced["name"])
+        if forced["name"] != current_site:
+            label_current_location(forced["name"], external_id=forced.get("external_id"))
+        return
 
     # 1. Synchronisation systématique avec le serveur maître si enregistré
     # Même sans GSM, cela permet de tirer les annotations et de pousser les découvertes IP.

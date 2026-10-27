@@ -4,7 +4,7 @@ import os
 import socket
 
 from core.database import get_db_connection
-from core.paths import BOOT_ID_FILE, CURRENT_SITE_FILE
+from core.paths import BOOT_ID_FILE, CURRENT_SITE_FILE, FORCED_SITE_FILE
 from services.gsm import get_gsm_info
 
 logger = logging.getLogger(__name__)
@@ -17,14 +17,50 @@ def _boot_id():
         return None
 
 
+def get_forced_site():
+    """Chantier forcé à la main ({"name", "external_id"}), ou None s'il n'y en a pas."""
+    try:
+        data = json.loads(FORCED_SITE_FILE.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return data if isinstance(data, dict) and data.get("name") else None
+
+
+def force_site(site_name):
+    """
+    Force le boîtier sur un chantier, y compris après un redémarrage, tant que
+    release_forced_site() n'a pas été appelé. Sert quand la 4G ne peut pas
+    localiser le boîtier. Reprend l'external_id du chantier local de même nom.
+    """
+    with get_db_connection() as conn:
+        row = conn.execute("SELECT external_id FROM sites WHERE name = ?", (site_name,)).fetchone()
+    external_id = row["external_id"] if row else None
+    FORCED_SITE_FILE.write_text(json.dumps({"name": site_name, "external_id": external_id}), encoding="utf-8")
+    logger.info(f"Chantier forcé : '{site_name}' (external_id={external_id})")
+    return label_current_location(site_name, external_id=external_id)
+
+
+def release_forced_site():
+    """Supprime le chantier forcé : la localisation automatique reprend la main."""
+    FORCED_SITE_FILE.unlink(missing_ok=True)
+    logger.info("Chantier forcé supprimé, retour à la localisation automatique.")
+
+
 def clear_current_location_if_new_boot():
     """
     Au lancement de rpinode : efface le chantier courant seulement après un vrai
     redémarrage du boîtier (identifiant de boot différent de celui enregistré
     avec le chantier, ou absent). Une simple relance de l'interface (« Relancer
     Interface », ./run.sh) conserve le chantier : le boîtier n'a pas pu être
-    déplacé entre-temps. Retourne True si le chantier a été effacé.
+    déplacé entre-temps. Un chantier forcé (force_site) est rétabli au lieu
+    d'être effacé. Retourne True si le chantier a été effacé.
     """
+    forced = get_forced_site()
+    if forced:
+        logger.info(f"Chantier forcé '{forced['name']}' rétabli au démarrage.")
+        label_current_location(forced["name"], external_id=forced.get("external_id"))
+        return False
+
     boot_actuel = _boot_id()
     if boot_actuel and CURRENT_SITE_FILE.exists():
         try:
@@ -257,8 +293,14 @@ def is_current_site_provisional():
 
 if __name__ == "__main__":
     import sys
-    if len(sys.argv) > 1:
-        logging.basicConfig(level=logging.INFO)
+    logging.basicConfig(level=logging.INFO)
+    if len(sys.argv) > 2 and sys.argv[1] == "--forcer":
+        force_site(sys.argv[2])
+    elif len(sys.argv) > 1 and sys.argv[1] == "--liberer":
+        release_forced_site()
+    elif len(sys.argv) > 1:
         label_current_location(sys.argv[1])
     else:
-        print("Usage: python3 presence.py 'NOM_DU_CHANTIER'")
+        print("Usage: python3 presence.py 'NOM_DU_CHANTIER'\n"
+              "       python3 presence.py --forcer 'NOM_DU_CHANTIER'   (persiste après un redémarrage)\n"
+              "       python3 presence.py --liberer")

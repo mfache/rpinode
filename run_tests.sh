@@ -14,8 +14,9 @@ export PYTHONPATH=$PYTHONPATH:$(pwd)/src
 # savoir sur quel chantier se trouve le boîtier, ce qui pourrait polluer des
 # enregistrements en cours si les tests sont lancés sur un boîtier en service.
 export RPINODE_CURRENT_SITE_FILE="$(mktemp -u /tmp/rpinode_test_current_site.XXXXXX.json)"
+export RPINODE_FORCED_SITE_FILE="$(mktemp -u /tmp/rpinode_test_forced_site.XXXXXX.json)"
 cleanup_test_site_file() {
-    rm -f "$RPINODE_CURRENT_SITE_FILE"
+    rm -f "$RPINODE_CURRENT_SITE_FILE" "$RPINODE_FORCED_SITE_FILE"
 }
 trap cleanup_test_site_file EXIT
 

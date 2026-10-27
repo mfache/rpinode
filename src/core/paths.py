@@ -25,6 +25,11 @@ IPSCAN_RUNNING_FILE = DATA_DIR / "ip_last_scan.json.running"
 # chantier de test et de polluer des enregistrements BACnet/Modbus en cours).
 CURRENT_SITE_FILE = Path(os.environ.get("RPINODE_CURRENT_SITE_FILE") or "/tmp/rpinode_current_site.json")
 
+# Chantier forcé à la main (persistant, survit aux redémarrages) : tant qu'il
+# existe, ni la 4G ni le serveur ne changent le chantier courant. Redirigé par
+# run_tests.sh via RPINODE_FORCED_SITE_FILE, comme CURRENT_SITE_FILE.
+FORCED_SITE_FILE = Path(os.environ.get("RPINODE_FORCED_SITE_FILE") or DATA_DIR / "forced_site.json")
+
 # Identifiant du démarrage en cours du système (change à chaque boot) : permet
 # de distinguer un vrai redémarrage du boîtier d'une simple relance de rpinode.
 BOOT_ID_FILE = Path("/proc/sys/kernel/random/boot_id")
