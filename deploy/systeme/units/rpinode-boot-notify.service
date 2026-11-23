@@ -1,0 +1,14 @@
+[Unit]
+Description=Notification ntfy de demarrage du boitier
+After=tailscaled.service ModemManager.service rpinode.service NetworkManager-wait-online.service rpinode-watchdog.timer
+Wants=NetworkManager-wait-online.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# Petit delai pour laisser le dispatcher NM faire son test ping initial
+ExecStartPre=/bin/sleep 15
+ExecStart=/usr/local/bin/rpinode-boot-notify
+
+[Install]
+WantedBy=multi-user.target

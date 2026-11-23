@@ -1,0 +1,20 @@
+[Unit]
+Description=Service Principal rpinode (Supervision, API & WebAdmin)
+After=network.target tailscaled.service NetworkManager.service
+Wants=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/home/marc/rpinode
+Environment="PYTHONPATH=/home/marc/rpinode/src"
+ExecStartPre=/bin/mkdir -p /tmp/rpinode/log
+ExecStartPre=/bin/chmod 777 /tmp/rpinode/log
+ExecStart=/usr/bin/python3 -u /home/marc/rpinode/src/main.py
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

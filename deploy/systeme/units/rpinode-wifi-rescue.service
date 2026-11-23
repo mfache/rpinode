@@ -1,0 +1,7 @@
+[Unit]
+Description=Bascule WiFi de secours du boitier (RPIRESCUE)
+After=NetworkManager.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/rpinode-wifi-rescue

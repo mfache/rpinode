@@ -1,0 +1,7 @@
+[Unit]
+Description=Watchdog 4G du boitier de telemaintenance
+After=NetworkManager.service tailscaled.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/rpinode-watchdog

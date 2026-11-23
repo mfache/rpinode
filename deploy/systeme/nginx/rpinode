@@ -1,0 +1,44 @@
+server {
+    listen 80;
+    server_name _;
+
+    location = /ca.crt {
+        alias /etc/rpinode/tls/deltathermic-ca.crt;
+        default_type application/x-x509-ca-cert;
+    }
+
+    location = /install-ca.bat {
+        alias /etc/rpinode/tls/install-ca.bat;
+        default_type application/octet-stream;
+        add_header Content-Disposition "attachment; filename=install-ca.bat";
+    }
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl;
+    http2 on;
+    server_name _;
+
+    ssl_certificate     /etc/rpinode/tls/wildcard.dt.net.crt;
+    ssl_certificate_key /etc/rpinode/tls/wildcard.dt.net.key;
+
+    location / {
+        proxy_pass http://127.0.0.1:8081;
+        proxy_http_version 1.1;
+
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # Support SSE (/api/stream, /supervisor/stream)
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+        proxy_buffering off;
+        proxy_read_timeout 3600s;
+    }
+}

@@ -1,0 +1,4 @@
+connection __NOM__-to-docs
+address 100.64.0.4:1883
+topic dt/cmd/__NOM__/# in 1 "" ""
+topic reports/sse/updates out 1 "" ""

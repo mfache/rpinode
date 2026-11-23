@@ -1,0 +1,62 @@
+#!/bin/sh
+# Outil BACnet/IP du boîtier : scan local (Who-Is) et gestion du BBMD.
+# Usage :
+#   boitier-bacnet scan [low] [high]   Découverte des équipements du segment
+#   boitier-bacnet status              État du service BBMD
+#   boitier-bacnet restart             Redémarre le BBMD (après changement d'IP eth0)
+#   boitier-bacnet info                Adresse à donner à ABT-Site (Foreign Device)
+set -eu
+
+VENV=/opt/boitier-bacnet/venv/bin/python
+DIR=/opt/boitier-bacnet
+ENVFILE=/etc/boitier/bacnet.env
+
+# Charge la config (exporte tout pour le process Python)
+set -a
+# shellcheck disable=SC1090
+[ -f "$ENVFILE" ] && . "$ENVFILE"
+set +a
+IFACE="${BACNET_IFACE:-eth0}"
+PORT="${BACNET_PORT:-47808}"
+
+cmd="${1:-}"
+[ $# -gt 0 ] && shift || true
+
+case "$cmd" in
+  scan)
+    restart_after=0
+    if systemctl is-active --quiet boitier-bbmd 2>/dev/null; then
+      echo "[boitier-bacnet] arrêt temporaire du BBMD pour libérer le port $PORT..."
+      sudo systemctl stop boitier-bbmd
+      restart_after=1
+    fi
+    # relance le BBMD quoi qu'il arrive
+    if [ "$restart_after" = "1" ]; then
+      trap 'sudo systemctl start boitier-bbmd' EXIT INT TERM
+    fi
+    sudo -E "$VENV" "$DIR/scan.py" "$@"
+    ;;
+  ip-scan)
+    sudo -E "$VENV" "$DIR/ip_scanner.py" "$@"
+    ;;
+  status)
+    systemctl status boitier-bbmd --no-pager || true
+    ;;
+  restart)
+    sudo systemctl restart boitier-bbmd
+    echo "[boitier-bacnet] BBMD redémarré."
+    ;;
+  info)
+    ip=$(ip -o -4 addr show dev "$IFACE" 2>/dev/null | grep -oE 'inet [0-9.]+' | awk '{print $2}' | head -1)
+    tsip=$(tailscale ip -4 2>/dev/null | head -1)
+    echo "Configuration à reporter dans ABT-Site / ABT-Go (connexion BACnet/IP) :"
+    echo "  Mode          : Foreign Device (BBMD registration)"
+    echo "  Adresse BBMD  : ${ip:-<eth0 sans IP>}   port ${PORT}"
+    echo "  (le poste doit router vers ce subnet via Tailscale : ${tsip:-<tailscale off>})"
+    echo "  TTL conseillé : 60 s"
+    ;;
+  *)
+    echo "Usage: boitier-bacnet {scan [low] [high]|status|restart|info}" >&2
+    exit 2
+    ;;
+esac

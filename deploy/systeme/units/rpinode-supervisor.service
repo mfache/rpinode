@@ -1,0 +1,19 @@
+[Unit]
+Description=rpinode Rust Supervisor & Live Boot Proxy
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/home/marc/rpinode
+Environment="PORT=8081"
+Environment="BACKEND_PORT=8082"
+Environment="LOG_FILE=/tmp/rpinode/log/rpinode.log"
+ExecStart=/home/marc/rpinode/supervisor/target/release/rpinode-supervisor
+Restart=always
+RestartSec=2
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

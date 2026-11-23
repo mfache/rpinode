@@ -1,0 +1,31 @@
+#!/bin/bash
+# Envoi d'une notification push via ntfy.
+# Usage : rpinode-notify <priority> <tags> <title> <message>
+#   priority : min | low | default | high | urgent
+#   tags     : emoji ntfy separes par virgule (ex: "satellite,green_circle")
+set -u
+
+[ -r /etc/rpinode/notify.env ] && . /etc/rpinode/notify.env
+
+PRIORITY="${1:-default}"
+TAGS="${2:-}"
+TITLE="${3:-Notification ${RPINODE_NAME:-boitier}}"
+MESSAGE="${4:-}"
+
+if [ -z "${NTFY_URL:-}" ]; then
+    logger -t rpinode-notify "NTFY_URL non defini, notification ignoree."
+    exit 0
+fi
+
+curl -s --max-time 10 \
+    -H "Title: ${TITLE}" \
+    -H "Priority: ${PRIORITY}" \
+    -H "Tags: ${TAGS}" \
+    -d "${MESSAGE}" \
+    "${NTFY_URL}" >/dev/null 2>&1
+RC=$?
+
+if [ $RC -ne 0 ]; then
+    logger -t rpinode-notify "Echec envoi ntfy (curl rc=$RC) : ${TITLE}"
+fi
+exit 0

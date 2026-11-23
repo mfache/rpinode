@@ -1,0 +1,14 @@
+[Unit]
+Description=Declencheur periodique de la bascule WiFi de secours (RPIRESCUE)
+
+[Timer]
+# Premier declenchement 60s apres le boot (laisse le temps a wlan0 de se stabiliser)
+OnBootSec=60s
+# Puis toutes les 30s : reactivite volontairement rapide, c'est un scenario
+# de depannage actif ou on attend une reconnexion quasi immediate.
+OnUnitActiveSec=30s
+AccuracySec=5s
+Unit=rpinode-wifi-rescue.service
+
+[Install]
+WantedBy=timers.target

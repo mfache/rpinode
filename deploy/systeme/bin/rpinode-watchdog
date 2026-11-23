@@ -1,0 +1,133 @@
+#!/bin/bash
+# Watchdog 4G : verifie periodiquement la connectivite reelle via wwan0
+# et declenche reconnexion + notifications en cas d'echec persistant.
+set -u
+
+STATE_DIR=/var/lib/rpinode
+STATE_FILE="${STATE_DIR}/watchdog.state"
+mkdir -p "${STATE_DIR}"
+
+[ -r /etc/rpinode/notify.env ] && . /etc/rpinode/notify.env
+NAME="${RPINODE_NAME:-$(hostname)}"
+
+LAST_FAILS=$(cat "${STATE_FILE}" 2>/dev/null || echo 0)
+[ -z "${LAST_FAILS}" ] && LAST_FAILS=0
+
+# Test : ping 8.8.8.8 puis 1.1.1.1 via wwan0 (cible double, ICMP autorise sur Proximus)
+ping_test() {
+    ping -I wwan0 -c 2 -W 3 8.8.8.8 >/dev/null 2>&1 && return 0
+    ping -I wwan0 -c 2 -W 3 1.1.1.1 >/dev/null 2>&1 && return 0
+    return 1
+}
+
+# Retrouve l'identifiant bus USB (ex: "1-1.4") du modem a partir de l'interface
+# reseau wwan0, sans dependre d'un chemin materiel fige (peut varier selon le
+# boitier ou le port USB utilise).
+find_modem_usb_id() {
+    local dev_path
+    dev_path=$(readlink -f /sys/class/net/wwan0/device 2>/dev/null) || return 1
+    [ -n "${dev_path}" ] || return 1
+    basename "$(dirname "${dev_path}")"
+}
+
+# Reset USB "logiciel" du modem (unbind puis bind du peripherique complet),
+# equivalent a un debranchement/rebranchement physique. Necessaire quand le
+# modem cesse de repondre au niveau USB (frequent sur ces cles 4G : plus aucune
+# reponse AT/QMI tant qu'il n'est pas reinitialise au niveau materiel) - un
+# simple "systemctl restart ModemManager" ne suffit pas dans ce cas, MM ne fait
+# que re-essayer de dialoguer avec un peripherique toujours bloque. L'acces a
+# distance du boitier (Tailscale via 4G) depend de cette recuperation : sans
+# elle, un modem bloque au niveau USB reste HS jusqu'a une intervention
+# physique sur place.
+usb_reset_modem() {
+    local usb_id
+    usb_id=$(find_modem_usb_id)
+    if [ -z "${usb_id}" ]; then
+        logger -t rpinode-watchdog "Reset USB impossible : peripherique wwan0 introuvable"
+        return 1
+    fi
+    logger -t rpinode-watchdog "Reset USB du modem (${usb_id})..."
+    systemctl stop ModemManager >/dev/null 2>&1
+    sleep 2
+    echo -n "${usb_id}" > /sys/bus/usb/drivers/usb/unbind 2>/dev/null
+    sleep 3
+    echo -n "${usb_id}" > /sys/bus/usb/drivers/usb/bind 2>/dev/null
+    sleep 5
+    systemctl start ModemManager >/dev/null 2>&1
+    sleep 10
+    nmcli con up proximus-4g >/dev/null 2>&1
+}
+
+if ping_test; then
+    # OK : si on revenait d'un incident notifie, on previent du retour a la normale
+    if [ "${LAST_FAILS}" -ge 3 ]; then
+        IP=$(ip -4 addr show wwan0 2>/dev/null | awk '/inet / {print $2}' | head -1)
+        rpinode-notify default "green_heart,satellite" \
+            "${NAME} : 4G retablie" \
+            "Connectivite restauree apres ${LAST_FAILS} echecs. IP: ${IP:-?}"
+        logger -t rpinode-watchdog "4G retablie apres ${LAST_FAILS} echecs"
+    fi
+    echo 0 > "${STATE_FILE}"
+    exit 0
+fi
+
+# Echec
+NEW_FAILS=$((LAST_FAILS + 1))
+echo "${NEW_FAILS}" > "${STATE_FILE}"
+logger -t rpinode-watchdog "Ping wwan0 echec (${NEW_FAILS} consecutifs)"
+
+case ${NEW_FAILS} in
+    1|2)
+        # Tolerance : blip transitoire, on attend
+        ;;
+    3)
+        # 6 minutes d'echec : reconnexion 4G
+        logger -t rpinode-watchdog "Reconnexion proximus-4g..."
+        rpinode-notify high "warning,satellite" \
+            "${NAME} : 4G perdue" \
+            "3 echecs consecutifs (~6 min). Tentative de reconnexion automatique."
+        nmcli con down proximus-4g >/dev/null 2>&1
+        sleep 3
+        nmcli con up proximus-4g >/dev/null 2>&1
+        ;;
+    6)
+        # 12 minutes : reset complet ModemManager
+        logger -t rpinode-watchdog "Reset complet du modem..."
+        rpinode-notify urgent "rotating_light,satellite" \
+            "${NAME} : 4G TOUJOURS HS" \
+            "6 echecs consecutifs (~12 min) malgre reconnexion. Reset du ModemManager."
+        systemctl restart ModemManager
+        sleep 15
+        nmcli con up proximus-4g >/dev/null 2>&1
+        ;;
+    9)
+        # 18 minutes : le restart ModemManager n'a pas suffi. Le modem est
+        # probablement bloque au niveau USB : on force un reset materiel
+        # (unbind/bind), cf. usb_reset_modem.
+        logger -t rpinode-watchdog "ModemManager insuffisant, reset USB du modem..."
+        rpinode-notify urgent "rotating_light,satellite" \
+            "${NAME} : 4G TOUJOURS HS" \
+            "9 echecs consecutifs (~18 min). Reset USB du modem en cours."
+        usb_reset_modem
+        ;;
+    *)
+        # Au-dela : on retente un reset USB toutes les 15 verifications
+        # (~30 min) tant que la 4G ne revient pas - important pour ne pas
+        # rester bloque indefiniment sur un modem HS (acces a distance du
+        # boitier). A defaut (multiples de 10 uniquement), on se contente
+        # de repeter la notification urgente, sans nouvelle tentative.
+        if [ $(( NEW_FAILS % 15 )) -eq 0 ]; then
+            logger -t rpinode-watchdog "4G toujours HS, nouvelle tentative de reset USB..."
+            rpinode-notify urgent "rotating_light" \
+                "${NAME} : 4G HS persistant" \
+                "${NEW_FAILS} echecs consecutifs. Nouvelle tentative de reset USB du modem."
+            usb_reset_modem
+        elif [ $(( NEW_FAILS % 10 )) -eq 0 ]; then
+            rpinode-notify urgent "rotating_light" \
+                "${NAME} : 4G HS persistant" \
+                "${NEW_FAILS} echecs consecutifs depuis le debut de l'incident."
+        fi
+        ;;
+esac
+
+exit 0

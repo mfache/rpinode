@@ -1,0 +1,53 @@
+#!/bin/bash
+# Envoye une notification de "boot termine" : une fois par demarrage,
+# avec un recap complet de l'etat du boitier.
+set -u
+
+[ -r /etc/rpinode/notify.env ] && . /etc/rpinode/notify.env
+NAME="${RPINODE_NAME:-$(hostname)}"
+
+# Attente : jusqu'a 60s que le watchdog dise que tout va bien (state = 0)
+# Le dispatcher 4G ayant deja teste le ping, c'est rapide en general.
+for i in $(seq 1 30); do
+    STATE=$(cat /var/lib/rpinode/watchdog.state 2>/dev/null || echo "?")
+    if [ "$STATE" = "0" ]; then
+        break
+    fi
+    sleep 2
+done
+
+# Collecte de l'etat systeme
+UPTIME=$(uptime -p 2>/dev/null | sed 's/^up //')
+WWAN_IP=$(ip -4 addr show wwan0 2>/dev/null | awk '/inet / {print $2}' | head -1)
+ETH_IP=$(ip -4 addr show eth0 2>/dev/null | awk '/inet / {print $2}' | head -1)
+TS_IP=$(tailscale ip -4 2>/dev/null | head -1)
+SIGNAL=$(mmcli -m 0 2>/dev/null | awk -F': +' '/signal quality:/ {print $2}' | head -1)
+OPERATOR=$(mmcli -m 0 2>/dev/null | awk -F': +' '/operator name:/ {print $2}' | head -1 | tr -d "'")
+WATCHDOG_STATE=$(cat /var/lib/rpinode/watchdog.state 2>/dev/null || echo "?")
+
+# Selon l'etat watchdog, on adapte le ton de la notif
+if [ "${WATCHDOG_STATE}" = "0" ]; then
+    PRIORITY="default"
+    TAGS="white_check_mark,rocket"
+    STATUS_LINE="✅ 4G operationnelle (ping OK)"
+else
+    PRIORITY="high"
+    TAGS="warning,rocket"
+    STATUS_LINE="⚠️ 4G non confirmee (watchdog state=${WATCHDOG_STATE})"
+fi
+
+MSG="${STATUS_LINE}
+
+📡 4G    : ${WWAN_IP:-aucune} (${OPERATOR:-?}, signal ${SIGNAL:-?})
+🔌 Eth0  : ${ETH_IP:-non branche}
+🌐 TS    : ${TS_IP:-?}
+⏱  Uptime: ${UPTIME:-?}
+
+URL admin : https://${NAME}.tailb49c55.ts.net"
+
+/usr/local/bin/rpinode-notify "${PRIORITY}" "${TAGS}" \
+    "${NAME} : boitier demarre" \
+    "${MSG}"
+
+logger -t rpinode-boot-notify "Notification de boot envoyee (state=${WATCHDOG_STATE})"
+exit 0

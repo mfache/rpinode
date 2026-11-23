@@ -1,0 +1,13 @@
+[Unit]
+Description=Declencheur periodique du watchdog 4G
+
+[Timer]
+# Premier declenchement 90s apres le boot (laisse le temps a la 4G de monter)
+OnBootSec=90s
+# Puis toutes les 2 minutes
+OnUnitActiveSec=2min
+AccuracySec=10s
+Unit=rpinode-watchdog.service
+
+[Install]
+WantedBy=timers.target

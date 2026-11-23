@@ -1,0 +1,57 @@
+#!/bin/bash
+# Bascule WiFi de secours : si le SSID RPIRESCUE est visible et que wlan0 n'y
+# est pas deja connecte, force la connexion (nmcli con up rpirescue), meme si
+# wlan0 etait deja occupe par un autre reseau (WiFi chantier). Permet de
+# joindre le boitier en SSH sur wlan0 quand la 4G/Tailscale est down, en
+# allumant simplement un point d'acces "RPIRESCUE" a proximite (mot de passe
+# fige, partage sur toute la flotte - cf. README).
+set -u
+
+STATE_DIR=/var/lib/rpinode
+STATE_FILE="${STATE_DIR}/wifi_rescue.state"
+mkdir -p "${STATE_DIR}"
+
+[ -r /etc/rpinode/notify.env ] && . /etc/rpinode/notify.env
+NAME="${RPINODE_NAME:-$(hostname)}"
+
+LAST_STATE=$(cat "${STATE_FILE}" 2>/dev/null || echo "absent")
+
+CURRENT_CON=$(nmcli -t -f DEVICE,CONNECTION dev status 2>/dev/null | grep '^wlan0:' | cut -d: -f2)
+
+if [ "${CURRENT_CON}" = "rpirescue" ]; then
+    # Deja connecte : rien a faire. Notifie une seule fois au moment de la
+    # bascule (voir plus bas), pas a chaque passage du timer.
+    echo "connected" > "${STATE_FILE}"
+    exit 0
+fi
+
+# RPIRESCUE visible aux alentours ?
+VISIBLE=$(nmcli -t -f SSID dev wifi list --rescan yes 2>/dev/null | grep -x "RPIRESCUE")
+
+if [ -z "${VISIBLE}" ]; then
+    echo "absent" > "${STATE_FILE}"
+    exit 0
+fi
+
+logger -t rpinode-wifi-rescue "RPIRESCUE visible, wlan0 sur '${CURRENT_CON:-aucune}' -> bascule forcee"
+nmcli con up rpirescue >/dev/null 2>&1
+RC=$?
+
+if [ ${RC} -eq 0 ]; then
+    IP=$(ip -4 addr show wlan0 2>/dev/null | awk '/inet / {print $2}' | head -1)
+    logger -t rpinode-wifi-rescue "Bascule sur RPIRESCUE reussie, IP: ${IP:-?}"
+    rpinode-notify high "sos,satellite" \
+        "${NAME} : bascule sur RPIRESCUE" \
+        "Connexion WiFi de secours etablie. IP wlan0: ${IP:-?} - SSH possible sur ce reseau."
+    echo "connected" > "${STATE_FILE}"
+else
+    logger -t rpinode-wifi-rescue "Echec de bascule sur RPIRESCUE (nmcli rc=${RC})"
+    if [ "${LAST_STATE}" != "failed" ]; then
+        rpinode-notify high "warning,satellite" \
+            "${NAME} : RPIRESCUE visible mais echec de connexion" \
+            "Verifier le mot de passe ou la portee du signal."
+    fi
+    echo "failed" > "${STATE_FILE}"
+fi
+
+exit 0
