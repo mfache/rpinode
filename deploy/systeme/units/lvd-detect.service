@@ -1,0 +1,19 @@
+# Remplace /lib/systemd/system/lvd-detect.service (paquet ed-lvd, EDATEC) :
+# l'original a « After=multi-user.target » alors qu'il est « WantedBy=multi-user.target »,
+# ordre impossible qui fait que systemd ne le lance jamais en démarrage sans écran
+# (multi-user.target). Constaté sur rpi02 le 2026-11-23. lvd-detect surveille la
+# baisse de tension d'alimentation (sync, CPU au minimum) : il doit tourner.
+# Au démarrage, sa broche (extenseur GPIO ed-pca953x) n'est pas toujours prête
+# (« Not found LVD pin. ») : relance jusqu'à ce qu'elle le soit.
+[Unit]
+StartLimitIntervalSec=0
+Description="LVD detect service"
+
+[Service]
+Type=simple
+ExecStart=/opt/ed-lvd/lvd-monitor
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

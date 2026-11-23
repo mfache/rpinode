@@ -111,6 +111,14 @@ install -m 755 "$SYS"/bin/* /usr/local/bin/
 install -m 644 "$SYS"/units/*.service "$SYS"/units/*.timer /etc/systemd/system/
 install -D -m 644 "$SYS/units/tailscaled-attendre-reseau.conf" /etc/systemd/system/tailscaled.service.d/attendre-reseau.conf
 # Sans modem 4G, le watchdog 4G ne fait que constater l'absence de wwan0 : sans risque.
+# Boîtiers EDATEC : lvd-detect (baisse de tension) a un ordre impossible dans son unité
+# d'origine et ne démarre jamais sans mode graphique ; on installe une version corrigée.
+if [ -f /lib/systemd/system/lvd-detect.service ] && grep -q '^After=multi-user.target' /lib/systemd/system/lvd-detect.service; then
+    install -m 644 "$SYS/units/lvd-detect.service" /etc/systemd/system/lvd-detect.service
+    systemctl daemon-reload
+    systemctl reenable -q lvd-detect.service
+    systemctl start lvd-detect.service
+fi
 systemctl daemon-reload
 
 etape "nginx (portail HTTPS du boîtier, certificat *.dt.net)"

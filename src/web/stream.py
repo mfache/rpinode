@@ -211,7 +211,7 @@ def handle_sse_stream(handler):
     try:
         client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
     except AttributeError:
-        client = mqtt.mqtt.Client()
+        client = mqtt.Client()
 
     client.on_message = on_message
 
