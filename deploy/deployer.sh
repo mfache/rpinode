@@ -36,7 +36,7 @@ while [ $# -gt 0 ]; do
 done
 [ -n "$CIBLE" ] || { sed -n '2,20p' "$0"; exit 2; }
 
-SSH="ssh -o BatchMode=yes -o ConnectTimeout=15"
+SSH="ssh -o BatchMode=yes -o ConnectTimeout=40 -o ServerAliveInterval=15"
 KIT_DISTANT=/tmp/rpinode-deploy
 etape() { echo; echo "=== Étape $1 : $2"; }
 cible() { $SSH "$CIBLE" "$@"; }
