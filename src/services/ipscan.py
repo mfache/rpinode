@@ -83,10 +83,13 @@ def iface_ipv4(iface):
         ).decode()
     except subprocess.CalledProcessError:
         return None
-    m = re.search(r"inet (\d+\.\d+\.\d+\.\d+)/(\d+)", out)
-    if not m:
-        return None
-    return m.group(1), m.group(2)
+    # Adresse du chantier préférée à une adresse de lien local 169.254.x.x (le pont
+    # br0 garde les deux) : sinon le scan porterait sur un /16 de 65 000 adresses.
+    found = re.findall(r"inet (\d+\.\d+\.\d+\.\d+)/(\d+)", out)
+    for ip, prefix in found:
+        if not ip.startswith("169.254."):
+            return ip, prefix
+    return found[0] if found else None
 
 async def check_port(ip, port, iface=None):
     """Tente de se connecter au port TCP ou vérifie le port UDP pour BACnet."""

@@ -50,5 +50,17 @@ class TestConfig(unittest.TestCase):
         with patch("src.core.config.load_config", return_value=dict(config.DEFAULT_CONFIG, lan_default_route=True)):
             self.assertTrue(config.lan_default_route())
 
+    def test_adresse_du_chantier_preferee(self):
+        """Pont br0 : l'adresse du chantier passe avant le lien local 169.254."""
+        from unittest.mock import patch as p2
+        from src.services import ipscan
+        sortie = ("5: br0    inet 169.254.91.207/16 brd 169.254.255.255 scope link br0\n"
+                  "5: br0    inet 192.168.77.2/24 brd 192.168.77.255 scope global br0\n")
+        with p2("src.services.ipscan.subprocess.check_output", return_value=sortie.encode()):
+            self.assertEqual(ipscan.iface_ipv4("br0"), ("192.168.77.2", "24"))
+        with p2("src.services.ipscan.subprocess.check_output",
+                return_value=b"5: br0    inet 169.254.91.207/16 scope link br0\n"):
+            self.assertEqual(ipscan.iface_ipv4("br0"), ("169.254.91.207", "16"))
+
 if __name__ == '__main__':
     unittest.main()

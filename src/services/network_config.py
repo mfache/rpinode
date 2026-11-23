@@ -85,12 +85,34 @@ def publish_tailscale_routes(force=False):
         return
     _routes_publiees = routes
 
+def _nm_has_property(con_name, prop):
+    """True si cette version de NetworkManager connaît la propriété (ex. 
+    ipv4.shared-dhcp-range n'existe pas dans NM 1.42 de Bookworm, ni avant)."""
+    res = subprocess.run(["nmcli", "-g", prop, "con", "show", con_name], capture_output=True, text=True)
+    return res.returncode == 0 or "invalid field" not in (res.stderr or "")
+
+
+def _bridge_port_connections(dev, con_name):
+    """Profils NM des ports d'un pont (connection.master = interface ou profil du pont)."""
+    res = subprocess.run(["nmcli", "-t", "-f", "NAME", "con", "show"], capture_output=True, text=True)
+    ports = []
+    for name in res.stdout.splitlines():
+        name = name.replace("\\:", ":")
+        out = subprocess.run(["nmcli", "-g", "connection.master,connection.slave-type", "con", "show", name],
+                             capture_output=True, text=True).stdout.splitlines()
+        if len(out) >= 2 and out[1] == "bridge" and out[0] in (dev, con_name):
+            ports.append(name)
+    return ports
+
+
 def _apply_eth0_profile(method, addresses, gateway, dhcp_range=None):
     """Applique la config du LAN filaire (profil « eth0 » du chantier) via nmcli.
 
     L'interface réelle vient de la config (lan_interface) : eth0, ou br0 quand
-    les deux prises RJ45 sont pontées."""
-    from core.config import lan_interface, lan_connection_fallback
+    les deux prises RJ45 sont pontées. Le profil est modifié AVANT de couper la
+    connexion : si la modification échoue, le LAN reste en place."""
+    import json
+    from core.config import lan_interface, lan_connection_fallback, lan_default_route
     dev = lan_interface()
     logger.info(f"Application profil LAN {dev} ({method})")
 
@@ -100,12 +122,14 @@ def _apply_eth0_profile(method, addresses, gateway, dhcp_range=None):
     con_name = next((line.rsplit(":", 1)[0] for line in res.stdout.splitlines()
                      if line.rsplit(":", 1)[-1] == dev), "") or lan_connection_fallback()
 
+    has_dhcp_range = _nm_has_property(con_name, "ipv4.shared-dhcp-range")
+
     if method == "auto":
-        nm_cmd = f"sudo nmcli con mod '{con_name}' ipv4.method auto ipv4.addresses '' ipv4.gateway '' ipv4.shared-dhcp-range ''"
+        settings = ["ipv4.method", "auto", "ipv4.addresses", "", "ipv4.gateway", ""]
+        if has_dhcp_range:
+            settings += ["ipv4.shared-dhcp-range", ""]
     else:
-        # Nettoyage des adresses. Pour nmcli, plusieurs adresses doivent être séparées par des virgules
-        # dans une seule chaîne de caractères si on utilise 'con mod'.
-        import json
+        # Plusieurs adresses : une seule chaîne séparée par des virgules pour nmcli
         try:
             parsed = json.loads(addresses) if addresses else []
             addrs_list = parsed if isinstance(parsed, list) else [parsed]
@@ -115,57 +139,56 @@ def _apply_eth0_profile(method, addresses, gateway, dhcp_range=None):
         # Nettoyage défensif : retire les guillemets parasites et espaces qui peuvent
         # provenir d'un double encodage JSON en amont (ex. synchro flotte). Sans ce
         # nettoyage, nmcli reçoit une adresse invalide (ex: '"172.31.12.55/23"') et
-        # l'application du profil échoue silencieusement, laissant eth0 sans IP.
+        # l'application du profil échoue silencieusement, laissant le LAN sans IP.
         addrs_list = [str(a).strip().strip('"').strip("'").strip() for a in addrs_list]
         addrs_list = [a for a in addrs_list if a]
 
         addrs_nm = ",".join(addrs_list)
-        logger.info(f"Paramètres NM pour eth0: method={method}, addresses='{addrs_nm}', gateway='{gateway}', dhcp_range='{dhcp_range}'")
+        logger.info(f"Paramètres NM pour {dev}: method={method}, addresses='{addrs_nm}', gateway='{gateway}', dhcp_range='{dhcp_range}'")
 
-        nm_cmd = f"sudo nmcli con mod '{con_name}' ipv4.method {method} ipv4.addresses '{addrs_nm}'"
-        if gateway:
-            nm_cmd += f" ipv4.gateway '{gateway}'"
-        else:
-            nm_cmd += f" ipv4.gateway ''"
-            
+        settings = ["ipv4.method", method, "ipv4.addresses", addrs_nm, "ipv4.gateway", gateway or ""]
         if method == "shared":
-            if dhcp_range:
-                nm_cmd += f" ipv4.shared-dhcp-range '{dhcp_range}'"
-            else:
-                nm_cmd += f" ipv4.shared-dhcp-range ''"
-    
-    try:
-        # 0. On désactive temporairement pour que NM lâche prise
-        subprocess.run(f"sudo nmcli con down '{con_name}'", shell=True, check=False, timeout=10)
+            if has_dhcp_range:
+                settings += ["ipv4.shared-dhcp-range", dhcp_range or ""]
+            elif dhcp_range:
+                logger.warning(f"NetworkManager trop ancien pour ipv4.shared-dhcp-range : plage '{dhcp_range}' ignorée.")
 
-        # 1. On vide radicalement les adresses pour éviter que l'ancienne IP (IEJN) ne reste
-        # On le fait deux fois pour être sûr, car NM peut réagir lentement
+    # Route par défaut : par défaut le LAN du chantier n'en fournit jamais (Internet
+    # par la 4G ou le Wi-Fi, le LAN GTB ne sert qu'aux automates). Un boîtier sans
+    # carte SIM (rpi02) doit pouvoir sortir par le LAN : config lan_default_route.
+    settings += ["ipv4.never-default", "no" if lan_default_route() else "yes"]
+
+    try:
+        # 1. Modifier le profil pendant que la connexion est encore en place : une erreur
+        #    ici (propriété inconnue, adresse invalide) laisse le LAN tel quel.
+        res_mod = subprocess.run(["sudo", "nmcli", "con", "mod", con_name] + settings,
+                                 capture_output=True, text=True)
+        if res_mod.returncode != 0:
+            logger.error(f"Profil LAN {dev} non modifié (connexion conservée) : {res_mod.stderr.strip()}")
+            return
+
+        # 2. Couper pour que NM lâche l'ancienne IP, vider les adresses, relever
+        subprocess.run(["sudo", "nmcli", "con", "down", con_name], capture_output=True, timeout=10)
         logger.info(f"Flush des adresses sur {dev}...")
-        subprocess.run(["sudo", "ip", "addr", "flush", "dev", dev], check=False)
-        
-        # 2. On modifie le profil NM
-        subprocess.run(nm_cmd, shell=True, check=True)
-        
-        # 3. On tente de lever la connexion
-        # Route par défaut : par défaut le LAN du chantier n'en fournit jamais (Internet
-        # par la 4G ou le Wi-Fi, le LAN GTB ne sert qu'aux automates). Un boîtier sans
-        # carte SIM (rpi02) doit pouvoir sortir par le LAN : config lan_default_route.
-        from core.config import lan_default_route
-        never_default = "no" if lan_default_route() else "yes"
-        subprocess.run(["sudo", "nmcli", "con", "mod", con_name, "ipv4.never-default", never_default], check=True)
-        
-        res_up = subprocess.run(f"sudo nmcli con up '{con_name}'", shell=True, capture_output=True, text=True, timeout=30)
-        
-        # 4. Flush de sécurité APRES le up si il a échoué (car il a pu remettre des IPs fantômes)
+        subprocess.run(["sudo", "ip", "addr", "flush", "dev", dev], capture_output=True)
+
+        res_up = subprocess.run(["sudo", "nmcli", "con", "up", con_name], capture_output=True, text=True, timeout=30)
+
+        # 3. Pont (deux prises RJ45) : couper le pont supprime br0 et détache ses
+        #    ports ; on relève leurs profils.
+        for port in _bridge_port_connections(dev, con_name):
+            subprocess.run(["sudo", "nmcli", "con", "up", port], capture_output=True, timeout=30)
+
+        # 4. Flush de sécurité APRES le up s'il a échoué (il a pu remettre des IP fantômes)
         if res_up.returncode != 0:
-            subprocess.run(["sudo", "ip", "addr", "flush", "dev", dev], check=False)
+            subprocess.run(["sudo", "ip", "addr", "flush", "dev", dev], capture_output=True)
             if "no suitable device" in res_up.stderr.lower() or "no carrier" in res_up.stderr.lower():
                 logger.info(f"{dev} n'a pas de lien physique, le profil DHCP sera activé au branchement.")
             else:
                 logger.error(f"Erreur activation {dev} : {res_up.stderr}")
         else:
             logger.info(f"Profil LAN {dev} appliqué avec succès.")
-        
+
         # Publication des routes sur Headscale
         publish_tailscale_routes()
     except Exception as e:

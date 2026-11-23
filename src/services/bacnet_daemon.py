@@ -30,6 +30,18 @@ MQTT_PORT = 1883
 # demandé d'un coup (ex: recherche dans le dictionnaire BACnet).
 READ_CONCURRENCY_LIMIT = 4
 
+def pick_ipv4(ip_addr_output):
+    """(ip, prefix) dans la sortie de `ip -o -4 addr show`, en préférant une adresse
+    du chantier à une adresse de lien local 169.254.x.x (le pont br0 des boîtiers
+    EDATEC garde les deux en permanence). None si aucune adresse."""
+    import re
+    found = re.findall(r"inet (\d+\.\d+\.\d+\.\d+)/(\d+)", ip_addr_output)
+    for ip, prefix in found:
+        if not ip.startswith("169.254."):
+            return ip, prefix
+    return found[0] if found else None
+
+
 class BacnetMqttDaemon:
     def __init__(self, iface="auto", port=47808, bbmd_ttl=0):
         self.iface = iface
@@ -56,10 +68,10 @@ class BacnetMqttDaemon:
                     with open(f"/sys/class/net/{cand}/carrier") as f:
                         if f.read().strip() == "1":
                             out = subprocess.check_output(["ip", "-o", "-4", "addr", "show", "dev", cand], stderr=subprocess.DEVNULL).decode()
-                            m = re.search(r"inet (\d+\.\d+\.\d+\.\d+)/(\d+)", out)
+                            m = pick_ipv4(out)
                             if m:
                                 self.iface = cand
-                                return f"{m.group(1)}/{m.group(2)}"
+                                return f"{m[0]}/{m[1]}"
                 except Exception:
                     pass
 
@@ -67,10 +79,10 @@ class BacnetMqttDaemon:
             for cand in candidates:
                 try:
                     out = subprocess.check_output(["ip", "-o", "-4", "addr", "show", "dev", cand], stderr=subprocess.DEVNULL).decode()
-                    m = re.search(r"inet (\d+\.\d+\.\d+\.\d+)/(\d+)", out)
+                    m = pick_ipv4(out)
                     if m:
                         self.iface = cand
-                        return f"{m.group(1)}/{m.group(2)}"
+                        return f"{m[0]}/{m[1]}"
                 except Exception:
                     pass
         except Exception:
