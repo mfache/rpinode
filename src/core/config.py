@@ -24,7 +24,11 @@ DEFAULT_CONFIG = {
     "lan_interface": "eth0",
     # Profil NetworkManager à utiliser si l'interface n'a pas de connexion active
     # (vide = "<interface>-manual", ex. "eth0-manual" ; pont EDATEC : "lan-pont").
-    "lan_connection": ""
+    "lan_connection": "",
+    # Le LAN filaire du chantier peut-il fournir la route par défaut (Internet) ?
+    # false (rpi01) : jamais, Internet passe par la 4G ou le Wi-Fi.
+    # true : boîtier sans carte SIM qui sort par le réseau du chantier (rpi02).
+    "lan_default_route": False
 }
 
 def load_config() -> dict:
@@ -54,6 +58,11 @@ def lan_connection_fallback() -> str:
     """Profil NetworkManager du LAN filaire quand aucune connexion n'est active."""
     cfg = load_config()
     return cfg.get("lan_connection") or f"{cfg.get('lan_interface') or 'eth0'}-manual"
+
+
+def lan_default_route() -> bool:
+    """True si le LAN filaire du chantier peut fournir la route par défaut."""
+    return bool(load_config().get("lan_default_route"))
 
 
 def save_config(config: dict) -> None:

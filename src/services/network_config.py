@@ -147,8 +147,12 @@ def _apply_eth0_profile(method, addresses, gateway, dhcp_range=None):
         subprocess.run(nm_cmd, shell=True, check=True)
         
         # 3. On tente de lever la connexion
-        # On force la porteuse à être ignorée pour ne pas bloquer si pas de câble
-        subprocess.run(f"sudo nmcli con mod '{con_name}' ipv4.never-default yes", shell=True, check=True)
+        # Route par défaut : par défaut le LAN du chantier n'en fournit jamais (Internet
+        # par la 4G ou le Wi-Fi, le LAN GTB ne sert qu'aux automates). Un boîtier sans
+        # carte SIM (rpi02) doit pouvoir sortir par le LAN : config lan_default_route.
+        from core.config import lan_default_route
+        never_default = "no" if lan_default_route() else "yes"
+        subprocess.run(["sudo", "nmcli", "con", "mod", con_name, "ipv4.never-default", never_default], check=True)
         
         res_up = subprocess.run(f"sudo nmcli con up '{con_name}'", shell=True, capture_output=True, text=True, timeout=30)
         

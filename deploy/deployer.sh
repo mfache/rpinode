@@ -1,12 +1,13 @@
 #!/bin/bash
 # Déploie rpinode sur un nouveau boîtier, depuis la VM de dev.
 #
-# Usage : deploy/deployer.sh CIBLE [--source rpi01] [--lan eth0|br0] [--etape N]
+# Usage : deploy/deployer.sh CIBLE [--source rpi01] [--lan eth0|br0] [--lan-internet] [--etape N]
 #   CIBLE   alias ou adresse SSH du boîtier, avec un compte sudo sans mot de
 #           passe (au départ « pi » sur une image neuve ; « marc » ensuite)
 #   --source  boîtier de référence d'où viennent les secrets de flotte et le
 #             superviseur compilé (défaut rpi01)
 #   --lan     interface du LAN filaire du chantier (br0 : prises pontées EDATEC)
+#   --lan-internet  le LAN du chantier fournit Internet (boîtier sans carte SIM)
 #   --etape   reprendre à l'étape N (1 à 7) après une interruption
 #
 # Étapes :
@@ -24,11 +25,13 @@ DEPOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CIBLE=""
 SOURCE=rpi01
 LAN=eth0
+LAN_INTERNET=""
 ETAPE=1
 while [ $# -gt 0 ]; do
     case "$1" in
         --source) SOURCE="$2"; shift 2 ;;
         --lan) LAN="$2"; shift 2 ;;
+        --lan-internet) LAN_INTERNET="--lan-internet"; shift ;;
         --etape) ETAPE="$2"; shift 2 ;;
         -*) echo "Option inconnue : $1" >&2; exit 2 ;;
         *) CIBLE="$1"; shift ;;
@@ -102,7 +105,7 @@ fi
 
 if faire 5; then
     etape 5 "installation"
-    cible "sudo $KIT_DISTANT/installer.sh --lan $LAN"
+    cible "sudo $KIT_DISTANT/installer.sh --lan $LAN $LAN_INTERNET"
 fi
 
 if faire 6; then

@@ -43,5 +43,12 @@ class TestConfig(unittest.TestCase):
             self.assertEqual(config.lan_interface(), "br0")
             self.assertEqual(config.lan_connection_fallback(), "lan-pont")
 
+    def test_lan_default_route(self):
+        """Par défaut le LAN ne fournit pas Internet (rpi01) ; activable (rpi02, sans SIM)."""
+        with patch("src.core.config.load_config", return_value=dict(config.DEFAULT_CONFIG)):
+            self.assertFalse(config.lan_default_route())
+        with patch("src.core.config.load_config", return_value=dict(config.DEFAULT_CONFIG, lan_default_route=True)):
+            self.assertTrue(config.lan_default_route())
+
 if __name__ == '__main__':
     unittest.main()

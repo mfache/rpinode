@@ -9,8 +9,13 @@ boîtier EDATEC devenu rpi02, le 23 novembre 2026.
 Tout se lance depuis la VM de dev :
 
 ```sh
-deploy/deployer.sh <cible> [--source rpi01] [--lan eth0|br0]
+deploy/deployer.sh <cible> [--source rpi01] [--lan eth0|br0] [--lan-internet]
 ```
+
+`--lan-internet` : boîtier **sans carte SIM**, dont l'accès Internet (Tailscale,
+docs) vient du réseau filaire du chantier. Sans cette option, rpinode applique
+`ipv4.never-default yes` au LAN (comme sur rpi01, où Internet passe par la 4G
+ou le Wi-Fi) et le boîtier n'aurait aucune sortie sur un chantier sans Wi-Fi.
 
 | Étape | Ce qui se passe |
 |---|---|

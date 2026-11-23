@@ -8,15 +8,18 @@
 #   systeme/, ...         copie de deploy/ du dépôt
 # Les secrets (/etc/rpinode/fleet.env, notify.env, tls/) sont déjà en place.
 #
-# Usage : installer.sh [--lan eth0|br0]
+# Usage : installer.sh [--lan eth0|br0] [--lan-internet]
+#   --lan-internet : le LAN du chantier fournit l'accès Internet (boîtier sans carte SIM)
 # Idempotent : peut être relancé.
 set -euo pipefail
 
 KIT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LAN=eth0
+LAN_INTERNET=false
 while [ $# -gt 0 ]; do
     case "$1" in
         --lan) LAN="$2"; shift 2 ;;
+        --lan-internet) LAN_INTERNET=true; shift ;;
         *) echo "Option inconnue : $1" >&2; exit 2 ;;
     esac
 done
@@ -87,17 +90,18 @@ install -m 755 -o "$USER_APP" -g "$USER_APP" "$KIT/rpinode-supervisor" "$REPO/su
 etape "Configuration locale (interface LAN : $LAN)"
 CONN=""
 [ "$LAN" = "br0" ] && CONN="lan-pont"
-sudo -u "$USER_APP" python3 - "$REPO/data/config.json" "$LAN" "$CONN" <<'PY'
+sudo -u "$USER_APP" python3 - "$REPO/data/config.json" "$LAN" "$CONN" "$LAN_INTERNET" <<'PY'
 import json, sys
-path, lan, conn = sys.argv[1:4]
+path, lan, conn, internet = sys.argv[1:5]
 try:
     cfg = json.load(open(path, encoding="utf-8"))
 except (OSError, ValueError):
     cfg = {}
 cfg["lan_interface"] = lan
 cfg["lan_connection"] = conn
+cfg["lan_default_route"] = internet == "true"
 json.dump(cfg, open(path, "w", encoding="utf-8"), indent=4, ensure_ascii=False)
-print("config.json :", {k: cfg[k] for k in ("lan_interface", "lan_connection")})
+print("config.json :", {k: cfg[k] for k in ("lan_interface", "lan_connection", "lan_default_route")})
 PY
 
 etape "Venv BACnet ($VENV_BACNET)"
