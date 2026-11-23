@@ -1,0 +1,93 @@
+<div class="widget dashboard-points" id="widget-points">
+    <div class="dash-points-header">
+        <h3>Points suivis</h3>
+        <a href="${base_url}/modbus/suivi" class="btn-secondary btn-sm" title="Cocher « Accueil » sur les points à afficher">Choisir les points</a>
+    </div>
+    <div class="table-responsive">
+        <table class="data-table dash-points-table">
+            <thead>
+                <tr>
+                    <th>Appareil</th>
+                    <th>Point</th>
+                    <th>Valeur</th>
+                    <th>Modifier</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${rows}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<style>
+.dashboard-points { grid-column: 1 / -1; }
+.dash-points-header { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+.dash-points-header h3 { margin: 0; }
+.dash-reg { color: var(--outline, #888); font-family: var(--font-mono); }
+.dash-write { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.dashboard-points .dash-input { width: 130px; flex: 0 0 130px; margin: 0; padding: 4px 6px; font-family: var(--font-mono); }
+.dash-readonly { color: var(--outline, #888); font-size: 0.85em; }
+.dash-empty { text-align: center; padding: 20px; color: var(--outline, #888); }
+.dashboard-points .badge-gray, .dashboard-points .badge-success, .dashboard-points .badge-error {
+    padding: 4px 8px; border-radius: var(--radius); font-family: var(--font-mono); white-space: nowrap;
+}
+.dashboard-points .badge-gray { background: rgba(148, 163, 184, 0.12); }
+.dashboard-points .badge-success { background: rgba(39, 174, 96, 0.2); color: #d7f8e6; }
+.dashboard-points .badge-error { background: rgba(192, 57, 43, 0.22); color: #ffd4cf; }
+.dashboard-points .suivi-flash { animation: dashFlash 1s ease-out; }
+@keyframes dashFlash { 0% { background-color: rgba(52, 152, 219, 0.35); } 100% { background-color: transparent; } }
+</style>
+
+<script>
+(function () {
+    const base = (window.CONFIG && window.CONFIG.baseUrl) || '';
+
+    // Écrit la valeur saisie dans le point, après confirmation. Le serveur
+    // applique l'échelle, écrit (FC05/FC06), relit et renvoie la valeur relue.
+    window.writeDashboardPoint = async function (pid) {
+        const row = document.getElementById('dash-row-' + pid);
+        const input = document.getElementById('dash-input-' + pid);
+        const btn = document.getElementById('dash-btn-' + pid);
+        const valEl = document.getElementById('val-' + pid);
+        if (!row || !input) return;
+
+        const raw = String(input.value).trim().replace(',', '.');
+        if (raw === '' || isNaN(Number(raw))) {
+            alert('Entrez une valeur numérique.');
+            return;
+        }
+        const unit = row.dataset.unit ? ' ' + row.dataset.unit : '';
+        const shown = input.tagName === 'SELECT' ? (raw === '1' ? 'ON' : 'OFF') : raw + unit;
+        const msg = 'Écrire ' + shown + ' dans « ' + row.dataset.name + ' » (' + row.dataset.device + ') ?\n'
+                  + 'Valeur actuelle : ' + (valEl ? valEl.textContent.trim() : '?');
+        if (!confirm(msg)) return;
+
+        if (btn) btn.disabled = true;
+        try {
+            const res = await fetch((base + '/api/modbus/point/write').replace(/\/+/g, '/'), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ point_id: pid, value: Number(raw) })
+            });
+            const data = await res.json();
+            if (data.status !== 'ok') {
+                alert('Écriture refusée : ' + (data.message || 'erreur inconnue'));
+                return;
+            }
+            if (data.error) {
+                alert(data.error);
+            } else if (valEl) {
+                valEl.className = 'live-val badge-success';
+                valEl.textContent = data.display;
+                valEl.title = 'Relu après écriture à ' + new Date(data.ts * 1000).toLocaleTimeString();
+            }
+            input.value = '';
+        } catch (e) {
+            alert('Erreur réseau : ' + e.message);
+        } finally {
+            if (btn) btn.disabled = false;
+        }
+    };
+})();
+</script>

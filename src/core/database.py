@@ -181,6 +181,16 @@ def init_db():
         except Exception as e:
             logger.warning(f"Erreur lors de la migration des colonnes site_network_profiles : {e}")
 
+        # Migration des colonnes de modbus_points (choix des points du tableau de bord)
+        try:
+            cursor.execute("PRAGMA table_info(modbus_points)")
+            pcols = [r["name"] for r in cursor.fetchall()]
+            if pcols and "on_dashboard" not in pcols:
+                cursor.execute("ALTER TABLE modbus_points ADD COLUMN on_dashboard BOOLEAN DEFAULT 0")
+                conn.commit()
+        except Exception as e:
+            logger.warning(f"Erreur lors de la migration des colonnes modbus_points : {e}")
+
         # Migration des colonnes de device_qualifications si nécessaire
         try:
             cursor.execute("PRAGMA table_info(device_qualifications)")

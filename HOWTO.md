@@ -1,3 +1,11 @@
+## État d'avancement - 23/11/2026
+
+- **Points suivis sur le tableau de bord (`src/web/server.py`, `templates/dashboard_points.html`, `src/services/modbus_mgr.py`)** :
+  - Nouvelle colonne `on_dashboard` dans `modbus_points` (migration dans `core/database.py`). Une case « Accueil » sur `/modbus/suivi` et `/monitor/suivi` choisit les points affichés dans le bloc « Points suivis » de la page d'accueil.
+  - Les valeurs du bloc sont tenues à jour par le flux SSE existant (`modbus_point` → `val-<id>`).
+  - Les points FC03 en 16 bits (écrits en FC06) et FC01 (écrits en FC05) sont modifiables depuis l'accueil : saisie en unités du point (l'échelle est appliquée par le serveur), confirmation avec la valeur actuelle, écriture via `POST /api/modbus/point/write`, relecture immédiate diffusée par MQTT/SSE, et trace dans le journal (`Écriture Modbus : …`). FC02/FC04 et les types 32 bits restent en lecture seule.
+  - Premier usage : consigne CO2 du GPE2 du chantier CCSE (HR 332).
+
 ## État d'avancement - 05/09/2026
 
 - **Qualification matérielle des passerelles et synchronisation flotte (`src/services/device_mgr.py`, `src/core/schema.sql`, `templates/devices.html`, `src/services/fleet.py`)** :

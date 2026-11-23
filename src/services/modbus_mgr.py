@@ -4,7 +4,7 @@ import struct
 import time
 
 from core.database import get_db_connection
-from services.modbus_tools import read_registers, read_bits, ModbusError
+from services.modbus_tools import read_registers, read_bits, write_single_register, write_single_coil, ModbusError
 
 logger = logging.getLogger(__name__)
 
@@ -472,8 +472,9 @@ def get_site_modbus_points(site_id, only_monitored=False):
         )
         return [dict(row) for row in cursor.fetchall()]
 
-def update_point_settings(point_id, is_monitored=None, is_recorded=None, cadence=None):
-    """Met à jour le statut de suivi/enregistrement et la cadence d'un point."""
+def update_point_settings(point_id, is_monitored=None, is_recorded=None, cadence=None, on_dashboard=None):
+    """Met à jour le statut de suivi/enregistrement, la cadence d'un point et
+    sa présence sur le tableau de bord (on_dashboard)."""
     with get_db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("SELECT * FROM modbus_points WHERE id = ?", (point_id,))
@@ -484,6 +485,7 @@ def update_point_settings(point_id, is_monitored=None, is_recorded=None, cadence
         cur_mon = row["is_monitored"] if is_monitored is None else (1 if is_monitored else 0)
         cur_rec = row["is_recorded"] if is_recorded is None else (1 if is_recorded else 0)
         cur_cad = row["cadence"] if cadence is None else cadence
+        cur_dash = (row["on_dashboard"] or 0) if on_dashboard is None else (1 if on_dashboard else 0)
         
         # Règle stricte : si un point n'est pas suivi, il ne peut pas être enregistré
         if not cur_mon:
@@ -492,13 +494,138 @@ def update_point_settings(point_id, is_monitored=None, is_recorded=None, cadence
             cursor.execute(
                 """
                 UPDATE modbus_points
-                SET is_monitored = 1, is_recorded = ?, cadence = ?, updated_at = CURRENT_TIMESTAMP
+                SET is_monitored = 1, is_recorded = ?, cadence = ?, on_dashboard = ?, updated_at = CURRENT_TIMESTAMP
                 WHERE id = ?
                 """,
-                (cur_rec, cur_cad, point_id)
+                (cur_rec, cur_cad, cur_dash, point_id)
             )
         conn.commit()
         return True
+
+# Écriture depuis le tableau de bord : fonction de lecture -> fonction d'écriture.
+# FC01 (coil) s'écrit en FC05, FC03 (holding register) en FC06. FC02 et FC04
+# sont en lecture seule par nature. Les types 32 bits ne sont pas gérés
+# (il faudrait FC16) : ils restent en lecture seule.
+WRITE_FUNCTIONS = {1: 5, 3: 6}
+_TYPES_16_BITS_SIGNES = ("int16", "i16")
+_TYPES_16_BITS = _TYPES_16_BITS_SIGNES + ("uint16", "u16")
+
+
+def is_point_writable(point):
+    """Indique si un point peut être modifié depuis le tableau de bord."""
+    func = int(point.get("function", 3))
+    if func not in WRITE_FUNCTIONS:
+        return False
+    if func == 1:
+        return True
+    return str(point.get("type") or "int16").lower() in _TYPES_16_BITS
+
+
+def raw_value_for_write(point, value):
+    """Convertit une valeur saisie (en unités du point, échelle appliquée)
+    en valeur brute 16 bits à envoyer. Lève ValueError si elle est invalide
+    ou hors de la plage du registre."""
+    v = float(value)
+    if int(point.get("function", 3)) == 1:
+        if v not in (0, 1):
+            raise ValueError("Une sortie tout-ou-rien n'accepte que 0 (OFF) ou 1 (ON).")
+        return int(v)
+    scale = float(point.get("scale") or 1.0)
+    raw = int(round(v / scale))
+    signed = str(point.get("type") or "int16").lower() in _TYPES_16_BITS_SIGNES
+    lo, hi = (-32768, 32767) if signed else (0, 65535)
+    if not lo <= raw <= hi:
+        raise ValueError(f"Valeur hors plage : de {round(lo * scale, 3)} à {round(hi * scale, 3)}.")
+    return raw & 0xFFFF
+
+
+def get_dashboard_points(site_id):
+    """Points Modbus du chantier choisis pour le tableau de bord, avec leur appareil."""
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT p.*, d.name as device_name, d.protocol, d.address, d.port,
+                   COALESCE(p.slave_unit, d.slave_unit, 1) as slave_unit
+            FROM modbus_points p
+            JOIN modbus_devices d ON p.device_id = d.id
+            WHERE p.site_id = ? AND p.on_dashboard = 1
+            ORDER BY d.name, p.function, p.reg
+            """,
+            (site_id,)
+        )
+        return [dict(row) for row in cursor.fetchall()]
+
+
+def write_point_value(point_id, value, timeout=1.5):
+    """Écrit une nouvelle valeur dans un point (FC05 ou FC06), la relit et
+    diffuse la relecture comme une mesure (MQTT -> SSE) pour que les pages
+    ouvertes se mettent à jour tout de suite.
+
+    Retourne {value, display, error, ts}. Lève LookupError si le point est
+    inconnu, ValueError s'il n'est pas modifiable ou si la valeur est
+    invalide, ModbusError si l'écriture échoue."""
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT p.*, d.name as device_name, d.protocol, d.address, d.port,
+                   COALESCE(p.slave_unit, d.slave_unit, 1) as slave_unit
+            FROM modbus_points p
+            JOIN modbus_devices d ON p.device_id = d.id
+            WHERE p.id = ?
+            """,
+            (point_id,)
+        )
+        row = cursor.fetchone()
+    if not row:
+        raise LookupError("Point introuvable")
+    p = dict(row)
+    if not is_point_writable(p):
+        raise ValueError("Ce point est en lecture seule (seuls FC01 et FC03 en 16 bits sont modifiables).")
+
+    raw = raw_value_for_write(p, value)
+    protocol = p["protocol"]
+    address = p["address"]
+    port = p["port"] or 502
+    unit = p["slave_unit"] or (int(address) if protocol == "mstp" else 1)
+    func = int(p["function"])
+    base = int(p.get("base") or 0)
+    wire_reg = int(p["reg"]) - (1 if base == 1 else 0)
+
+    if func == 1:
+        write_single_coil(protocol, address, port, unit, wire_reg, bool(raw), timeout)
+    else:
+        write_single_register(protocol, address, port, unit, wire_reg, raw, timeout)
+    logger.info(
+        f"Écriture Modbus : {p['device_name']} / {p['name']} (FC{func:02d} @{p['reg']}) : "
+        f"{p.get('last_value')} -> {value} (brut {raw})"
+    )
+
+    unit_str = f" {p['unit']}" if p.get("unit") else ""
+    now = int(time.time())
+    try:
+        val_str, disp_val = read_point_value(protocol, address, port, unit, func, p["reg"], p["type"], p["scale"],
+                                             timeout=timeout, base=base)
+    except Exception as e:
+        return {"value": None, "display": "—", "error": f"Valeur écrite, mais la relecture a échoué : {e}", "ts": now}
+
+    with get_db_connection() as conn:
+        conn.execute("UPDATE modbus_points SET last_value = ?, last_read_ts = ? WHERE id = ?", (val_str, now, point_id))
+        conn.commit()
+
+    result = {"value": val_str, "display": f"{disp_val}{unit_str}", "error": None, "ts": now}
+    try:
+        from services.mqtt_service import mqtt_client
+        mqtt_client.publish(f"rpinode/modbus/point/{point_id}", {
+            "point_id": point_id, "value": val_str, "display": result["display"],
+            "name": p.get("name"), "device_name": p.get("device_name"),
+            "obj_id": f"FC{func:02d}_{p['reg']}", "ts": now, "error": None,
+        })
+    except Exception as e:
+        logger.debug(f"Diffusion MQTT de la relecture ignorée : {e}")
+    return result
+
 
 def delete_modbus_point(point_id):
     """Supprime un point de modbus_points."""

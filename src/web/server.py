@@ -298,6 +298,8 @@ class WebAdminHandler(BaseHTTPRequestHandler):
             self.handle_modbus_device_points_save()
         elif path == "/api/modbus/point/update":
             self.handle_modbus_point_update()
+        elif path == "/api/modbus/point/write":
+            self.handle_modbus_point_write()
         elif path == "/api/modbus/point/delete":
             self.handle_modbus_point_delete()
         elif path == "/api/modbus/template/save":
@@ -489,6 +491,48 @@ class WebAdminHandler(BaseHTTPRequestHandler):
         except Exception as e:
             self.send_json({"status": "error", "message": str(e)})
 
+    def _render_dashboard_points(self, base_url):
+        """Bloc « Points suivis » du tableau de bord : points Modbus cochés
+        « Accueil » dans le suivi. Les valeurs sont tenues à jour par le flux
+        SSE existant (événement modbus_point -> élément val-<id>)."""
+        from services.modbus_mgr import get_dashboard_points, is_point_writable
+        from services.presence import get_current_site_id
+
+        site_id = get_current_site_id()
+        points = get_dashboard_points(site_id) if site_id else []
+
+        rows = ""
+        for p in points:
+            pid = int(p["id"])
+            unit = p.get("unit") or ""
+            value = p["last_value"] if p["last_value"] is not None else "—"
+            if unit and p["last_value"] is not None:
+                value += f" {unit}"
+
+            if not is_point_writable(p):
+                field = "<span class='dash-readonly'>lecture seule</span>"
+            elif int(p["function"]) == 1:
+                field = (f"<select id='dash-input-{pid}' class='dash-input'>"
+                         f"<option value=''>—</option><option value='1'>ON</option><option value='0'>OFF</option></select>"
+                         f"<button id='dash-btn-{pid}' class='btn-primary btn-sm' onclick='writeDashboardPoint({pid})'>Écrire</button>")
+            else:
+                step = format(float(p.get("scale") or 1.0), "g")
+                field = (f"<input type='number' step='{step}' id='dash-input-{pid}' class='dash-input' "
+                         f"placeholder='Valeur' onkeydown=\"if(event.key==='Enter')writeDashboardPoint({pid})\">"
+                         f"<button id='dash-btn-{pid}' class='btn-primary btn-sm' onclick='writeDashboardPoint({pid})'>Écrire</button>")
+
+            rows += (f"<tr id='dash-row-{pid}' data-name='{escape(p['name'])}' data-device='{escape(p['device_name'])}' data-unit='{escape(unit)}'>"
+                     f"<td><strong>{escape(p['device_name'])}</strong></td>"
+                     f"<td>{escape(p['name'])}<br><small class='dash-reg'>FC{int(p['function']):02d} @{int(p['reg'])}</small></td>"
+                     f"<td><b class='live-val badge-gray' id='val-{pid}'>{escape(value)}</b></td>"
+                     f"<td><div class='dash-write'>{field}</div></td></tr>")
+
+        if not rows:
+            rows = ("<tr><td colspan='4' class='dash-empty'>Aucun point choisi. Cochez « Accueil » sur la page "
+                    f"<a href='{base_url}/modbus/suivi'>Suivi Modbus</a>.</td></tr>")
+
+        return render("dashboard_points.html", rows=rows, base_url=base_url)
+
     def serve_home(self):
         config = load_config()
         base_url = self._base_url(config)
@@ -498,9 +542,10 @@ class WebAdminHandler(BaseHTTPRequestHandler):
         from services.presence import get_current_site_name
         site_name = get_current_site_name()
 
+        widget_points = self._render_dashboard_points(base_url)
         widget_cpu = render("widget.html", widget_id="cpu", title="Statut Système", data="Chargement...")
         widget_net = render("widget.html", widget_id="net", title="Réseau / Chantier", data=site_name)
-        all_widgets = f"{widget_cpu}\n{widget_net}"
+        all_widgets = f"{widget_points}\n{widget_cpu}\n{widget_net}"
 
         nav_html = render("nav.html", base_url=base_url)
         content = render("home.html", user="Admin", widgets=all_widgets)
@@ -782,13 +827,19 @@ class WebAdminHandler(BaseHTTPRequestHandler):
                         </select>
                     </td>
                     <td>
+                        <label style="cursor:pointer; display:inline-flex; align-items:center; gap:5px;" title="Afficher sur le tableau de bord (et le modifier s'il est en écriture)">
+                            <input type="checkbox" class="cb-dashboard" {'checked' if p.get('on_dashboard') else ''} onchange="toggleDashboard({pid}, this.checked)">
+                            <span>Accueil</span>
+                        </label>
+                    </td>
+                    <td>
                         <button class="btn-icon-del" onclick="removePoint({pid})" title="Retirer du suivi">🗑️</button>
                     </td>
                 </tr>
             """
 
         if not points:
-            rows_html = "<tr><td colspan='7' style='text-align:center; padding:30px; color:#888;'>Aucun point sélectionné pour le suivi sur ce chantier.<br><a href='" + base_url + "/modbus/devices' class='btn-secondary btn-sm' style='margin-top:10px; display:inline-block;'>Sélectionner des points sur un appareil</a></td></tr>"
+            rows_html = "<tr><td colspan='8' style='text-align:center; padding:30px; color:#888;'>Aucun point sélectionné pour le suivi sur ce chantier.<br><a href='" + base_url + "/modbus/devices' class='btn-secondary btn-sm' style='margin-top:10px; display:inline-block;'>Sélectionner des points sur un appareil</a></td></tr>"
 
         content = render("modbus_suivi.html", site_name=site_name, suivi_rows_html=rows_html, base_url=base_url)
         nav_html = render("nav.html", base_url=base_url)
@@ -852,15 +903,37 @@ class WebAdminHandler(BaseHTTPRequestHandler):
             is_monitored = data.get("is_monitored")
             is_recorded = data.get("is_recorded")
             cadence = data.get("cadence")
+            on_dashboard = data.get("on_dashboard")
 
             from services.modbus_mgr import update_point_settings
-            success = update_point_settings(point_id, is_monitored=is_monitored, is_recorded=is_recorded, cadence=cadence)
+            success = update_point_settings(point_id, is_monitored=is_monitored, is_recorded=is_recorded,
+                                            cadence=cadence, on_dashboard=on_dashboard)
             if success:
                 self.send_json({"status": "ok"})
             else:
                 self.send_json({"status": "error", "message": "Point introuvable"})
         except Exception as e:
             logger.error(f"Erreur update point: {e}")
+            self.send_json({"status": "error", "message": str(e)})
+
+    def handle_modbus_point_write(self):
+        """Écrit une valeur dans un point suivi (tableau de bord) : {point_id, value}
+        en unités du point (l'échelle est appliquée côté serveur)."""
+        try:
+            content_length = int(self.headers.get("Content-Length", 0))
+            data = json.loads(self.rfile.read(content_length) or b"{}")
+            point_id = int(data.get("point_id"))
+            value = data.get("value")
+            if value is None or str(value).strip() == "":
+                return self.send_json({"status": "error", "message": "Valeur manquante"})
+
+            from services.modbus_mgr import write_point_value
+            result = write_point_value(point_id, float(value))
+            self.send_json({"status": "ok", **result})
+        except (LookupError, ValueError) as e:
+            self.send_json({"status": "error", "message": str(e)})
+        except Exception as e:
+            logger.error(f"Erreur écriture point Modbus : {e}")
             self.send_json({"status": "error", "message": str(e)})
 
     def handle_modbus_point_delete(self):
@@ -2345,6 +2418,12 @@ class WebAdminHandler(BaseHTTPRequestHandler):
                         </select>
                     </td>
                     <td>
+                        <label style="cursor:pointer; display:inline-flex; align-items:center; gap:5px;" title="Afficher sur le tableau de bord (et le modifier s'il est en écriture)">
+                            <input type="checkbox" class="cb-dashboard" {'checked' if p.get('on_dashboard') else ''} onchange="toggleDashboard({pid}, this.checked)">
+                            <span>Accueil</span>
+                        </label>
+                    </td>
+                    <td>
                         <button class="btn-icon-del" onclick="removePoint({pid})" title="Retirer du suivi">🗑️</button>
                     </td>
                 </tr>
@@ -2379,6 +2458,7 @@ class WebAdminHandler(BaseHTTPRequestHandler):
                             {cad_options}
                         </select>
                     </td>
+                    <td><span style="color:#777;" title="Seuls les points Modbus peuvent aller sur le tableau de bord pour l'instant">—</span></td>
                     <td>
                         <button class="btn-icon-del" onclick="removePoint({pid}, 'bacnet')" title="Retirer du suivi">🗑️</button>
                     </td>
@@ -2386,7 +2466,7 @@ class WebAdminHandler(BaseHTTPRequestHandler):
             """
 
         if not modbus_points and not bacnet_points:
-            rows_html = "<tr><td colspan='8' style='text-align:center; padding:30px; color:#888;'>Aucun point sélectionné pour le suivi sur ce chantier.<br><a href='" + base_url + "/modbus/devices' class='btn-secondary btn-sm' style='margin-top:10px; display:inline-block; margin-right: 8px;'>Appareils Modbus</a><a href='" + base_url + "/bacnet/devices' class='btn-secondary btn-sm' style='margin-top:10px; display:inline-block;'>Appareils BACnet</a></td></tr>"
+            rows_html = "<tr><td colspan='9' style='text-align:center; padding:30px; color:#888;'>Aucun point sélectionné pour le suivi sur ce chantier.<br><a href='" + base_url + "/modbus/devices' class='btn-secondary btn-sm' style='margin-top:10px; display:inline-block; margin-right: 8px;'>Appareils Modbus</a><a href='" + base_url + "/bacnet/devices' class='btn-secondary btn-sm' style='margin-top:10px; display:inline-block;'>Appareils BACnet</a></td></tr>"
 
         content = render("trends.html", site_name=site_name, trends_rows_html=rows_html, base_url=base_url)
         nav_html = render("nav.html", base_url=base_url)

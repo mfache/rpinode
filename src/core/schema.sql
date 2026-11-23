@@ -213,6 +213,7 @@ CREATE TABLE IF NOT EXISTS modbus_points (
     is_monitored BOOLEAN DEFAULT 1,
     is_recorded BOOLEAN DEFAULT 0,
     cadence TEXT DEFAULT '1m',
+    on_dashboard BOOLEAN DEFAULT 0,     -- 1 = affiché (et modifiable si FC01/FC03) sur le tableau de bord
     last_value TEXT,
     last_read_ts INTEGER,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,

@@ -53,6 +53,7 @@
                     <th class="sortable-th" onclick="sortTable(4)">Valeur Live<span class="sort-arrow" id="sort-arrow-4"></span></th>
                     <th class="sortable-th" onclick="sortTable(5)">Enregistrement<span class="sort-arrow" id="sort-arrow-5"></span></th>
                     <th class="sortable-th" onclick="sortTable(6)">Cadence<span class="sort-arrow" id="sort-arrow-6"></span></th>
+                    <th>Tableau de bord</th>
                     <th>Actions</th>
                 </tr>
             </thead>
@@ -591,6 +592,23 @@ async function recordVisible() {
     }
     if (!confirm(`Activer l'enregistrement pour les ${rows.length} point(s) actuellement affiché(s) ?`)) return;
     await setRowsRecording(rows, true);
+}
+
+async function toggleDashboard(pointId, onDashboard) {
+    try {
+        const url = (baseUrl + '/api/modbus/point/update').replace(/\/+/g, '/');
+        const res = await fetch(url, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ point_id: pointId, on_dashboard: onDashboard ? 1 : 0 })
+        });
+        const data = await res.json();
+        if (data.status !== 'ok') {
+            alert("Erreur lors de la mise à jour: " + (data.message || "Erreur inconnue"));
+        }
+    } catch (e) {
+        alert("Erreur réseau");
+    }
 }
 
 async function changeCadence(pointId, cadence, proto = 'modbus') {

@@ -51,6 +51,13 @@ class TestServer(unittest.TestCase):
         except Exception as e:
             self.fail(f"Le serveur n'a pas répondu correctement : {e}")
 
+    def test_bloc_points_suivis_sur_l_accueil(self):
+        """Le tableau de bord affiche le bloc des points choisis (vide ou non)."""
+        url = f"http://localhost:{self.test_port}/"
+        content = urllib.request.urlopen(url, timeout=5).read().decode('utf-8')
+        self.assertIn('id="widget-points"', content)
+        self.assertIn("writeDashboardPoint", content)
+
     def test_static_file(self):
         """Vérifie qu'un fichier statique est servi."""
         # On suppose que app.js existe dans static/
