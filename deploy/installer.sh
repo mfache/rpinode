@@ -143,6 +143,14 @@ B="$REPO/drivers/bluetooth_terminal"
 install -D -m 644 "$B/bluetooth-compat.conf" /etc/systemd/system/bluetooth.service.d/bluetooth-compat.conf
 install -m 644 "$B/bt-agent.service" "$B/rfcomm-terminal.service" "$B/rfcomm-ssh.service" /etc/systemd/system/
 install -m 755 "$B/rfcomm-pty-terminal" "$B/rfcomm-ssh-relay" /usr/local/bin/
+# Visible et appairable en permanence, comme rpi01 (sinon BlueZ coupe la visibilité après 3 min)
+for cle in DiscoverableTimeout PairableTimeout; do
+    if grep -qE "^#? *$cle *=" /etc/bluetooth/main.conf; then
+        sed -i -E "s/^#? *$cle *=.*/$cle = 0/" /etc/bluetooth/main.conf
+    else
+        sed -i "/^\[General\]/a $cle = 0" /etc/bluetooth/main.conf
+    fi
+done
 rfkill unblock bluetooth 2>/dev/null || /usr/sbin/rfkill unblock bluetooth 2>/dev/null || true
 systemctl daemon-reload
 systemctl restart bluetooth

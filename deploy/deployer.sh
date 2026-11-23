@@ -73,6 +73,11 @@ if faire 3; then
                  && sudo chmod 600 /etc/rpinode/fleet.env /etc/rpinode/notify.env /etc/rpinode/tls/wildcard.dt.net.key \
                  && sudo sed -i "s/^RPINODE_NAME=.*/RPINODE_NAME=nouveau-boitier/" /etc/rpinode/notify.env \
                  && sudo ls /etc/rpinode /etc/rpinode/tls | tr "\n" " "; echo'
+    # Profil Wi-Fi de dépannage RPIRESCUE, identique à celui de la source (clé comprise,
+    # priorité 100, métrique 600) ; uuid et horodatage retirés pour que NM en crée de nouveaux.
+    $SSH "$SOURCE" 'sudo grep -v -E "^(uuid|timestamp)=" /etc/NetworkManager/system-connections/rpirescue.nmconnection' \
+        | cible 'sudo install -m 600 /dev/stdin /etc/NetworkManager/system-connections/rpirescue.nmconnection \
+                 && sudo nmcli con reload && echo "profil rpirescue : $(nmcli -g connection.autoconnect-priority,ipv4.route-metric con show rpirescue | tr "\n" " ")"'
 fi
 
 if faire 4; then
