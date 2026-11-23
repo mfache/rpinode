@@ -2706,9 +2706,11 @@ class WebAdminHandler(BaseHTTPRequestHandler):
             types = data.get("reg_type[]", [])
             scales = data.get("reg_scale[]", [])
             units = data.get("reg_unit[]", [])
+            accesses = data.get("reg_access[]", [])
 
             if isinstance(addrs, str):
                 addrs, funcs, bases, names, types, scales, units = [addrs], [funcs], [bases], [names], [types], [scales], [units]
+                accesses = [accesses] if isinstance(accesses, str) else accesses
 
             for i in range(len(addrs)):
                 if addrs[i] and names[i]:
@@ -2719,7 +2721,8 @@ class WebAdminHandler(BaseHTTPRequestHandler):
                         "name": names[i],
                         "type": types[i] if i < len(types) else "int16",
                         "scale": float(scales[i]) if i < len(scales) and scales[i] else 1.0,
-                        "unit": units[i] if i < len(units) and units[i] else ""
+                        "unit": units[i] if i < len(units) and units[i] else "",
+                        "access": "rw" if i < len(accesses) and accesses[i] == "rw" else "r"
                     })
             is_shared = data.get("is_shared")
             save_template(name=data.get("name"), manufacturer=data.get("manufacturer"), registers=registers, template_id=data.get("template_id") or None, is_shared=is_shared)

@@ -5,6 +5,7 @@
   - Les valeurs du bloc sont tenues à jour par le flux SSE existant (`modbus_point` → `val-<id>`).
   - Les points FC03 en 16 bits (écrits en FC06) et FC01 (écrits en FC05) sont modifiables depuis l'accueil : saisie en unités du point (l'échelle est appliquée par le serveur), confirmation avec la valeur actuelle, écriture via `POST /api/modbus/point/write`, relecture immédiate diffusée par MQTT/SSE, et trace dans le journal (`Écriture Modbus : …`). FC02/FC04 et les types 32 bits restent en lecture seule.
   - Premier usage : consigne CO2 du GPE2 du chantier CCSE (HR 332).
+  - **Accès R / R/W par registre** : chaque registre de modèle porte `access` (`r` par défaut, `rw`), réglable dans l éditeur de modèles et transmis à docs dans `reads[].access`. Seuls les registres R/W (et FC01/FC03 16 bits) sont modifiables depuis l accueil : le code de fonction ne suffit pas (états et alarmes FC01 sont en lecture seule). Modèles CCSE renseignés d après les docs (GPE : variables BMS Carel ; GF : Aermec pCO5, sauf les « NRL code » d usine laissés en R).
 
 ## État d'avancement - 05/09/2026
 

@@ -124,10 +124,12 @@ class TestDashboardPoints(unittest.TestCase):
             conn.commit()
             self.site_id = conn.execute("SELECT id FROM sites WHERE name = 'TEST_SITE_DASH'").fetchone()["id"]
         regs = [
-            {"reg": 332, "function": 3, "name": "Consigne CO2", "type": "int16", "scale": 1.0, "unit": "ppm"},
-            {"reg": 93, "function": 3, "name": "Consigne T", "type": "int16", "scale": 0.1, "unit": "°C", "base": 1},
-            {"reg": 211, "function": 4, "name": "CO2", "type": "int16", "scale": 1.0, "unit": "ppm"},
-            {"reg": 6, "function": 1, "name": "Commande", "type": "int16", "scale": 1.0, "unit": ""},
+            {"reg": 332, "function": 3, "name": "Consigne CO2", "type": "int16", "scale": 1.0, "unit": "ppm", "access": "rw"},
+            {"reg": 93, "function": 3, "name": "Consigne T", "type": "int16", "scale": 0.1, "unit": "°C", "base": 1, "access": "rw"},
+            {"reg": 211, "function": 4, "name": "CO2", "type": "int16", "scale": 1.0, "unit": "ppm", "access": "rw"},
+            {"reg": 6, "function": 1, "name": "Commande", "type": "int16", "scale": 1.0, "unit": "", "access": "rw"},
+            {"reg": 45, "function": 1, "name": "Etat", "type": "int16", "scale": 1.0, "unit": ""},
+            {"reg": 334, "function": 3, "name": "Différentiel", "type": "int16", "scale": 1.0, "unit": "ppm"},
         ]
         self.tpl_id = save_template("Test TPL Dash", "Test", regs)
         self.device_id = add_device_to_site(self.site_id, self.tpl_id, "GPE-TEST", "tcp", "127.0.0.1", 502, slave_unit=2)
@@ -160,11 +162,29 @@ class TestDashboardPoints(unittest.TestCase):
         self.assertEqual(get_dashboard_points(self.site_id), [])
 
     def test_points_modifiables(self):
-        from services.modbus_mgr import is_point_writable
-        self.assertTrue(is_point_writable(self.pts[(3, 332)]))
-        self.assertTrue(is_point_writable(self.pts[(1, 6)]))
-        self.assertFalse(is_point_writable(self.pts[(4, 211)]))
-        self.assertFalse(is_point_writable({"function": 3, "type": "float32"}))
+        """Modifiable = déclaré R/W dans le modèle ET FC01/FC03 en 16 bits."""
+        from services.modbus_mgr import is_point_writable, _attach_access, get_dashboard_points
+        pts = {k: _attach_access([dict(p, template_id=self.tpl_id)])[0] for k, p in self.pts.items()}
+        self.assertTrue(is_point_writable(pts[(3, 332)]))
+        self.assertTrue(is_point_writable(pts[(1, 6)]))
+        self.assertFalse(is_point_writable(pts[(1, 45)]))    # FC01 non déclaré R/W (état)
+        self.assertFalse(is_point_writable(pts[(3, 334)]))   # FC03 non déclaré R/W
+        self.assertFalse(is_point_writable(pts[(4, 211)]))   # FC04 : jamais, même déclaré R/W
+        self.assertFalse(is_point_writable({"function": 3, "type": "float32", "access": "rw"}))
+        # Le tableau de bord porte l'accès
+        update_point_settings(self.pts[(1, 45)]["id"], on_dashboard=True)
+        self.assertEqual(get_dashboard_points(self.site_id)[0]["access"], "r")
+
+    def test_acces_conserve_avec_la_flotte(self):
+        from services.modbus_mgr import get_template
+        tpl = get_template(self.tpl_id)
+        fleet = format_local_template_for_fleet(tpl)
+        acc = {(r["function"], r["address"]): r["access"] for r in fleet["reads"]}
+        self.assertEqual(acc[(3, 332)], "rw")
+        self.assertEqual(acc[(1, 45)], "r")
+        back = normalize_fleet_definition_to_local("x", fleet["definition"])
+        acc2 = {(r["function"], r["reg"]): r["access"] for r in back["registers"]}
+        self.assertEqual(acc2, {(f, a): v for (f, a), v in acc.items()})
 
     def test_conversion_de_la_valeur_saisie(self):
         from services.modbus_mgr import raw_value_for_write
@@ -202,6 +222,8 @@ class TestDashboardPoints(unittest.TestCase):
         with mock.patch.object(modbus_mgr, "write_single_register") as w:
             with self.assertRaises(ValueError):
                 modbus_mgr.write_point_value(self.pts[(4, 211)]["id"], 500)
+            with self.assertRaises(ValueError):
+                modbus_mgr.write_point_value(self.pts[(1, 45)]["id"], 1)   # état : R dans le modèle
             with self.assertRaises(LookupError):
                 modbus_mgr.write_point_value(999999999, 1)
         w.assert_not_called()

@@ -182,7 +182,8 @@ def normalize_fleet_definition_to_local(name, definition):
             "name": lbl,
             "type": t,
             "scale": scale_val,
-            "unit": unit
+            "unit": unit,
+            "access": "rw" if str(r.get("access", "r")).lower() == "rw" else "r"
         })
         
     return {
@@ -208,7 +209,8 @@ def format_local_template_for_fleet(tpl):
             "address": int(r.get("reg", 0)),
             "type": type_str,
             "scale": float(r.get("scale", 1.0)),
-            "unit": r.get("unit", "")
+            "unit": r.get("unit", ""),
+            "access": "rw" if r.get("access") == "rw" else "r"
         })
         
     base = registers[0].get("base", 0) if registers else 0
@@ -506,13 +508,19 @@ def update_point_settings(point_id, is_monitored=None, is_recorded=None, cadence
 # FC01 (coil) s'écrit en FC05, FC03 (holding register) en FC06. FC02 et FC04
 # sont en lecture seule par nature. Les types 32 bits ne sont pas gérés
 # (il faudrait FC16) : ils restent en lecture seule.
+# Le code de fonction ne suffit pas : beaucoup de coils et de registres sont en
+# lecture seule côté appareil (états, alarmes, mesures). Seuls les registres
+# déclarés R/W dans le modèle ("access": "rw", colonne R/W de la doc) le sont.
 WRITE_FUNCTIONS = {1: 5, 3: 6}
 _TYPES_16_BITS_SIGNES = ("int16", "i16")
 _TYPES_16_BITS = _TYPES_16_BITS_SIGNES + ("uint16", "u16")
 
 
 def is_point_writable(point):
-    """Indique si un point peut être modifié depuis le tableau de bord."""
+    """Indique si un point peut être modifié depuis le tableau de bord : il doit
+    être déclaré R/W dans le modèle (clé "access" ajoutée par _attach_access)."""
+    if point.get("access") != "rw":
+        return False
     func = int(point.get("function", 3))
     if func not in WRITE_FUNCTIONS:
         return False
@@ -539,13 +547,30 @@ def raw_value_for_write(point, value):
     return raw & 0xFFFF
 
 
+def _attach_access(points):
+    """Ajoute à chaque point l'accès ("r" ou "rw") déclaré pour son registre dans
+    le modèle de son appareil (source de vérité, partagée avec la flotte)."""
+    cache = {}
+    for p in points:
+        tid = p.get("template_id")
+        if tid not in cache:
+            tpl = get_template(tid) if tid else None
+            try:
+                regs = json.loads(tpl["registers_json"]) if tpl else []
+            except (TypeError, ValueError):
+                regs = []
+            cache[tid] = {(int(r.get("function", 3)), int(r.get("reg", 0))) for r in regs if r.get("access") == "rw"}
+        p["access"] = "rw" if (int(p["function"]), int(p["reg"])) in cache[tid] else "r"
+    return points
+
+
 def get_dashboard_points(site_id):
     """Points Modbus du chantier choisis pour le tableau de bord, avec leur appareil."""
     with get_db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute(
             """
-            SELECT p.*, d.name as device_name, d.protocol, d.address, d.port,
+            SELECT p.*, d.name as device_name, d.protocol, d.address, d.port, d.template_id,
                    COALESCE(p.slave_unit, d.slave_unit, 1) as slave_unit
             FROM modbus_points p
             JOIN modbus_devices d ON p.device_id = d.id
@@ -554,7 +579,8 @@ def get_dashboard_points(site_id):
             """,
             (site_id,)
         )
-        return [dict(row) for row in cursor.fetchall()]
+        points = [dict(row) for row in cursor.fetchall()]
+    return _attach_access(points)
 
 
 def write_point_value(point_id, value, timeout=1.5):
@@ -569,7 +595,7 @@ def write_point_value(point_id, value, timeout=1.5):
         cursor = conn.cursor()
         cursor.execute(
             """
-            SELECT p.*, d.name as device_name, d.protocol, d.address, d.port,
+            SELECT p.*, d.name as device_name, d.protocol, d.address, d.port, d.template_id,
                    COALESCE(p.slave_unit, d.slave_unit, 1) as slave_unit
             FROM modbus_points p
             JOIN modbus_devices d ON p.device_id = d.id
@@ -580,9 +606,10 @@ def write_point_value(point_id, value, timeout=1.5):
         row = cursor.fetchone()
     if not row:
         raise LookupError("Point introuvable")
-    p = dict(row)
+    p = _attach_access([dict(row)])[0]
     if not is_point_writable(p):
-        raise ValueError("Ce point est en lecture seule (seuls FC01 et FC03 en 16 bits sont modifiables).")
+        raise ValueError("Ce point est en lecture seule : il doit être déclaré R/W dans le modèle "
+                         "(et être un FC01 ou un FC03 en 16 bits).")
 
     raw = raw_value_for_write(p, value)
     protocol = p["protocol"]

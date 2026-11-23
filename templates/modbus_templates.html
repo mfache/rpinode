@@ -221,6 +221,10 @@ function addRegisterRow(data = {}) {
         </select>
         <input type="number" name="reg_scale[]" placeholder="Échelle (1.0)" value="${data.scale !== undefined ? data.scale : 1.0}" step="any" style="width: 70px; padding: 4px; border: 1px solid #ccc; border-radius: 3px;" title="Facteur multiplicateur">
         <input type="text" name="reg_unit[]" placeholder="Unité (°C, Pa)" value="${data.unit || ''}" style="width: 65px; padding: 4px; border: 1px solid #ccc; border-radius: 3px;" title="Unité d'ingénierie">
+        <select name="reg_access[]" style="width: 62px; padding: 4px; border: 1px solid #ccc; border-radius: 3px;" title="Accès selon la doc de l'appareil : R (lecture seule) ou R/W (modifiable depuis le tableau de bord, FC01/FC03)">
+            <option value="r" ${data.access !== 'rw' ? 'selected' : ''}>R</option>
+            <option value="rw" ${data.access === 'rw' ? 'selected' : ''}>R/W</option>
+        </select>
         <button type="button" class="btn-red btn-sm" style="padding: 3px 6px;" onclick="this.parentElement.remove()" title="Supprimer ce registre">✕</button>
     `;
     container.appendChild(div);
@@ -249,7 +253,8 @@ function showEditTemplateModal(templateData = null) {
                 name: r.name, 
                 type: r.type || 'int16',
                 scale: r.scale !== undefined ? r.scale : 1.0,
-                unit: r.unit || ''
+                unit: r.unit || '',
+                access: r.access || 'r'
             }));
         } catch(e) {
             addRegisterRow();
