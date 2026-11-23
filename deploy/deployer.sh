@@ -47,7 +47,8 @@ if faire 1; then
     cible 'echo "cible : $(hostname), $(. /etc/os-release; echo $PRETTY_NAME), $(tr -d "\0" < /proc/device-tree/model)"; sudo -n true'
     cible 'curl -fsS -o /dev/null -m 15 https://deb.debian.org/ && echo "Internet : OK"' \
         || { echo "La cible n'a pas Internet (Wi-Fi RPIRESCUE, LAN…) : impossible d'installer." >&2; exit 1; }
-    $SSH "$SOURCE" 'test -r /etc/rpinode/fleet.env && echo "source $(hostname) : OK"'
+    $SSH "$SOURCE" 'sudo test -r /etc/rpinode/fleet.env && echo "source $(hostname) : OK"' \
+        || { echo "Source $SOURCE injoignable ou sans /etc/rpinode/fleet.env." >&2; exit 1; }
     git -C "$DEPOT" diff --quiet HEAD || echo "Attention : modifications non commitées dans $DEPOT (non déployées)."
 fi
 
