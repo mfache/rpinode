@@ -61,6 +61,14 @@ fi
 chown "$USER_APP:$USER_APP" "$HOME_APP/.ssh/authorized_keys"
 chmod 600 "$HOME_APP/.ssh/authorized_keys"
 
+# Images Raspberry Pi / EDATEC : connexion automatique de « pi » sur la console tty1.
+# rpi01 n'en a pas ; on la retire (le compte pi est supprimé après le déploiement).
+if [ -f /etc/systemd/system/getty@tty1.service.d/autologin.conf ]; then
+    rm -f /etc/systemd/system/getty@tty1.service.d/autologin.conf
+    rmdir /etc/systemd/system/getty@tty1.service.d 2>/dev/null || true
+    systemctl daemon-reload
+fi
+
 etape "Code rpinode ($REPO)"
 if [ ! -d "$REPO/.git" ]; then
     sudo -u "$USER_APP" git clone -q "$KIT/rpinode.bundle" "$REPO"

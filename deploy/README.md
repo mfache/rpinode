@@ -78,11 +78,17 @@ sections 3 à 10. En résumé :
 - antenne Wi-Fi externe (`dtparam=ant2`) : la visser.
 
 Après le déploiement, supprimer le compte d'usine `pi` (rpi01 n'a que `marc`
-et `docsadmin`) une fois l'accès par `marc` vérifié, et définir le mot de passe
-de `marc` (`sudo passwd marc`) : il sert au terminal Bluetooth (login).
+et `docsadmin`) une fois l'accès par `marc` vérifié :
+`sudo loginctl terminate-user pi; sudo userdel -r pi` (l'installeur a déjà retiré
+sa connexion automatique sur tty1). Définir ensuite le mot de passe de `marc`
+(`sudo passwd marc`) : il sert au terminal Bluetooth (login).
+
+Mises à jour ultérieures du code : le boîtier n'a pas de clé GitHub ; passer
+par un paquet git depuis la VM (`git bundle create x.bundle main`, copie, puis
+`git pull x.bundle main` dans `~/rpinode`).
 
 ## Journal des déploiements
 
 | Boîtier | Date | Matériel | Notes |
 |---|---|---|---|
-| rpi02 | 2026-11-23 | EDATEC ED-IPC2110-12324US (CM4 2 Go, eMMC 32 Go, EC25) | premier essai du kit ; pont br0 ; sans carte SIM |
+| rpi02 | 2026-11-23 | EDATEC ED-IPC2110-12324US (CM4 2 Go, eMMC 32 Go, EC25) | premier essai du kit, `--lan br0`, sans carte SIM, Tailscale 100.64.0.12. Défauts trouvés et corrigés : contrôle de la source sans sudo ; nginx 1.22 de Bookworm (`http2 on;` inconnu, map `$connection_upgrade` absente) ; tables `mac_vendors`/`bacnet_vendors` absentes de `schema.sql` et `UnboundLocalError` dans `fleet.sync_location` (base neuve) ; tests lancés après le démarrage (bases en root) ; `safe.directory` git ; autologin `pi` sur tty1 |
