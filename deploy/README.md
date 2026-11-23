@@ -19,7 +19,7 @@ deploy/deployer.sh <cible> [--source rpi01] [--lan eth0|br0]
 | 3 | Secrets de flotte copiés de la source vers `/etc/rpinode` par un tuyau SSH, jamais affichés : `fleet.env` (secret d'adhésion, ntfy), `notify.env` (ntfy ; nom remis à « nouveau-boitier »), `tls/` (certificat et clé `*.dt.net`, CA interne) |
 | 4 | Ancienne identité Tailscale effacée : `tailscale logout` sur la cible et suppression du nœud sur headscale (sinon rpinode ne refait pas l'enrôlement et garde l'ancien nom) |
 | 5 | `installer.sh` sur la cible (voir ci-dessous) |
-| 6 | Attente de l'enrôlement automatique (docs attribue le nom `rpiNN`, le boîtier rejoint headscale), puis `finaliser.sh` : nom d'hôte, pont MQTT `rpiNN-to-docs`, `RPINODE_NAME` des notifications |
+| 6 | Attente de l'enrôlement automatique (docs attribue le nom `rpiNN`, le boîtier rejoint headscale), puis `finaliser.sh` : nom d'hôte, pont MQTT `rpiNN-to-docs`, `RPINODE_NAME` et **canal ntfy propre au boîtier** (s'y abonner : `sudo grep NTFY_URL /etc/rpinode/notify.env`), `install-ca.bat`, `hostname` de config.json |
 | 7 | SSH par clé uniquement et pare-feu (`drivers/ssh`, `drivers/firewall`), confirmés seulement si `marc@<IP Tailscale>` répond ; sinon retour arrière automatique en 5 minutes |
 
 `--etape N` reprend à l'étape N après une interruption.
@@ -91,4 +91,4 @@ par un paquet git depuis la VM (`git bundle create x.bundle main`, copie, puis
 
 | Boîtier | Date | Matériel | Notes |
 |---|---|---|---|
-| rpi02 | 2026-11-23 | EDATEC ED-IPC2110-12324US (CM4 2 Go, eMMC 32 Go, EC25) | premier essai du kit, `--lan br0`, sans carte SIM, Tailscale 100.64.0.12. Défauts trouvés et corrigés : contrôle de la source sans sudo ; nginx 1.22 de Bookworm (`http2 on;` inconnu, map `$connection_upgrade` absente) ; tables `mac_vendors`/`bacnet_vendors` absentes de `schema.sql` et `UnboundLocalError` dans `fleet.sync_location` (base neuve) ; tests lancés après le démarrage (bases en root) ; `safe.directory` git ; autologin `pi` sur tty1 |
+| rpi02 | 2026-11-23 | EDATEC ED-IPC2110-12324US (CM4 2 Go, eMMC 32 Go, EC25) | premier essai du kit, `--lan br0`, sans carte SIM, Tailscale 100.64.0.12. Défauts trouvés et corrigés : contrôle de la source sans sudo ; nginx 1.22 de Bookworm (`http2 on;` inconnu, map `$connection_upgrade` absente) ; tables `mac_vendors`/`bacnet_vendors` absentes de `schema.sql` et `UnboundLocalError` dans `fleet.sync_location` (base neuve) ; tests lancés après le démarrage (bases en root) ; `safe.directory` git ; autologin `pi` sur tty1. Après coup (signalé par Marc) : « rpi01 » écrit en dur dans la barre latérale (`nav.html`), canal ntfy et `install-ca.bat` copiés de rpi01 → corrigés dans rpinode et `finaliser.sh` |
