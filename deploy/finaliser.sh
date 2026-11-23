@@ -31,6 +31,27 @@ else
     echo "RPINODE_NAME=$NOM" >> /etc/rpinode/notify.env
 fi
 
+# Canal ntfy propre au boîtier : celui copié de la source porte le nom d'un autre
+# boîtier (boitier-rpi01-…). Le sujet ntfy vaut mot de passe : il n'est pas affiché.
+if grep -q '^NTFY_URL=.*boitier-' /etc/rpinode/notify.env && ! grep -q "^NTFY_URL=.*boitier-$NOM-" /etc/rpinode/notify.env; then
+    BASE=$(sed -n 's|^NTFY_URL="\{0,1\}\(https\?://[^/]*\)/.*|\1|p' /etc/rpinode/notify.env)
+    SUJET="boitier-$NOM-$(head -c 8 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+    sed -i "s|^NTFY_URL=.*|NTFY_URL=\"$BASE/$SUJET\"|" /etc/rpinode/notify.env
+    echo "Nouveau canal ntfy pour $NOM (s'y abonner : sudo grep NTFY_URL /etc/rpinode/notify.env)."
+fi
+
+# Script d'installation du certificat (servi par nginx en /install-ca.bat) : nom du boîtier
+[ -f /etc/rpinode/tls/install-ca.bat ] && sed -i "s/^set HOST=.*/set HOST=$NOM.dt.net/" /etc/rpinode/tls/install-ca.bat
+
+# Nom dans la configuration de rpinode
+python3 - "$CONFIG" "$NOM" <<'PY'
+import json, sys
+path, nom = sys.argv[1:3]
+cfg = json.load(open(path, encoding="utf-8"))
+cfg["hostname"] = nom
+json.dump(cfg, open(path, "w", encoding="utf-8"), indent=4, ensure_ascii=False)
+PY
+
 sed "s/__NOM__/$NOM/g" "$KIT/systeme/mosquitto/bridge.conf.modele" > /etc/mosquitto/conf.d/bridge.conf
 systemctl restart mosquitto
 systemctl restart rpinode

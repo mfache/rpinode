@@ -68,6 +68,12 @@ class TemplateEngine:
         if template_name == "nav.html" and "system_version" not in kwargs:
             kwargs["system_version"] = get_last_commit_date()
 
+        if template_name == "nav.html" and "system_hostname" not in kwargs:
+            # Nom du boîtier (rpi01, rpi02…) dans le titre de la barre latérale
+            import html
+            import socket
+            kwargs["system_hostname"] = html.escape(socket.gethostname())
+
         tpl = self._load_template(template_name)
         # safe_substitute permet de ne pas crasher si une variable manque.
         # Les variables non fournies resteront sous la forme `$variable`.
