@@ -69,6 +69,10 @@ else
     echo "Dépôt déjà présent : inchangé (mise à jour par git, pas par ce script)."
 fi
 sudo -u "$USER_APP" git -C "$REPO" log --oneline -1
+# rpinode tourne en root dans ce dépôt de marc : sans cette exception, git refuse
+# de le lire (« dubious ownership ») et la version affichée est perdue.
+git config --system --get-all safe.directory 2>/dev/null | grep -qx "$REPO" \
+    || git config --system --add safe.directory "$REPO"
 install -d -o "$USER_APP" -g "$USER_APP" "$REPO/data" "$REPO/supervisor/target/release"
 install -m 755 -o "$USER_APP" -g "$USER_APP" "$KIT/rpinode-supervisor" "$REPO/supervisor/target/release/rpinode-supervisor"
 
@@ -137,6 +141,9 @@ if ! command -v tailscale >/dev/null; then
 fi
 systemctl enable -q --now tailscaled
 
+etape "Tests de rpinode sur ce boîtier (avant démarrage : les bases sont encore à marc)"
+sudo -u "$USER_APP" bash -c "cd $REPO && ./run_tests.sh 2>&1 | tail -3"
+
 etape "Démarrage"
 systemctl enable -q mosquitto nginx
 systemctl restart mosquitto nginx
@@ -144,9 +151,6 @@ systemctl enable -q rpinode.service rpinode-supervisor.service rpinode-boot-noti
     tailscale-udp-gro.service rpinode-watchdog.timer rpinode-wifi-rescue.timer
 systemctl restart rpinode-supervisor rpinode
 systemctl start rpinode-watchdog.timer rpinode-wifi-rescue.timer tailscale-udp-gro || true
-
-etape "Tests de rpinode sur ce boîtier"
-sudo -u "$USER_APP" bash -c "cd $REPO && ./run_tests.sh 2>&1 | tail -3"
 
 echo
 echo "Installation terminée. rpinode va s'enregistrer auprès de docs (nom rpiNN) puis rejoindre headscale."

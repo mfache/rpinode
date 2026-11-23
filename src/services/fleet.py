@@ -178,6 +178,12 @@ class FleetClient:
         # 1. Collecte des annotations "dirty" et colonnes à pousser
         dirty_annotations = []
         table_columns_to_push = []
+        # Initialisées ici : si une lecture échoue plus haut dans le bloc try,
+        # la synchro part quand même (sans ces éléments) au lieu de lever
+        # UnboundLocalError (vu au premier démarrage de rpi02, base neuve).
+        net_profiles_to_push = []
+        devices_to_push = []
+        template_usages = []
         try:
             with get_db_connection() as conn:
                 # Colonnes personnalisées

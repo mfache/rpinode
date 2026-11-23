@@ -304,3 +304,22 @@ CREATE TABLE IF NOT EXISTS mobile_access_tokens (
     utilisateur_ref TEXT,               -- reference utilisateur (ex: TOM), pour les logs
     synced_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Fabricants (préfixe MAC / OUI) et fabricants BACnet (vendor-id) annotés à la
+-- main et synchronisés avec docs (services/fleet.py). Ces tables existaient sur
+-- rpi01 sans figurer ici : un boîtier neuf (rpi02) n'en avait pas.
+CREATE TABLE IF NOT EXISTS mac_vendors (
+    prefix TEXT PRIMARY KEY,
+    vendor TEXT NOT NULL,
+    is_dirty BOOLEAN DEFAULT 1,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    sync_updated_at DATETIME
+);
+
+CREATE TABLE IF NOT EXISTS bacnet_vendors (
+    vendor_id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    is_dirty BOOLEAN DEFAULT 1,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    sync_updated_at DATETIME
+);
