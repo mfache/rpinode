@@ -49,8 +49,10 @@ def get_interface_status(iface):
 
             # Si le câble est débranché, NM peut cacher la connexion active.
             # On tente de fallback sur le nom standard utilisé par l'app.
-            if not con_name and iface == "eth0":
-                con_name = "eth0-manual"
+            if not con_name:
+                from core.config import lan_interface, lan_connection_fallback
+                if iface == lan_interface():
+                    con_name = lan_connection_fallback()
 
             if con_name:
                 # Check method
@@ -152,7 +154,8 @@ def get_tailscale_exit_node():
         result_route = subprocess.run(cmd_route, capture_output=True, text=True)
         
         if "dev wwan0" in result_route.stdout: return "wwan0"
-        if "dev eth0" in result_route.stdout: return "eth0"
+        from core.config import lan_interface
+        if f"dev {lan_interface()} " in result_route.stdout + " ": return "eth0"
         if "dev wlan0" in result_route.stdout: return "wlan0"
         
         return "wwan0" # Par défaut sur nos boitiers
@@ -213,13 +216,17 @@ def get_dhcp_clients(iface="wlan0"):
 
 def get_network_overview():
     """Agrège toutes les infos pour le graphique et les détails."""
+    from core.config import lan_interface
+    lan = lan_interface()
     wwan = get_interface_status("wwan0")
-    eth = get_interface_status("eth0")
+    # Clé « eth0 » conservée pour l'interface web : c'est le LAN filaire, quelle
+    # que soit l'interface réelle (eth0, ou br0 sur un boîtier à deux prises pontées)
+    eth = get_interface_status(lan)
     wlan = get_interface_status("wlan0")
     
     # Ajout des clients DHCP uniquement si l'interface est serveur DHCP
     wlan["clients"] = get_dhcp_clients("wlan0") if wlan.get("is_dhcp_server") else []
-    eth["clients"] = get_dhcp_clients("eth0") if eth.get("is_dhcp_server") else []
+    eth["clients"] = get_dhcp_clients(lan) if eth.get("is_dhcp_server") else []
     
     ts = get_tailscale_status()
     ts_exit = get_tailscale_exit_node()

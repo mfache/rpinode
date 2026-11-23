@@ -33,5 +33,15 @@ class TestConfig(unittest.TestCase):
             # Vérifie que les valeurs par défaut sont toujours là
             self.assertEqual(cfg["port"], config.DEFAULT_CONFIG["port"])
 
+    def test_lan_interface(self):
+        """LAN filaire : eth0 par défaut (rpi01), br0 sur un boîtier à prises pontées."""
+        with patch("src.core.config.load_config", return_value=dict(config.DEFAULT_CONFIG)):
+            self.assertEqual(config.lan_interface(), "eth0")
+            self.assertEqual(config.lan_connection_fallback(), "eth0-manual")
+        pont = dict(config.DEFAULT_CONFIG, lan_interface="br0", lan_connection="lan-pont")
+        with patch("src.core.config.load_config", return_value=pont):
+            self.assertEqual(config.lan_interface(), "br0")
+            self.assertEqual(config.lan_connection_fallback(), "lan-pont")
+
 if __name__ == '__main__':
     unittest.main()

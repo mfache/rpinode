@@ -86,13 +86,19 @@ def publish_tailscale_routes(force=False):
     _routes_publiees = routes
 
 def _apply_eth0_profile(method, addresses, gateway, dhcp_range=None):
-    """Applique la config sur eth0 via nmcli."""
-    logger.info(f"Application profil eth0 ({method})")
+    """Applique la config du LAN filaire (profil « eth0 » du chantier) via nmcli.
 
-    # Trouver le nom de la connexion pour eth0
-    cmd_find = "nmcli -t -f NAME,DEVICE con show --active | grep ':eth0$' | cut -d: -f1"
-    res = subprocess.run(cmd_find, shell=True, capture_output=True, text=True)
-    con_name = res.stdout.strip() or "eth0-manual"
+    L'interface réelle vient de la config (lan_interface) : eth0, ou br0 quand
+    les deux prises RJ45 sont pontées."""
+    from core.config import lan_interface, lan_connection_fallback
+    dev = lan_interface()
+    logger.info(f"Application profil LAN {dev} ({method})")
+
+    # Trouver le nom de la connexion active de l'interface
+    res = subprocess.run(["nmcli", "-t", "-f", "NAME,DEVICE", "con", "show", "--active"],
+                         capture_output=True, text=True)
+    con_name = next((line.rsplit(":", 1)[0] for line in res.stdout.splitlines()
+                     if line.rsplit(":", 1)[-1] == dev), "") or lan_connection_fallback()
 
     if method == "auto":
         nm_cmd = f"sudo nmcli con mod '{con_name}' ipv4.method auto ipv4.addresses '' ipv4.gateway '' ipv4.shared-dhcp-range ''"
@@ -134,8 +140,8 @@ def _apply_eth0_profile(method, addresses, gateway, dhcp_range=None):
 
         # 1. On vide radicalement les adresses pour éviter que l'ancienne IP (IEJN) ne reste
         # On le fait deux fois pour être sûr, car NM peut réagir lentement
-        logger.info("Flush des adresses sur eth0...")
-        subprocess.run(f"sudo ip addr flush dev eth0", shell=True, check=False)
+        logger.info(f"Flush des adresses sur {dev}...")
+        subprocess.run(["sudo", "ip", "addr", "flush", "dev", dev], check=False)
         
         # 2. On modifie le profil NM
         subprocess.run(nm_cmd, shell=True, check=True)
@@ -148,18 +154,18 @@ def _apply_eth0_profile(method, addresses, gateway, dhcp_range=None):
         
         # 4. Flush de sécurité APRES le up si il a échoué (car il a pu remettre des IPs fantômes)
         if res_up.returncode != 0:
-            subprocess.run(f"sudo ip addr flush dev eth0", shell=True, check=False)
+            subprocess.run(["sudo", "ip", "addr", "flush", "dev", dev], check=False)
             if "no suitable device" in res_up.stderr.lower() or "no carrier" in res_up.stderr.lower():
-                logger.info("eth0 n'a pas de lien physique, le profil DHCP sera activé au branchement.")
+                logger.info(f"{dev} n'a pas de lien physique, le profil DHCP sera activé au branchement.")
             else:
-                logger.error(f"Erreur activation eth0 : {res_up.stderr}")
+                logger.error(f"Erreur activation {dev} : {res_up.stderr}")
         else:
-            logger.info(f"Profil eth0 appliqué avec succès.")
+            logger.info(f"Profil LAN {dev} appliqué avec succès.")
         
         # Publication des routes sur Headscale
         publish_tailscale_routes()
     except Exception as e:
-        logger.error(f"Erreur lors de l'application du profil eth0: {e}")
+        logger.error(f"Erreur lors de l'application du profil LAN {dev}: {e}")
 
 def get_site_network_profile(site_id, interface="eth0"):
     """Récupère le profil réseau d'une interface pour un site donné."""

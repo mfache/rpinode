@@ -17,7 +17,14 @@ DEFAULT_CONFIG = {
     "mobile_session_secret": "",  # Généré automatiquement (services/mobile_auth.py) pour signer les cookies de session mobile
     "logger_retries": 3,
     "modbus_timeout": 1.2,
-    "bacnet_timeout": 45
+    "bacnet_timeout": 45,
+    # Interface du LAN filaire du chantier : "eth0" (rpi01) ou "br0" quand les deux
+    # prises RJ45 sont pontées en switch (boîtiers EDATEC). Les profils réseau du
+    # chantier (clé "eth0" en base) s'appliquent à cette interface.
+    "lan_interface": "eth0",
+    # Profil NetworkManager à utiliser si l'interface n'a pas de connexion active
+    # (vide = "<interface>-manual", ex. "eth0-manual" ; pont EDATEC : "lan-pont").
+    "lan_connection": ""
 }
 
 def load_config() -> dict:
@@ -37,6 +44,17 @@ def load_config() -> dict:
     except Exception as e:
         logger.error(f"Erreur de lecture de {CONFIG_FILE}: {e}")
         return DEFAULT_CONFIG.copy()
+
+def lan_interface() -> str:
+    """Interface du LAN filaire du chantier (eth0 par défaut, br0 sur un pont)."""
+    return load_config().get("lan_interface") or "eth0"
+
+
+def lan_connection_fallback() -> str:
+    """Profil NetworkManager du LAN filaire quand aucune connexion n'est active."""
+    cfg = load_config()
+    return cfg.get("lan_connection") or f"{cfg.get('lan_interface') or 'eth0'}-manual"
+
 
 def save_config(config: dict) -> None:
     """Enregistre la configuration dans le fichier de manière atomique."""

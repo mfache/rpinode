@@ -739,7 +739,8 @@ class WebAdminHandler(BaseHTTPRequestHandler):
                 f"{iface}_is_ap_mode": 'true' if method == "shared" else 'false'
             }
         eth0_profile = get_site_network_profile(site_id, "eth0") if site_id else None
-        eth0_status = get_interface_status("eth0")
+        from core.config import lan_interface
+        eth0_status = get_interface_status(lan_interface())  # LAN filaire : eth0 ou br0
         eth0_ctx = get_iface_context("eth0", eth0_profile, eth0_status)
         wlan0_profile = get_site_network_profile(site_id, "wlan0") if site_id else None
         wlan0_status = get_interface_status("wlan0")

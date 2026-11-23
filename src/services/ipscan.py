@@ -48,8 +48,9 @@ def get_oui_vendor(mac):
     return "Inconnu"
 
 def candidate_ifaces():
-    """Interfaces LAN à examiner."""
-    return ["eth0", "wlan0"]
+    """Interfaces LAN à examiner (LAN filaire configuré + Wi-Fi)."""
+    from core.config import lan_interface
+    return [lan_interface(), "wlan0"]
 
 def get_local_macs():
     """Retourne la liste des adresses MAC locales du boîtier."""

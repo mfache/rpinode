@@ -136,7 +136,9 @@ def main():
         bacnet_logger.info(f"Démarrage de bacnet_daemon via {bacnet_python}")
         try:
             # Lancer le démon comme un sous-processus continu
-            proc = subprocess.Popen([bacnet_python, daemon_path])
+            from core.config import lan_interface
+            env = dict(os.environ, RPINODE_LAN_IFACE=lan_interface())
+            proc = subprocess.Popen([bacnet_python, daemon_path], env=env)
 
             def cleanup():
                 bacnet_logger.info("Arrêt du bacnet_daemon enfant...")

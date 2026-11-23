@@ -46,7 +46,9 @@ class BacnetMqttDaemon:
     def get_iface_cidr(self):
         try:
             import subprocess, re
-            candidates = [self.iface] if self.iface and self.iface != "auto" else ["eth0", "wlan0"]
+            # RPINODE_LAN_IFACE est transmis par main.py (config lan_interface : eth0 ou br0)
+            lan = os.environ.get("RPINODE_LAN_IFACE") or "eth0"
+            candidates = [self.iface] if self.iface and self.iface != "auto" else [lan, "wlan0"]
             
             # 1. On cherche d'abord une interface avec un câble / lien physique actif et une IP
             for cand in candidates:
