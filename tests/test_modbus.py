@@ -198,6 +198,11 @@ class TestDashboardPoints(unittest.TestCase):
             raw_value_for_write({"function": 3, "type": "uint16", "scale": 1.0}, -1)
         with self.assertRaises(ValueError):
             raw_value_for_write({"function": 1}, 2)
+        # Plus fin que la résolution : refusé (pas d'arrondi silencieux) ; 0.3 / 0.1 reste exact
+        with self.assertRaises(ValueError):
+            raw_value_for_write({"function": 3, "type": "int16", "scale": 0.1, "unit": "°C"}, 21.45)
+        self.assertEqual(raw_value_for_write({"function": 3, "type": "int16", "scale": 0.1}, 0.3), 3)
+        self.assertEqual(raw_value_for_write({"function": 3, "type": "int16", "scale": 0.01}, 7.49), 749)
 
     def test_ecriture_relue_et_diffusee(self):
         from unittest import mock

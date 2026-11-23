@@ -539,7 +539,11 @@ def raw_value_for_write(point, value):
             raise ValueError("Une sortie tout-ou-rien n'accepte que 0 (OFF) ou 1 (ON).")
         return int(v)
     scale = float(point.get("scale") or 1.0)
-    raw = int(round(v / scale))
+    exact = v / scale
+    raw = int(round(exact))
+    if abs(exact - raw) > 1e-6:
+        unit = f" {point['unit']}" if point.get("unit") else ""
+        raise ValueError(f"Précision maximale du registre : {scale:g}{unit} (par exemple {round(raw * scale, 3):g}).")
     signed = str(point.get("type") or "int16").lower() in _TYPES_16_BITS_SIGNES
     lo, hi = (-32768, 32767) if signed else (0, 65535)
     if not lo <= raw <= hi:
