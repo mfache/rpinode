@@ -105,6 +105,10 @@ etape "nginx (portail HTTPS du boîtier, certificat *.dt.net)"
 install -m 644 "$SYS/nginx/rpinode" /etc/nginx/sites-available/rpinode
 ln -sf /etc/nginx/sites-available/rpinode /etc/nginx/sites-enabled/rpinode
 rm -f /etc/nginx/sites-enabled/default
+if ! grep -rqs 'map \$http_upgrade \$connection_upgrade' /etc/nginx/nginx.conf /etc/nginx/conf.d/; then
+    # Debian 12 : pas de map $connection_upgrade d'origine (Debian 13 l'a dans nginx.conf)
+    install -m 644 "$SYS/nginx/rpinode-upgrade.conf" /etc/nginx/conf.d/rpinode-upgrade.conf
+fi
 if ! nginx -t -q 2>/dev/null; then
     # nginx < 1.25.1 (Bookworm : 1.22) ne connaît pas « http2 on; » : ancienne syntaxe
     sed -i -e 's/listen 443 ssl;/listen 443 ssl http2;/' -e '/^[[:space:]]*http2 on;/d' /etc/nginx/sites-available/rpinode
