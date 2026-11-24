@@ -91,9 +91,14 @@ et `docsadmin`) une fois l'accès par `marc` vérifié :
 sa connexion automatique sur tty1). Définir ensuite le mot de passe de `marc`
 (`sudo passwd marc`) : il sert au terminal Bluetooth (login).
 
-Mises à jour ultérieures du code : le boîtier n'a pas de clé GitHub ; passer
-par un paquet git depuis la VM (`git bundle create x.bundle main`, copie, puis
-`git pull x.bundle main` dans `~/rpinode`).
+Mises à jour ultérieures du code : le kit ne pose pas de clé GitHub. Soit
+passer par la VM (`git push <boîtier>:rpinode main:refs/heads/depuis-vm`, puis
+sur le boîtier `git merge --ff-only depuis-vm && git branch -d depuis-vm`), soit
+recopier la clé de déploiement de rpi01 (`~/.ssh/id_ed25519_rpinode` + `.pub`,
+entrée `Host github.com` de `~/.ssh/config`, lignes github.com de known_hosts),
+fait sur rpi02 le 2026-11-24 à la demande de Marc : `git pull` marche alors
+directement. Cette clé a les droits de rpi01 sur le dépôt ; la révoquer sur
+GitHub coupe tous les boîtiers qui la partagent.
 
 ## Journal des déploiements
 
