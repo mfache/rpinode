@@ -114,6 +114,10 @@ etape "Scripts et services systemd"
 install -m 755 "$SYS"/bin/* /usr/local/bin/
 install -m 644 "$SYS"/units/*.service "$SYS"/units/*.timer /etc/systemd/system/
 install -D -m 644 "$SYS/units/tailscaled-attendre-reseau.conf" /etc/systemd/system/tailscaled.service.d/attendre-reseau.conf
+# Routage IP (raccourcis du chantier par Tailscale) : sans lui, les routes /32 sont
+# publiées et approuvées mais le boîtier ne relaie rien (oubli du 1er déploiement, rpi02).
+install -m 644 "$SYS/sysctl/99-rpinode.conf" /etc/sysctl.d/99-rpinode.conf
+sysctl -q -p /etc/sysctl.d/99-rpinode.conf
 # Sans modem 4G, le watchdog 4G ne fait que constater l'absence de wwan0 : sans risque.
 # Boîtiers EDATEC : lvd-detect (baisse de tension) a un ordre impossible dans son unité
 # d'origine et ne démarre jamais sans mode graphique ; on installe une version corrigée.

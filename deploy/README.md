@@ -50,6 +50,9 @@ ou le Wi-Fi) et le boîtier n'aurait aucune sortie sur un chantier sans Wi-Fi.
 - Scripts `/usr/local/bin` et unités systemd de [`systeme/`](systeme/) (copiés
   de rpi01 le 2026-11-23) : rpinode, rpinode-supervisor, watchdog 4G,
   bascule Wi-Fi RPIRESCUE, notification au démarrage, UDP GRO pour Tailscale.
+- `/etc/sysctl.d/99-rpinode.conf` ([`systeme/sysctl/`](systeme/sysctl/), copie de rpi01) :
+  routage IP, sans lequel les raccourcis du chantier (routes /32 Tailscale) ne
+  passent pas. Oublié au déploiement de rpi02, posé à la main le 2026-11-24.
 - nginx (portail HTTPS `*.dt.net`, CA interne en `/ca.crt`), mosquitto local.
 - Terminal Bluetooth (`drivers/bluetooth_terminal`).
 - Lance la suite de tests de rpinode sur le boîtier.
