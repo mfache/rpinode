@@ -60,6 +60,12 @@ def lan_connection_fallback() -> str:
     return cfg.get("lan_connection") or f"{cfg.get('lan_interface') or 'eth0'}-manual"
 
 
+def lan_port_labels() -> dict:
+    """Noms affichés des prises du pont LAN, ex. {"eth0": "prise 1000M"} (facultatif)."""
+    labels = load_config().get("lan_port_labels")
+    return labels if isinstance(labels, dict) else {}
+
+
 def lan_default_route() -> bool:
     """True si le LAN filaire du chantier peut fournir la route par défaut."""
     return bool(load_config().get("lan_default_route"))

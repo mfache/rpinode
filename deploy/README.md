@@ -42,6 +42,9 @@ ou le Wi-Fi) et le boîtier n'aurait aucune sortie sur un chantier sans Wi-Fi.
   aarch64, glibc 2.34 minimum, tourne sur Bookworm et Trixie).
 - `data/config.json` : `lan_interface` (`eth0`, ou `br0` pour deux prises
   pontées) et `lan_connection` (`lan-pont` avec le pont).
+  Facultatif : `lan_port_labels`, noms des prises du pont affichés sur
+  `/network/interfaces` (EDATEC : `{"eth0": "prise 1000M", "eth1": "prise 100M"}`,
+  à ajouter à la main).
 - Venv BACnet `/opt/rpinode-bacnet/venv` (bacpypes3 0.0.106, bacpypes 0.19.0,
   ifaddr).
 - Scripts `/usr/local/bin` et unités systemd de [`systeme/`](systeme/) (copiés

@@ -32,7 +32,7 @@
                 <div class="iface-title-group">
                     <div class="iface-icon eth-icon">🔌</div>
                     <div>
-                        <div class="iface-name">Interface Filaire (eth0)</div>
+                        <div class="iface-name">Interface Filaire (${eth0_title})</div>
                         <div class="iface-sub">Liaison Ethernet locale / Automates & Réseau</div>
                     </div>
                 </div>
@@ -53,6 +53,7 @@
                     <span class="value font-mono subt_net_eth0_mac">${eth0_live_mac}</span>
                 </div>
             </div>
+            ${eth0_ports_html}
 
             <!-- Formulaire eth0 -->
             <form id="form-eth0" onsubmit="saveConfig(event, 'eth0')" class="card-form">
@@ -474,6 +475,39 @@
     font-weight: 600;
 }
 
+/* Prises du pont LAN (br0) */
+.ports-bar {
+    padding: 8px 20px 10px;
+    border-bottom: 1px solid #edf2f7;
+    font-size: 0.8rem;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+.ports-hint { color: #64748b; font-size: 0.75rem; }
+.port-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+.port-name { font-weight: 600; color: #1e293b; min-width: 9rem; }
+.port-dev { color: #64748b; font-weight: 400; font-family: monospace; margin-left: 4px; }
+.port-mac { color: #64748b; }
+.port-state {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 1px 8px;
+    border-radius: 999px;
+    font-weight: 600;
+}
+.port-state .dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
+.port-up { background: #dcfce7; color: #166534; }
+.port-up .dot { background: #22c55e; }
+.port-down { background: #f1f5f9; color: #64748b; }
+.port-down .dot { background: #94a3b8; }
+
 /* ==================== FORMULAIRES & CHAMPS ==================== */
 .card-form {
     padding: 20px;
@@ -880,6 +914,31 @@
     background: rgba(39, 174, 96, 0.2);
     color: #d7f8e6;
     border-color: rgba(125, 206, 160, 0.34);
+}
+
+.network-interfaces-container .ports-bar {
+    background: rgba(28, 41, 56, 0.82);
+    border-color: var(--legacy-border);
+}
+
+.network-interfaces-container .port-name {
+    color: var(--legacy-text);
+}
+
+.network-interfaces-container .ports-hint,
+.network-interfaces-container .port-dev,
+.network-interfaces-container .port-mac {
+    color: var(--legacy-muted);
+}
+
+.network-interfaces-container .port-up {
+    background: rgba(39, 174, 96, 0.2);
+    color: #d7f8e6;
+}
+
+.network-interfaces-container .port-down {
+    background: rgba(148, 163, 184, 0.16);
+    color: var(--legacy-muted);
 }
 
 .network-interfaces-container .status-offline {

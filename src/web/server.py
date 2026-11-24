@@ -742,6 +742,7 @@ class WebAdminHandler(BaseHTTPRequestHandler):
         from core.config import lan_interface
         eth0_status = get_interface_status(lan_interface())  # LAN filaire : eth0 ou br0
         eth0_ctx = get_iface_context("eth0", eth0_profile, eth0_status)
+        eth0_ctx.update(self._lan_ports_context(lan_interface()))
         wlan0_profile = get_site_network_profile(site_id, "wlan0") if site_id else None
         wlan0_status = get_interface_status("wlan0")
         wlan0_ctx = get_iface_context("wlan0", wlan0_profile, wlan0_status)
@@ -753,6 +754,30 @@ class WebAdminHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.end_headers()
         self.wfile.write(final_html.encode("utf-8"))
+
+    @staticmethod
+    def _lan_ports_context(dev):
+        """Titre de la carte LAN et une ligne par prise quand le LAN est un pont (br0)."""
+        from services.network import get_bridge_ports
+        ports = get_bridge_ports(dev)
+        if not ports:
+            return {"eth0_title": escape(dev), "eth0_ports_html": ""}
+        rows = ""
+        for p in ports:
+            name = escape(p["label"] or p["name"])
+            sub = f' <span class="port-dev">{escape(p["name"])}</span>' if p["label"] else ""
+            if p["cable"]:
+                speed = f'{p["speed"]} Mb/s' if p["speed"] else "vitesse inconnue"
+                state = f'<span class="port-state port-up"><span class="dot"></span>Câble · {speed}</span>'
+            else:
+                state = '<span class="port-state port-down"><span class="dot"></span>Pas de câble</span>'
+            rows += (f'<div class="port-row"><span class="port-name">🔌 {name}{sub}</span>'
+                     f'{state}<span class="port-mac font-mono">{escape(p["mac"])}</span></div>')
+        names = " + ".join(escape(p["label"] or p["name"]) for p in ports)
+        return {
+            "eth0_title": f"pont {escape(dev)} : {names}",
+            "eth0_ports_html": f'<div class="ports-bar"><div class="ports-hint">Une seule adresse IP pour toutes les prises du pont.</div>{rows}</div>',
+        }
 
     def handle_network_profile_save(self):
         content_length = int(self.headers['Content-Length'])

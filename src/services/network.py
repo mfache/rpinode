@@ -119,6 +119,43 @@ def get_interface_status(iface):
         logger.error(f"Erreur status {iface}: {e}")
         return {"active": False, "cable": False, "dhcp": False, "is_dhcp_server": False, "has_ip": False, "ip": "Erreur", "mac": "-", "routes": []}
 
+def _read_sys(path, default=""):
+    try:
+        with open(path, encoding="utf-8") as f:
+            return f.read().strip()
+    except OSError:
+        return default
+
+
+def get_bridge_ports(dev):
+    """Prises physiques d'un pont (br0) avec leur état : [] si `dev` n'est pas un pont.
+
+    Le pont paraît branché dès qu'UNE prise a un câble : cette liste dit laquelle,
+    et à quelle vitesse elle a négocié."""
+    import os
+    brif = f"/sys/class/net/{dev}/brif"
+    if not os.path.isdir(brif):
+        return []
+    from core.config import lan_port_labels
+    labels = lan_port_labels()
+    ports = []
+    for name in sorted(os.listdir(brif)):
+        base = f"/sys/class/net/{name}"
+        cable = _read_sys(f"{base}/carrier", "0") == "1"
+        try:
+            speed = int(_read_sys(f"{base}/speed", "-1"))
+        except ValueError:
+            speed = -1
+        ports.append({
+            "name": name,
+            "label": labels.get(name, ""),
+            "cable": cable,
+            "speed": speed if cable and speed > 0 else None,
+            "mac": _read_sys(f"{base}/address", "-"),
+        })
+    return ports
+
+
 def get_tailscale_status():
     """Retourne les infos détaillées de Tailscale."""
     try:
