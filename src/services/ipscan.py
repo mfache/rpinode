@@ -385,8 +385,83 @@ def update_db_results(devices, ifaces=None):
     except Exception as e:
         logger.error(f"Erreur update_db_results : {e}")
 
+def merge_iams(devices, iams):
+    """Marque BACnet les hôtes qui ont répondu au Who-Is en broadcast.
+
+    La sonde UDP du balayage n'attend la réponse que sur son port source : certains
+    automates (Regin/Systemair, vendeur 264) répondent I-Am en broadcast vers le port
+    47808, que seul le démon BACnet reçoit. `iams` = {ip: {"instance", "vendor_id"}}.
+    Renvoie les appareils modifiés."""
+    changed = []
+    for d in devices:
+        info = iams.get(d.get("ip"))
+        if not info:
+            continue
+        ports = d.setdefault("ports", [])
+        if 47808 not in ports:
+            ports.append(47808)
+            ports.sort()
+            changed.append(d)
+        if d.get("bacnet_instance") is None:
+            d["bacnet_instance"] = info["instance"]
+            if d not in changed:
+                changed.append(d)
+    return changed
+
+
+async def _whois_via_daemon(wait=5.0):
+    """Who-Is global (broadcast) par le démon BACnet ; renvoie {ip: {instance, vendor_id}}.
+
+    Les adresses routées (« réseau:mac », ex. MS/TP derrière un routeur) sont ignorées :
+    elles ne correspondent à aucun hôte du balayage IP."""
+    import paho.mqtt.client as mqtt
+
+    from services.mqtt_service import mqtt_client
+
+    iams = {}
+
+    def on_msg(client, userdata, msg):
+        try:
+            evt = json.loads(msg.payload.decode("utf-8"))
+            addr = str(evt.get("address", ""))
+            ipaddress.IPv4Address(addr)
+        except Exception:
+            return
+        iams[addr] = {"instance": evt.get("device_instance"), "vendor_id": evt.get("vendor_id")}
+
+    try:
+        temp_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
+    except AttributeError:
+        temp_client = mqtt.Client()
+    temp_client.on_message = on_msg
+    temp_client.connect("127.0.0.1", 1883, 60)
+    temp_client.loop_start()
+    try:
+        temp_client.subscribe("rpinode/bacnet/evt/iam")
+        await asyncio.sleep(0.3)  # abonnement en place avant les réponses
+        mqtt_client.publish("rpinode/bacnet/cmd/whois", {})
+        await asyncio.sleep(wait)
+    finally:
+        temp_client.loop_stop()
+        temp_client.disconnect()
+    return dict(iams)
+
+
 async def enrich_results(devices):
     """Tente d'enrichir les résultats (BACnet & Modbus)."""
+    try:
+        iams = await _whois_via_daemon()
+    except Exception as e:
+        logger.warning(f"Who-Is broadcast via le démon BACnet impossible : {e}")
+        iams = {}
+    changed = merge_iams(devices, iams)
+    if changed:
+        logger.info(f"BACnet par Who-Is broadcast : {len(changed)} hôte(s) complété(s).")
+        update_db_results(changed)
+        from services.mqtt_service import mqtt_client
+        for d in changed:
+            mqtt_client.publish("rpinode/ipscan/host_ready", json.dumps(d))
+
     tasks = []
     for d in devices:
         ports = d.get("ports", [])
