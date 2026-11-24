@@ -278,6 +278,20 @@ def is_ipscan_running():
     except OSError:
         return False
 
+def prefer_site_ips(found):
+    """Un appareil vu à la fois en 169.254.x.x et sur le réseau du chantier ne garde
+    que l'adresse du chantier.
+
+    Le LAN (br0 sur rpi02) a souvent les deux adresses, comme le PC du technicien :
+    le balayage voit alors la même MAC deux fois, et comme la base range les appareils
+    par MAC, la dernière adresse écrite l'emportait au hasard. `found` = {ip: (mac, iface)}."""
+    link_local = ipaddress.IPv4Network("169.254.0.0/16")
+    macs_on_site = {mac for ip, (mac, _) in found.items()
+                    if ipaddress.IPv4Address(ip) not in link_local}
+    return {ip: v for ip, v in found.items()
+            if ipaddress.IPv4Address(ip) not in link_local or v[0] not in macs_on_site}
+
+
 async def run_ip_scan():
     """Lance le scan complet et enregistre les résultats."""
     if is_ipscan_running():
@@ -303,6 +317,8 @@ async def run_ip_scan():
                 if ip_h not in local_ips and mac_h not in local_macs:
                     if ip_h not in found:
                         found[ip_h] = (mac_h, iface)
+
+        found = prefer_site_ips(found)
 
         if not scanned_ifaces:
             logger.warning("Aucune interface LAN n'a d'adresse IP.")
