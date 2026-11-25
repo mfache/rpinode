@@ -433,6 +433,49 @@ def handle_bacnet_mstp_stream(handler):
         sse_hub.unregister_client("/api/bacnet/mstp/stream", client_id)
 
 
+def handle_bacnet_dashboard_stream(handler):
+    """
+    Flux SSE des points BACnet de l'accueil (case « Accueil ») : lecture en
+    direct à l'ouverture puis toutes les PERIODE_ACCUEIL secondes, tant que la
+    page est ouverte. Les valeurs arrivent déjà mises en forme (texte, classe,
+    info-bulle).
+    """
+    from services.bacnet_mgr import (PERIODE_ACCUEIL, dashboard_display_updates,
+                                     read_dashboard_points_live)
+    from services.presence import get_current_site_id
+
+    handler.send_response(200)
+    handler.send_header('Content-type', 'text/event-stream')
+    handler.send_header('Cache-Control', 'no-cache')
+    handler.send_header('Connection', 'keep-alive')
+    handler.end_headers()
+
+    stream_path = "/api/bacnet/dashboard/stream"
+    client_id = f"accueil_bac_{uuid.uuid4().hex[:6]}"
+    client_ip = _extract_client_ip(handler)
+    sse_hub.register_client(stream_path, client_id, client_ip)
+    logger.info(f"Nouveau client SSE accueil BACnet connecté [{client_id}].")
+
+    try:
+        while True:
+            site_id = get_current_site_id()
+            payload = dashboard_display_updates(read_dashboard_points_live(site_id)) if site_id else {}
+            handler.wfile.write(f"data: {json.dumps(payload)}\n\n".encode("utf-8"))
+            handler.wfile.flush()
+            sse_hub.record_event(stream_path, event_type="message", data=payload, client_ip=client_ip)
+            for i in range(PERIODE_ACCUEIL):
+                time.sleep(1.0)
+                if i % 10 == 9:
+                    handler.wfile.write(b": heartbeat\n\n")
+                    handler.wfile.flush()
+    except (ConnectionAbortedError, BrokenPipeError, ConnectionResetError):
+        logger.info(f"Client SSE accueil BACnet déconnecté [{client_id}].")
+    except Exception as e:
+        logger.error(f"Erreur flux SSE accueil BACnet: {e}")
+    finally:
+        sse_hub.unregister_client(stream_path, client_id)
+
+
 def handle_bacnet_vue_stream(handler, query=None):
     """
     Flux SSE d'une vue de points BACnet (services/bacnet_vues.py) : lit les

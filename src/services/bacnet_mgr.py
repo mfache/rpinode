@@ -849,6 +849,28 @@ def read_dashboard_points_live(site_id, timeout=6.0):
     return results
 
 
+#: Secondes entre deux lectures des points BACnet de l'accueil (flux SSE).
+PERIODE_ACCUEIL = 30
+
+
+def dashboard_display_updates(values):
+    """Mise en forme des valeurs lues par read_dashboard_points_live pour le
+    flux SSE de l'accueil : {point_id: {texte, classe, titre}}. Une lecture
+    ratée qui garde la dernière valeur connue reste en gris."""
+    import time
+    out = {}
+    for pid, v in (values or {}).items():
+        if v.get("error"):
+            classe = "badge-gray" if v.get("retained") else "badge-error"
+            titre = f"Lecture BACnet : {v['error']}" + (" (dernière valeur connue)" if v.get("retained") else "")
+        else:
+            classe = "badge-success"
+            titre = "Lu à " + time.strftime("%H:%M:%S", time.localtime(v.get("ts") or time.time()))
+        out[str(pid)] = {"texte": v.get("display") if v.get("display") is not None else "—",
+                         "classe": f"live-val {classe}", "titre": titre}
+    return out
+
+
 def get_site_monitored_cached_values(site_id):
     """
     Renvoie les dernières valeurs connues des points BACnet suivis depuis la base locale.

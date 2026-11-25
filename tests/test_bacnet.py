@@ -295,6 +295,19 @@ class TestBacnetDashboardPoints(unittest.TestCase):
         paths.DATABASE_FILE = self.original_db
         self.temp_dir.cleanup()
 
+    def test_mise_en_forme_pour_le_flux_sse(self):
+        from services.bacnet_mgr import dashboard_display_updates
+        out = dashboard_display_updates({
+            "1": {"value": "21.5", "display": "21.5", "error": None, "ts": 0},
+            "2": {"value": "20", "display": "20", "error": "Timeout", "retained": True, "ts": 0},
+            "3": {"value": None, "display": None, "error": "Timeout", "retained": False, "ts": 0},
+        })
+        self.assertEqual(out["1"]["classe"], "live-val badge-success")
+        self.assertTrue(out["1"]["titre"].startswith("Lu à "))
+        self.assertEqual((out["2"]["texte"], out["2"]["classe"]), ("20", "live-val badge-gray"))
+        self.assertIn("dernière valeur connue", out["2"]["titre"])
+        self.assertEqual((out["3"]["texte"], out["3"]["classe"]), ("—", "live-val badge-error"))
+
     def test_choix_des_points_du_tableau_de_bord(self):
         from services.bacnet_mgr import get_dashboard_points
         pid = self.pts["binaryOutput:38"]["id"]

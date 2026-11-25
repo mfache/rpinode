@@ -90,34 +90,31 @@
         }
     };
 
-    // Points BACnet : pas de flux SSE, lecture directe toutes les 30 s
-    // (seulement s'il y en a et quand la page est visible).
-    const PERIODE_BACNET_MS = 30000;
-    async function rafraichirBacnet() {
-        if (!document.querySelector('[data-bacnet-dash]') || document.hidden) return;
-        try {
-            const res = await fetch((base + '/api/bacnet/dashboard/values').replace(/\/+/g, '/'));
-            const data = await res.json();
-            if (data.status !== 'ok') return;
-            for (const [pid, v] of Object.entries(data.values || {})) {
+    // Points BACnet : flux SSE dédié (lecture en direct côté serveur, valeurs
+    // déjà mises en forme), ouvert seulement s'il y en a et que la page est visible.
+    let fluxBacnet = null;
+    function ouvrirFluxBacnet() {
+        if (fluxBacnet || document.hidden || !document.querySelector('[data-bacnet-dash]')) return;
+        fluxBacnet = new EventSource((base + '/api/bacnet/dashboard/stream').replace(/\/+/g, '/'));
+        fluxBacnet.onmessage = (ev) => {
+            for (const [pid, v] of Object.entries(JSON.parse(ev.data))) {
                 const el = document.getElementById('val-bac-' + pid);
                 if (!el) continue;
                 const avant = el.textContent;
-                el.textContent = v.display != null ? v.display : '—';
-                el.className = 'live-val ' + (v.error ? (v.retained ? 'badge-gray' : 'badge-error') : 'badge-success');
-                el.title = v.error ? ('Lecture BACnet : ' + v.error + (v.retained ? ' (dernière valeur connue)' : ''))
-                                   : ('Lu à ' + new Date(v.ts * 1000).toLocaleTimeString());
+                el.textContent = v.texte;
+                el.className = v.classe;
+                el.title = v.titre;
                 if (avant !== el.textContent) {
                     el.classList.add('suivi-flash');
                     setTimeout(() => el.classList.remove('suivi-flash'), 1000);
                 }
             }
-        } catch (e) { /* réseau : on retente au prochain tour */ }
+        };
     }
-    if (document.querySelector('[data-bacnet-dash]')) {
-        rafraichirBacnet();
-        setInterval(rafraichirBacnet, PERIODE_BACNET_MS);
-        document.addEventListener('visibilitychange', () => { if (!document.hidden) rafraichirBacnet(); });
+    function fermerFluxBacnet() {
+        if (fluxBacnet) { fluxBacnet.close(); fluxBacnet = null; }
     }
+    document.addEventListener('visibilitychange', () => document.hidden ? fermerFluxBacnet() : ouvrirFluxBacnet());
+    ouvrirFluxBacnet();
 })();
 </script>

@@ -230,8 +230,9 @@ class WebAdminHandler(BaseHTTPRequestHandler):
             return self.serve_modbus_tools(query)
         elif path == "/api/modbus/suivi/values":
             return self.serve_modbus_suivi_values()
-        elif path == "/api/bacnet/dashboard/values":
-            return self.serve_bacnet_dashboard_values()
+        elif path == "/api/bacnet/dashboard/stream":
+            from web.stream import handle_bacnet_dashboard_stream
+            return handle_bacnet_dashboard_stream(self)
         elif path == "/api/bacnet/suivi/values":
             return self.serve_bacnet_suivi_values()
         elif path == "/api/monitor/suivi/values":
@@ -540,9 +541,9 @@ class WebAdminHandler(BaseHTTPRequestHandler):
                      f"<td><b class='live-val badge-gray' id='val-{pid}'>{escape(value)}</b></td>"
                      f"<td><div class='dash-write'>{field}</div></td></tr>")
 
-        # Points BACnet : lecture seule, valeurs rafraîchies par le bloc lui-même
-        # (/api/bacnet/dashboard/values) ; identifiants « bac- » pour ne pas
-        # croiser ceux des points Modbus, mis à jour par le flux SSE.
+        # Points BACnet : lecture seule, valeurs envoyées par leur propre flux SSE
+        # (/api/bacnet/dashboard/stream) ; identifiants « bac- » pour ne pas
+        # croiser ceux des points Modbus, mis à jour par le flux SSE général.
         for p in bacnet_points:
             pid = int(p["id"])
             value = format_display(p["last_value"])
@@ -1684,16 +1685,6 @@ class WebAdminHandler(BaseHTTPRequestHandler):
 
         values = read_site_monitored_points_live(site_id)
         self.send_json({"status": "ok", "values": values})
-
-    def serve_bacnet_dashboard_values(self):
-        """Valeurs des points BACnet du tableau de bord (lues en direct)."""
-        from services.bacnet_mgr import read_dashboard_points_live
-        from services.presence import get_current_site_id
-
-        site_id = get_current_site_id()
-        if not site_id:
-            return self.send_json({"status": "error", "message": "Aucun chantier actif", "values": {}})
-        self.send_json({"status": "ok", "values": read_dashboard_points_live(site_id)})
 
     def serve_bacnet_device_view(self, query):
         device_id = query.get("id", [""])[0]
