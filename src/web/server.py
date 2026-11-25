@@ -2006,7 +2006,7 @@ class WebAdminHandler(BaseHTTPRequestHandler):
             view_id = enregistrer_vue(site_id, data.get("name"), data.get("patterns") or "",
                                       data.get("range_min"), data.get("range_max"),
                                       view_id=int(data["view_id"]) if data.get("view_id") else None,
-                                      roles=data.get("roles") or [])
+                                      roles=data.get("roles") or [], regex=data.get("name_regex"))
             self.send_json({"status": "ok", "id": view_id})
         except ValueError as e:
             self.send_json({"status": "error", "message": str(e)})

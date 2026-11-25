@@ -195,9 +195,10 @@ def init_db():
         try:
             cursor.execute("PRAGMA table_info(bacnet_views)")
             vcols = [r["name"] for r in cursor.fetchall()]
-            if vcols and "roles_json" not in vcols:
-                cursor.execute("ALTER TABLE bacnet_views ADD COLUMN roles_json TEXT")
-                conn.commit()
+            for col in ("roles_json", "name_regex"):
+                if vcols and col not in vcols:
+                    cursor.execute(f"ALTER TABLE bacnet_views ADD COLUMN {col} TEXT")
+            conn.commit()
         except Exception as e:
             logger.warning(f"Erreur lors de la migration des colonnes bacnet_views : {e}")
 

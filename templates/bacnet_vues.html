@@ -33,12 +33,16 @@
                 <textarea name="patterns" id="vue-motifs" rows="3" placeholder="IFABEL*_*_TmpAmb" required>${form_motifs}</textarea>
             </label>
             <p class="hint">Un même motif peut viser plusieurs régulateurs ; un point visé par deux motifs n'apparaît qu'une fois.</p>
+            <label class="vue-motifs">Découpage du nom (regex facultative, groupes <code>(?P&lt;piece&gt;…)</code> et <code>(?P&lt;role&gt;…)</code>)
+                <input type="text" name="name_regex" id="vue-regex" value="${form_regex}" placeholder="^IFABEL03_(?P&lt;piece&gt;[^_]+)_(?P&lt;role&gt;.+)$" class="vue-regex">
+            </label>
+            <p class="hint">Les motifs choisissent les points ; la regex découpe leur nom : <code>piece</code> donne le repère,
+            <code>role</code> le rôle d'une vue par pièce. Sans regex, le repère est deviné (mots communs retirés).</p>
             <fieldset class="vue-roles">
                 <legend>Regrouper par pièce (facultatif)</legend>
-                <p class="hint">Une ligne par rôle : la fin du nom des points (ex. <code>_TmpAmb</code>), son libellé et sa plage normale.
-                Avec des rôles, le motif ci-dessus délimite le périmètre (ex. <code>IFABEL03_*</code>), le tableau montre une ligne par pièce
-                et la plage normale de la vue est remplacée par celle de chaque rôle.</p>
-                <div class="role-ligne role-entete"><span>Fin du nom</span><span>Libellé</span><span>min</span><span>max</span><span></span></div>
+                <p class="hint">Une ligne par rôle : la valeur du groupe <code>role</code> de la regex (ex. <code>TmpAmb</code>), son libellé et sa plage normale.
+                Avec des rôles, le tableau montre une ligne par pièce, une colonne par rôle, et la plage normale de la vue est remplacée par celle de chaque rôle.</p>
+                <div class="role-ligne role-entete"><span>Rôle</span><span>Libellé</span><span>min</span><span>max</span><span></span></div>
                 <div id="vue-roles">${roles_html}</div>
                 <button type="button" class="btn-secondary btn-sm" onclick="ajouterRole()">+ Rôle</button>
                 <template id="role-vide">${roles_vides_html}</template>
@@ -65,7 +69,7 @@
                 </tbody>
             </table>
         </div>
-        <p class="hint">Motifs : ${motifs_affiches} · plage normale : ${plage_affichee} · relecture toutes les ${periode} s tant que la page est ouverte.</p>
+        <p class="hint">Motifs : ${motifs_affiches} · découpage : ${regex_affichee} · plage normale : ${plage_affichee} · relecture toutes les ${periode} s tant que la page est ouverte.</p>
     </div>
 
     <div class="card" style="display: ${vide_display};">
@@ -82,7 +86,7 @@
 .vue-champs label:first-child { flex: 1; min-width: 220px; }
 .vue-champs input { width: 100%; }
 .vue-motifs { margin-bottom: 6px; }
-.vue-motifs textarea { width: 100%; font-family: var(--font-mono); }
+.vue-motifs textarea, .vue-regex { width: 100%; font-family: var(--font-mono); }
 .vue-entete { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
 .vue-resume { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .vue-valeur { font-family: var(--font-mono); font-weight: 700; }
@@ -116,6 +120,7 @@ function afficherFormulaire(nouvelle) {
         document.getElementById('vue-min').value = '';
         document.getElementById('vue-max').value = '';
         document.getElementById('vue-motifs').value = '';
+        document.getElementById('vue-regex').value = '';
         document.getElementById('vue-roles').innerHTML = '';
         ajouterRole();
     }

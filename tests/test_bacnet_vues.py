@@ -71,13 +71,12 @@ class TestBacnetVues(_BaseVues):
 
     def test_points_plusieurs_regulateurs_sans_doublon(self):
         vid = bv.enregistrer_vue(self.site, "T", "IFABEL*_*_TmpAmb\nIFABEL03_D112_*")
-        points, tronque = bv.points_de_la_vue(bv.lire_vue(vid, self.site))
+        points = bv.points_de_la_vue(bv.lire_vue(vid, self.site))
         cles = sorted((p["device_instance"], p["object_id"]) for p in points)
         # Les deux régulateurs, D112 une seule fois, rien de l'autre chantier,
         # et PcmTmpAmb exclu (le motif exige « _TmpAmb » en fin).
         self.assertEqual(cles, [(5001, "analog-input:1"), (5002, "analog-input:3"), (5002, "analog-input:47"),
                                 (5002, "analog-input:5"), (5002, "analog-input:60")])
-        self.assertFalse(tronque)
 
     def test_reperes(self):
         self.assertEqual(bv.reperes(["IFABEL03_D112_TmpAmb", "IFABEL03_D005_TmpAmb", "IFABEL03_ZonCom1_TmpAmb"]),
@@ -86,6 +85,9 @@ class TestBacnetVues(_BaseVues):
         # Régulateurs différents : le préfixe n'est plus commun, il reste.
         self.assertEqual(bv.reperes(["IFABEL03_D112_TmpAmb", "IFABEL01_D201_TmpAmb"]),
                          {"IFABEL03_D112_TmpAmb": "IFABEL03_D112", "IFABEL01_D201_TmpAmb": "IFABEL01_D201"})
+        self.assertEqual(bv.reperes(["BExt25'R'Flr01'RTemp", "BExt25'R'Flr02'RTemp"]),
+                         {"BExt25'R'Flr01'RTemp": "Flr01", "BExt25'R'Flr02'RTemp": "Flr02"})
+        self.assertEqual(bv.reperes(["A_X.1_Z", "A_Y.2_Z"]), {"A_X.1_Z": "X.1", "A_Y.2_Z": "Y.2"})
         self.assertEqual(bv.reperes(["Seul_Point"]), {"Seul_Point": "Seul_Point"})
         self.assertEqual(bv.reperes(["A_B", "A_B"]), {"A_B": "A_B"})
 
@@ -142,51 +144,62 @@ class TestBacnetVues(_BaseVues):
 
 
 class TestVueParPiece(_BaseVues):
-    """Vue par pièce : rôles = fins de nom, une ligne par pièce."""
+    """Regex de découpage et vue par pièce (une ligne par pièce, une colonne par rôle)."""
 
-    ROLES = [{"suffixe": "_TmpAmb", "libelle": "Température ambiante", "min": "15", "max": "28"},
-             {"suffixe": "PcmTmpAmb", "libelle": "Consigne"},
-             {"suffixe": "_ModV2v", "libelle": ""},
-             {"suffixe": "", "libelle": "ligne vide ignorée"}]
+    REGEX = r"^IFABEL03_(?P<piece>[^_]+)_(?P<role>.+)$"
+    ROLES = [{"role": "TmpAmb", "libelle": "Température ambiante", "min": "15", "max": "28"},
+             {"role": "PcmTmpAmb", "libelle": "Consigne"},
+             {"role": "ModV2v", "libelle": ""},
+             {"role": "", "libelle": "ligne vide ignorée"}]
 
     def test_proposition_depuis_les_points_coches(self):
-        motif, roles = bv.proposer_vue_piece(
+        motif, regex, roles = bv.proposer_vue_piece(
             ["IFABEL03_D001_TmpAmb", "IFABEL03_D001_ModV2v", "IFABEL03_D001_PcmTmpAmb"])
-        self.assertEqual(motif, "IFABEL03_*")
-        self.assertEqual([r["suffixe"] for r in roles], ["_TmpAmb", "_ModV2v", "_PcmTmpAmb"])
-        self.assertEqual(bv.proposer_vue_piece(["IFABEL03_D001_TmpAmb"])[1][0]["suffixe"], "_TmpAmb")
-        self.assertEqual(bv.proposer_vue_piece(["D001_TmpAmb", "D001_ModV2v"])[0], "*")
+        self.assertEqual((motif, regex), ("IFABEL03_*", self.REGEX))
+        self.assertEqual([r["role"] for r in roles], ["TmpAmb", "ModV2v", "PcmTmpAmb"])
+        # Un seul point : le dernier mot est le rôle, l'avant-dernier la pièce.
+        self.assertEqual(bv.proposer_vue_piece(["IFABEL03_D001_TmpAmb"])[1], self.REGEX)
+        # Autre convention (Siemens) : séparateurs « ' » repris.
+        motif, regex, roles = bv.proposer_vue_piece(["BExt25'R'Flr01'RTemp", "BExt25'R'Flr01'RHum"])
+        self.assertEqual(motif, "BExt25'R'*")
+        self.assertEqual(bv.compiler_regex(regex).match("BExt25'R'Flr07'RTemp").groupdict(),
+                         {"piece": "Flr07", "role": "RTemp"})
 
-    def test_roles_normalises_et_refus(self):
+    def test_regex_et_roles_valides(self):
+        self.assertEqual(bv.compiler_regex(r"^(?<piece>\w+)$").pattern, r"^(?P<piece>\w+)$")
+        self.assertIsNone(bv.compiler_regex("  "))
+        with self.assertRaises(ValueError):
+            bv.compiler_regex("^(?P<piece>[")
         roles = bv.normaliser_roles(self.ROLES)
-        self.assertEqual([(r["suffixe"], r["libelle"], r["min"], r["max"]) for r in roles],
-                         [("_TmpAmb", "Température ambiante", 15.0, 28.0), ("_PcmTmpAmb", "Consigne", None, None),
-                          ("_ModV2v", "ModV2v", None, None)])
-        for mauvais in ([{"suffixe": "_A*"}], [{"suffixe": "_A"}, {"suffixe": "A"}],
-                        [{"suffixe": "_A", "min": 5, "max": 1}]):
+        self.assertEqual([(r["role"], r["libelle"], r["min"], r["max"]) for r in roles],
+                         [("TmpAmb", "Température ambiante", 15.0, 28.0), ("PcmTmpAmb", "Consigne", None, None),
+                          ("ModV2v", "ModV2v", None, None)])
+        for mauvais in ([{"role": "A"}, {"role": "A"}], [{"role": "A", "min": 5, "max": 1}]):
             with self.assertRaises(ValueError):
                 bv.normaliser_roles(mauvais)
+        # Vue par pièce sans regex, ou regex sans groupe role : refusée.
+        with self.assertRaises(ValueError):
+            bv.enregistrer_vue(self.site, "P", "IFABEL03_*", roles=self.ROLES)
+        with self.assertRaises(ValueError):
+            bv.enregistrer_vue(self.site, "P", "IFABEL03_*", roles=self.ROLES, regex=r"^(?P<piece>.+)$")
+        with self.assertRaises(ValueError):
+            bv.enregistrer_vue(self.site, "P", "IFABEL03_*", regex=r"^(?P<role>.+)$")
 
-    def test_role_du_nom_suffixe_le_plus_long(self):
-        roles = bv.normaliser_roles(self.ROLES)
-        self.assertEqual(bv.role_du_nom("IFABEL03_D004_PcmTmpAmb", roles), (1, "IFABEL03_D004"))
-        self.assertEqual(bv.role_du_nom("IFABEL03_D004_TmpAmb", roles), (0, "IFABEL03_D004"))
-        self.assertEqual(bv.role_du_nom("IFABEL03_D004_Autre", roles), (None, None))
-
-    def test_lecture_par_piece(self):
-        vid = bv.enregistrer_vue(self.site, "Pièces", "IFABEL03_*", roles=self.ROLES)
-        vue = bv.lire_vue(vid, self.site)
-        self.assertEqual(bv._motifs_de_recherche(vue),
-                         ["IFABEL03_*_TmpAmb", "IFABEL03_*_PcmTmpAmb", "IFABEL03_*_ModV2v"])
-        valeurs = {"analog-input:47": "0.0", "analog-input:5": "19.5", "analog-input:60": "21",
-                   "analog-input:3": "20", "analog-output:3": "24", "analog-output:13": "100",
-                   "analog-output:8": "22"}
-
+    def _lire(self, vue, valeurs):
         def lecture(points, timeout):
             return {p["key"]: {"value": valeurs.get(p["object_id"]), "error": None} for p in points}
-
-        with patch("services.bacnet_mgr.read_bacnet_points_live_raw", side_effect=lecture):
+        with patch("services.bacnet_mgr.read_bacnet_points_live_raw", side_effect=lecture) as m:
             res = bv.lire_vue_en_direct(vue)
+        return res, m
+
+    def test_lecture_par_piece(self):
+        vid = bv.enregistrer_vue(self.site, "Pièces", "IFABEL03_*", roles=self.ROLES, regex=self.REGEX)
+        vue = bv.lire_vue(vid, self.site)
+        res, lecture = self._lire(vue, {
+            "analog-input:47": "0.0", "analog-input:5": "19.5", "analog-input:60": "21",
+            "analog-input:3": "20", "analog-output:3": "24", "analog-output:13": "100", "analog-output:8": "22"})
+        # Seuls les points des rôles sont lus (7 sur les 7 du périmètre ici).
+        self.assertEqual(len(lecture.call_args[0][0]), 7)
         self.assertEqual(res["mode"], "pieces")
         lignes = {l["repere"]: l for l in res["lignes"]}
         self.assertEqual(sorted(lignes), ["D004", "D005", "D112", "ZonCom1"])
@@ -194,16 +207,25 @@ class TestVueParPiece(_BaseVues):
         self.assertEqual({i: c["affichage"] for i, c in lignes["D004"]["cellules"].items()},
                          {0: "20", 1: "24", 2: "100"})
         self.assertEqual(lignes["D005"]["etat"], "ok")
-        self.assertEqual(res["resume"]["hors_plage"], 1)
+        self.assertEqual(res["non_reconnus"], [])
         html = bv.rendre_lignes(res, vue)
         self.assertIn("vue-manque", html)  # D112 n'a ni consigne ni vanne
         self.assertIn("<th>Température ambiante<br>", bv.rendre_entete(vue))
         self.assertIn("pièce(s)", bv.rendre_resume(res))
 
+    def test_vue_par_point_avec_regex_et_noms_non_reconnus(self):
+        vid = bv.enregistrer_vue(self.site, "T", "IFABEL*_*_TmpAmb", regex=self.REGEX)
+        res, _ = self._lire(bv.lire_vue(vid, self.site), {"analog-input:47": "21"})
+        reperes = {l["object_id"]: l["repere"] for l in res["lignes"]}
+        self.assertEqual(reperes["analog-input:47"], "D112")       # groupe piece
+        self.assertEqual(res["non_reconnus"], ["IFABEL01_D201_TmpAmb"])  # autre station
+        self.assertIn("1 nom(s) non reconnu(s)", bv.rendre_resume(res))
+
     def test_contexte_nouvelle_vue_par_piece(self):
         ctx = bv.contexte_page(self.site, noms=["IFABEL03_D001_TmpAmb", "IFABEL03_D001_ModV2v"])
         self.assertEqual((ctx["form_display"], ctx["form_motifs"]), ("block", "IFABEL03_*"))
-        self.assertIn('value="_ModV2v"', ctx["roles_html"])
+        self.assertIn('value="ModV2v"', ctx["roles_html"])
+        self.assertIn("(?P&lt;piece&gt;", ctx["form_regex"])
 
 
 if __name__ == "__main__":
