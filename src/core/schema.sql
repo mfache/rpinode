@@ -277,6 +277,25 @@ CREATE TABLE IF NOT EXISTS bacnet_views (
     FOREIGN KEY (site_id) REFERENCES sites(id) ON DELETE CASCADE
 );
 
+-- Forçages BACnet en cours (services/bacnet_forcages.py) : valeur écrite à la
+-- priorité donnée, à relâcher (Null) pour remettre en automatique, expires_at
+-- NULL = sans limite (horodatages Unix).
+CREATE TABLE IF NOT EXISTS bacnet_forcings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    site_id INTEGER NOT NULL,
+    network_address TEXT NOT NULL,
+    device_instance INTEGER NOT NULL,
+    object_id TEXT NOT NULL,
+    object_name TEXT,
+    value TEXT NOT NULL,
+    priority INTEGER NOT NULL,
+    started_at INTEGER NOT NULL,
+    expires_at INTEGER,
+    view_id INTEGER,
+    FOREIGN KEY (site_id) REFERENCES sites(id) ON DELETE CASCADE,
+    UNIQUE(site_id, device_instance, object_id)
+);
+
 -- État de la construction du dictionnaire BACnet (ligne unique)
 CREATE TABLE IF NOT EXISTS bacnet_catalog_status (
     id INTEGER PRIMARY KEY CHECK (id = 1),

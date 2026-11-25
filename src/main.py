@@ -113,6 +113,11 @@ def main():
     bacnet_catalog_thread = threading.Thread(target=run_bacnet_catalog_scheduler, daemon=True)
     bacnet_catalog_thread.start()
 
+    # Relâchement des forçages BACnet arrivés à échéance (services/bacnet_forcages.py)
+    from services.bacnet_forcages import run_forcages_scheduler
+    forcages_thread = threading.Thread(target=run_forcages_scheduler, daemon=True)
+    forcages_thread.start()
+
     # Démarrage du démon BACnet unifié (MQTT), utilisé par les outils BACnet (discover, who-has, ...)
     def run_bacnet_daemon():
         import time

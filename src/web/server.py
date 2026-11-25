@@ -364,6 +364,10 @@ class WebAdminHandler(BaseHTTPRequestHandler):
             self.handle_bacnet_vue_delete()
         elif path == "/api/bacnet/vues/apercu":
             self.handle_bacnet_vue_apercu()
+        elif path == "/api/bacnet/vues/forcer":
+            self.handle_bacnet_vue_forcage(relacher=False)
+        elif path == "/api/bacnet/vues/relacher":
+            self.handle_bacnet_vue_forcage(relacher=True)
         elif path == "/api/bacnet/points/track":
             self.handle_bacnet_points_track()
         elif path == "/api/bacnet/points/untrack":
@@ -2022,6 +2026,27 @@ class WebAdminHandler(BaseHTTPRequestHandler):
             res = apercu(get_current_site_id(), data.get("patterns") or "", data.get("name_regex"),
                          data.get("roles") or [])
             self.send_json({"status": "ok", "html": rendre_apercu(res)})
+        except ValueError as e:
+            self.send_json({"status": "error", "message": str(e)})
+
+    def handle_bacnet_vue_forcage(self, relacher):
+        """Forçage des points d'une vue (services/bacnet_forcages.py) ou remise
+        en automatique ; réponse = message HTML du bilan."""
+        from services import bacnet_forcages, bacnet_vues
+        from services.presence import get_current_site_id
+        try:
+            data = json.loads(self.rfile.read(int(self.headers.get('Content-Length', 0))) or b"{}")
+            site_id = get_current_site_id()
+            vue = bacnet_vues.lire_vue(int(data.get("view_id") or 0), site_id)
+            if not vue:
+                raise ValueError("Vue introuvable sur le chantier courant")
+            points = bacnet_vues.cibles_forcage(vue, (data.get("role") or "").strip() or None)
+            if relacher:
+                res = bacnet_forcages.relacher(site_id, points)
+            else:
+                res = bacnet_forcages.forcer(site_id, points, data.get("valeur"), data.get("duree_min"),
+                                             view_id=vue["id"])
+            self.send_json({"status": "ok", "message_html": bacnet_forcages.rendre_bilan(res, relacher)})
         except ValueError as e:
             self.send_json({"status": "error", "message": str(e)})
 

@@ -116,6 +116,8 @@ class BacnetMqttDaemon:
                     low = payload.get("low")
                     high = payload.get("high")
                     asyncio.create_task(self.send_whois(low, high))
+                elif topic == "rpinode/bacnet/cmd/write":
+                    asyncio.create_task(self.process_writes(payload.get("job_id"), payload.get("points", [])))
                 elif topic == "rpinode/bacnet/cmd/read":
                     job_id = payload.get("job_id", "default")
                     points = payload.get("points", [])
@@ -148,6 +150,7 @@ class BacnetMqttDaemon:
         logger.info("Connecté au broker MQTT")
         client.subscribe("rpinode/bacnet/cmd/whois")
         client.subscribe("rpinode/bacnet/cmd/read")
+        client.subscribe("rpinode/bacnet/cmd/write")
         client.subscribe("rpinode/bacnet/cmd/probe")
         client.subscribe("rpinode/bacnet/cmd/discover")
         client.subscribe("rpinode/bacnet/cmd/whohas")
@@ -413,6 +416,64 @@ class BacnetMqttDaemon:
 
         results = list(await asyncio.gather(*(_read_one(p) for p in points))) if points else []
         self.mqtt_client.publish(f"rpinode/bacnet/res/read/{job_id}", json.dumps(results))
+
+    @staticmethod
+    def _valeur_bacnet(object_id, valeur):
+        """Valeur Python adaptée au type d'objet pour write_property (bacpypes3 la
+        convertit ensuite) ; None = relâcher (Null à la priorité donnée)."""
+        from bacpypes3.primitivedata import Null
+        if valeur is None:
+            return Null(())
+        type_obj = object_id.split(":")[0].lower()
+        texte = str(valeur).strip().lower()
+        if type_obj.startswith("binary"):
+            if texte in ("1", "1.0", "active", "on", "true", "marche"):
+                return "active"
+            if texte in ("0", "0.0", "inactive", "off", "false", "arret", "arrêt"):
+                return "inactive"
+            raise ValueError(f"valeur binaire inconnue : {valeur}")
+        if type_obj.startswith("multi"):
+            return int(float(texte))
+        return float(texte.replace(",", "."))
+
+    async def process_writes(self, job_id, points):
+        """Écrit la valeur actuelle (present-value) de points à une priorité donnée
+        (forçage), ou y écrit Null pour relâcher, puis relit la valeur et
+        l'entrée du tableau de priorités pour confirmer. Écritures une par une :
+        c'est une action sur une installation en service."""
+        resultats = []
+        for p in points or []:
+            addr, obj_id = p.get("address"), p.get("object_id")
+            prio = int(p.get("priority") or 8)
+            res = {"device_id": p.get("device_id"), "address": addr, "object_id": obj_id,
+                   "ok": False, "error": None, "value_after": None, "slot_after": None}
+            try:
+                valeur = self._valeur_bacnet(obj_id, p.get("value"))
+                rep = await asyncio.wait_for(
+                    self.app.write_property(Address(addr), obj_id, "present-value", valeur, priority=prio),
+                    timeout=5.0)
+                if rep is not None:
+                    res["error"] = f"Refus : {rep}"
+                else:
+                    res["ok"] = True
+                    try:
+                        res["value_after"] = str(await asyncio.wait_for(
+                            self.app.read_property(Address(addr), obj_id, "present-value"), timeout=3.0))
+                        res["slot_after"] = str(await asyncio.wait_for(
+                            self.app.read_property(Address(addr), obj_id, "priority-array", prio), timeout=3.0))
+                    except Exception as e:  # la relecture est un plus, l'écriture a réussi
+                        res["value_after"] = res["value_after"] or f"relecture impossible : {e}"
+            except ErrorRejectAbortNack as e:
+                res["error"] = f"BACnet Error: {e}"
+            except asyncio.TimeoutError:
+                res["error"] = "Timeout"
+            except Exception as e:
+                res["error"] = str(e)
+            logger.info(f"Écriture {obj_id}@{addr} prio {prio} valeur {p.get('value')!r} : "
+                        f"{'OK' if res['ok'] else res['error']} (relu {res['value_after']})")
+            resultats.append(res)
+        self.mqtt_client.publish(f"rpinode/bacnet/res/write/{job_id}", json.dumps(resultats))
+
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(asctime)s - BACnetDaemon - %(message)s")

@@ -311,8 +311,30 @@ def lire_vue_en_direct(vue, timeout=15.0):
     cellules ; seuls les points des rôles sont lus. Tri par gravité, puis
     appareil et repère (tri naturel). `non_reconnus` liste les noms que la
     regex ne découpe pas."""
-    rx = compiler_regex(vue.get("name_regex"))
+    from services.bacnet_forcages import forcages_actifs
+
     roles = vue.get("roles") or []
+    points, decoupes, non_reconnus = _selection(vue)
+    tronque = len(points) > MAX_POINTS
+    points = points[:MAX_POINTS]
+    brut = _lire_points(points, timeout)
+    forcages = forcages_actifs(vue["site_id"])
+
+    if roles:
+        index_role = {r["role"]: i for i, r in enumerate(roles)}
+        resultat = _par_piece(roles, index_role, points, decoupes, brut, forcages)
+    else:
+        resultat = _par_point(vue, points, decoupes, brut, forcages)
+    resultat.update(tronque=tronque, non_reconnus=non_reconnus,
+                    forces=sum(1 for p in points if (p["device_instance"], p["object_id"]) in forcages))
+    return resultat
+
+
+def _selection(vue):
+    """Points de la vue découpés par la regex : (points, découpes, non reconnus).
+    Vue par pièce : seuls les points des rôles de la vue sont gardés."""
+    rx = compiler_regex(vue.get("name_regex"))
+    roles = {r["role"] for r in (vue.get("roles") or [])}
     points = points_de_la_vue(vue)
     decoupes, non_reconnus = {}, []
     for p in points:
@@ -321,24 +343,29 @@ def lire_vue_en_direct(vue, timeout=15.0):
         if rx and not m:
             non_reconnus.append(nom or p["object_id"])
         decoupes[(p["device_instance"], p["object_id"])] = m.groupdict() if m else None
-
     if roles:
-        index_role = {r["role"]: i for i, r in enumerate(roles)}
-        points = [p for p in points if (decoupes[(p["device_instance"], p["object_id"])] or {}).get("role")
-                  in index_role]
-    tronque = len(points) > MAX_POINTS
-    points = points[:MAX_POINTS]
-    brut = _lire_points(points, timeout)
-
-    if roles:
-        resultat = _par_piece(roles, index_role, points, decoupes, brut)
-    else:
-        resultat = _par_point(vue, points, decoupes, brut)
-    resultat.update(tronque=tronque, non_reconnus=non_reconnus)
-    return resultat
+        points = [p for p in points if (decoupes[(p["device_instance"], p["object_id"])] or {}).get("role") in roles]
+    return points, decoupes, non_reconnus
 
 
-def _par_point(vue, points, decoupes, brut):
+def cibles_forcage(vue, role=None):
+    """Points visés par un forçage depuis la vue : ceux que la regex reconnaît
+    (tous si la vue n'a pas de regex), et pour une vue par pièce ceux du rôle
+    choisi (tous les rôles si aucun)."""
+    points, decoupes, _ = _selection(vue)
+    regex = bool(vue.get("name_regex"))
+    out = []
+    for p in points:
+        d = decoupes[(p["device_instance"], p["object_id"])]
+        if regex and d is None:
+            continue
+        if role and (d or {}).get("role") != role:
+            continue
+        out.append(p)
+    return out[:MAX_POINTS]
+
+
+def _par_point(vue, points, decoupes, brut, forcages=None):
     devines = reperes([p["object_name"] or p["object_id"] for p in points])
     roles_vus = {(d or {}).get("role") for d in decoupes.values() if d}
     lignes = []
@@ -354,11 +381,12 @@ def _par_point(vue, points, decoupes, brut):
             "appareil": p.get("device_name") or f"Instance {p['device_instance']}",
             "device_instance": p["device_instance"], "object_id": p["object_id"],
             "nom": nom, "repere": repere, "etat": etat, "affichage": affichage,
+            "force": (forcages or {}).get((p["device_instance"], p["object_id"])),
         })
     return _trier_et_resumer(lignes, "points")
 
 
-def _par_piece(roles, index_role, points, decoupes, brut):
+def _par_piece(roles, index_role, points, decoupes, brut, forcages=None):
     pieces = {}
     for i, p in enumerate(points):
         d = decoupes[(p["device_instance"], p["object_id"])]
@@ -369,7 +397,8 @@ def _par_piece(roles, index_role, points, decoupes, brut):
             "cellules": {}})
         etat, affichage = _cellule(brut.get(str(i)) or {}, roles[idx]["min"], roles[idx]["max"])
         piece["cellules"][idx] = {"etat": etat, "affichage": affichage,
-                                  "nom": p["object_name"], "object_id": p["object_id"]}
+                                  "nom": p["object_name"], "object_id": p["object_id"],
+                                  "force": (forcages or {}).get((p["device_instance"], p["object_id"]))}
     lignes = []
     for pc in pieces.values():
         pc["etat"] = min((c["etat"] for c in pc["cellules"].values()), key=ORDRE_ETATS.index)
@@ -406,6 +435,8 @@ def rendre_resume(resultat):
         n = resultat["resume"].get(etat, 0)
         if n or etat == "ok":
             morceaux.append(f'<span class="{classe}">{n} {escape(libelle.lower())}</span>')
+    if resultat.get("forces"):
+        morceaux.append(f'<span class="vue-force">🔒 {resultat["forces"]} point(s) forcé(s)</span>')
     if resultat.get("tronque"):
         morceaux.append(f'<span class="badge-warn">limité aux {MAX_POINTS} premiers points</span>')
     non_reconnus = resultat.get("non_reconnus") or []
@@ -414,6 +445,17 @@ def rendre_resume(resultat):
         morceaux.append(f'<span class="badge-warn" title="{escape(exemples)}">'
                         f'{len(non_reconnus)} nom(s) non reconnu(s) par la regex</span>')
     return " ".join(morceaux)
+
+
+def _marque_force(f):
+    """Pastille « forcé » d'une valeur, avec valeur, priorité et échéance."""
+    if not f:
+        return ""
+    import time as _t
+    debut = _t.strftime("%d/%m %H:%M", _t.localtime(f["started_at"]))
+    fin = _t.strftime("%d/%m %H:%M", _t.localtime(f["expires_at"])) if f.get("expires_at") else "sans limite"
+    titre = f'Forcé à {f["value"]} (priorité {f["priority"]}) depuis {debut}, jusqu\'à : {fin}'
+    return f' <span class="vue-force" title="{escape(titre)}">🔒</span>'
 
 
 def rendre_lignes(resultat, vue=None):
@@ -441,11 +483,12 @@ def rendre_lignes(resultat, vue=None):
                 titre = f'{c["nom"]} ({c["object_id"]})' + ("" if c["etat"] == "ok" else f" : {c_libelle}")
                 contenu = (escape(str(c["affichage"])) if c["etat"] == "ok"
                            else f'<span class="{c_classe}">{escape(str(c["affichage"]))}</span>')
-                cellules.append(f'<td class="vue-cellule vue-valeur" title="{escape(titre)}">{contenu}</td>')
+                cellules.append(f'<td class="vue-cellule vue-valeur" title="{escape(titre)}">{contenu}'
+                                f'{_marque_force(c.get("force"))}</td>')
             html.append(debut + "".join(cellules) + "</tr>")
         else:
             html.append(debut
-                        + f'<td class="vue-valeur">{escape(str(l["affichage"]))}</td>'
+                        + f'<td class="vue-valeur">{escape(str(l["affichage"]))}{_marque_force(l.get("force"))}</td>'
                         + f'<td><code>{escape(l["object_id"])}</code></td></tr>')
     return "".join(html)
 
@@ -468,6 +511,29 @@ def rendre_lignes_roles(roles):
         '<button type="button" class="btn-secondary btn-sm" onclick="this.parentElement.remove()" title="Retirer ce rôle">✕</button>'
         '</div>'
         for r in lignes)
+
+
+def contexte_forcage(vue):
+    """Panneau « Forçage » : cibles (avec leur nombre de points) et durées."""
+    from services.bacnet_forcages import DUREES, PRIORITE_FORCAGE
+    if not vue:
+        return {"forcage_display": "none", "forcage_cibles_html": "", "forcage_durees_html": "",
+                "forcage_priorite": str(PRIORITE_FORCAGE)}
+    try:
+        if vue.get("roles"):
+            options = [(r["role"], f'{r["libelle"]} ({len(cibles_forcage(vue, r["role"]))} point(s))')
+                       for r in vue["roles"]]
+        else:
+            quoi = "reconnus par la regex" if vue.get("name_regex") else "de la vue"
+            options = [("", f"Tous les points {quoi} ({len(cibles_forcage(vue))})")]
+    except ValueError:  # regex devenue invalide
+        options = []
+    return {
+        "forcage_display": "block",
+        "forcage_cibles_html": "".join(f'<option value="{escape(v)}">{escape(t)}</option>' for v, t in options),
+        "forcage_durees_html": "".join(f'<option value="{m or ""}">{escape(t)}</option>' for m, t in DUREES),
+        "forcage_priorite": str(PRIORITE_FORCAGE),
+    }
 
 
 def contexte_page(site_id, view_id=None, motif=None, noms=None):
@@ -496,6 +562,7 @@ def contexte_page(site_id, view_id=None, motif=None, noms=None):
         "plage_affichee": "—",
         "roles_vides_html": rendre_lignes_roles([]),
     }
+    ctx.update(contexte_forcage(vue))
     if vue and vue.get("roles"):
         ctx["plage_affichee"] = "par rôle"
     elif vue and (vue.get("range_min") is not None or vue.get("range_max") is not None):

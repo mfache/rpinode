@@ -58,6 +58,20 @@
         </form>
     </div>
 
+    <div class="card vue-forcage" style="display: ${forcage_display};">
+        <div class="vue-forcage-ligne">
+            <strong>Forçage</strong>
+            <label>Points <select id="forcage-cible">${forcage_cibles_html}</select></label>
+            <label>Valeur <input type="text" id="forcage-valeur" placeholder="100" inputmode="decimal" style="width: 90px;"></label>
+            <label>Durée <select id="forcage-duree">${forcage_durees_html}</select></label>
+            <button type="button" class="btn-orange" onclick="forcer()">🔒 Forcer</button>
+            <button type="button" class="btn-secondary" onclick="remettreAuto()">↩ Remettre en automatique</button>
+        </div>
+        <p class="hint">Écriture de la valeur à la priorité BACnet ${forcage_priorite} (Manual Operator) ; « Remettre en automatique » efface
+        cette écriture et la régulation reprend. Une durée limitée est relâchée automatiquement par le boîtier, même après une relance.</p>
+        <div id="forcage-resultat" class="hint"></div>
+    </div>
+
     <div class="card" style="display: ${table_display};">
         <div class="vue-entete">
             <div id="vue-resume" class="vue-resume">Lecture en cours…</div>
@@ -113,6 +127,11 @@ tr.vue-hors_plage td { background: rgba(255, 184, 115, 0.08); }
 .apercu-table { max-height: 260px; overflow: auto; }
 .apercu-table td { padding: 3px 8px; font-size: 0.85rem; }
 tr.apercu-non td { background: rgba(255, 184, 115, 0.10); }
+.vue-forcage { border-left: 3px solid var(--tertiary); }
+.vue-forcage-ligne { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.vue-forcage-ligne label { display: inline-flex; gap: 6px; align-items: center; font-size: 0.85rem; color: var(--on-surface-variant); }
+.vue-force { color: var(--tertiary); cursor: help; }
+#forcage-resultat { margin-top: 6px; }
 .vue-manque { color: var(--outline); }
 </style>
 
@@ -219,6 +238,37 @@ async function supprimerVue() {
     const data = await res.json();
     if (data.status === 'ok') ouvrirVue('');
     else alert('Suppression impossible : ' + (data.message || 'erreur'));
+}
+
+async function actionForcage(url, corps, attente) {
+    const zone = document.getElementById('forcage-resultat');
+    zone.textContent = attente;
+    try {
+        const res = await fetch(VUE_BASE + url, {
+            method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(corps)
+        });
+        const data = await res.json();
+        zone.innerHTML = data.message_html || data.message || 'Erreur';
+    } catch (e) {
+        zone.textContent = 'Erreur réseau : ' + e;
+    }
+}
+
+function forcer() {
+    const sel = document.getElementById('forcage-cible');
+    const valeur = document.getElementById('forcage-valeur').value.trim();
+    const duree = document.getElementById('forcage-duree');
+    if (!valeur) { alert('Indiquez la valeur à forcer.'); return; }
+    if (!confirm('Forcer à ' + valeur + ' : ' + sel.selectedOptions[0].textContent + ', durée : '
+                 + duree.selectedOptions[0].textContent + ' ?')) return;
+    actionForcage('/api/bacnet/vues/forcer', {view_id: VUE_ID, role: sel.value, valeur: valeur, duree_min: duree.value},
+                  'Écriture en cours…');
+}
+
+function remettreAuto() {
+    const sel = document.getElementById('forcage-cible');
+    if (!confirm('Remettre en automatique les points forcés : ' + sel.selectedOptions[0].textContent + ' ?')) return;
+    actionForcage('/api/bacnet/vues/relacher', {view_id: VUE_ID, role: sel.value}, 'Remise en automatique en cours…');
 }
 
 function demarrerFlux() {
