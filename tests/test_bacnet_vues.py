@@ -85,6 +85,7 @@ class TestBacnetVues(unittest.TestCase):
     def test_classer(self):
         self.assertEqual(bv.classer(None, "Timeout"), "sans_reponse")
         self.assertEqual(bv.classer("21.5", "Err"), "sans_reponse")
+        self.assertEqual(bv.classer(None, "BACnet Error: object: unknown-object"), "objet_absent")
         self.assertEqual(bv.classer("inf", None), "defaut_capteur")
         self.assertEqual(bv.classer("nan", None), "defaut_capteur")
         self.assertEqual(bv.classer("0.0", None, 15, 28), "hors_plage")
@@ -112,7 +113,8 @@ class TestBacnetVues(unittest.TestCase):
         self.assertEqual([(l["repere"], l["etat"], l["affichage"]) for l in res["lignes"]],
                          [("ZonCom1", "defaut_capteur", "inf"), ("D005", "hors_plage", "13.35"),
                           ("D112", "hors_plage", "0")])
-        self.assertEqual(res["resume"], {"sans_reponse": 0, "defaut_capteur": 1, "hors_plage": 2, "ok": 0})
+        self.assertEqual(res["resume"], {"sans_reponse": 0, "defaut_capteur": 1, "hors_plage": 2,
+                                         "objet_absent": 0, "ok": 0})
         html = bv.rendre_lignes(res) + bv.rendre_resume(res)
         self.assertIn("Capteur en défaut", html)
         self.assertIn('title="IFABEL03_D112_TmpAmb"', html)

@@ -24,6 +24,9 @@ ETATS = {
     "sans_reponse": ("Sans réponse", "badge-err"),
     "defaut_capteur": ("Capteur en défaut", "badge-err"),
     "hors_plage": ("Hors plage", "badge-warn"),
+    # Le régulateur ne connaît plus l'objet (supprimé depuis la construction
+    # du dictionnaire) : à reconstruire, ce n'est pas un défaut de l'installation.
+    "objet_absent": ("Objet absent", "badge-warn"),
     "ok": ("OK", "badge-ok"),
 }
 ORDRE_ETATS = list(ETATS)
@@ -138,6 +141,8 @@ def reperes(noms):
 
 def classer(valeur, erreur, plage_min=None, plage_max=None):
     """État d'un point lu en direct (clé de ETATS)."""
+    if erreur and "unknown-object" in str(erreur):
+        return "objet_absent"
     if erreur or valeur is None:
         return "sans_reponse"
     try:
@@ -177,7 +182,8 @@ def lire_vue_en_direct(vue, timeout=15.0):
             "appareil": p.get("device_name") or f"Instance {p['device_instance']}",
             "device_instance": p["device_instance"], "object_id": p["object_id"],
             "nom": nom, "repere": rep.get(nom, nom), "etat": etat,
-            "affichage": format_display(valeur) if etat != "sans_reponse" else (erreur or "Non lu"),
+            "affichage": {"sans_reponse": erreur or "Non lu",
+                          "objet_absent": "absent du régulateur"}.get(etat) or format_display(valeur),
         })
     lignes.sort(key=lambda l: (ORDRE_ETATS.index(l["etat"]), _cle_naturelle(l["appareil"]),
                                _cle_naturelle(l["repere"])))
