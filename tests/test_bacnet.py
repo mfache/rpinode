@@ -343,3 +343,13 @@ class TestBacnetDashboardPoints(unittest.TestCase):
             res = read_dashboard_points_live(self.site_id)
         self.assertEqual(res[str(etat)]["display"], "1")
         self.assertTrue(res[str(etat)]["retained"])
+
+
+class TestFormatDisplay(unittest.TestCase):
+    def test_format(self):
+        from services.bacnet_mgr import format_display
+        self.assertEqual(format_display("17.53185272216797"), "17.53")
+        self.assertEqual(format_display(1.0), "1")
+        self.assertEqual(format_display("20.50"), "20.5")
+        self.assertEqual(format_display("active"), "active")
+        self.assertEqual(format_display(None), "—")

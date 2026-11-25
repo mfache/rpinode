@@ -596,6 +596,20 @@ def delete_bacnet_point(point_id):
         conn.commit()
         return True
 
+def format_display(val):
+    """Valeur BACnet pour l'affichage : entier sans décimales, sinon 2 décimales
+    au plus ; texte tel quel ; « — » si absente."""
+    if val is None:
+        return "—"
+    try:
+        fval = float(val)
+    except (ValueError, TypeError):
+        return str(val)
+    if fval.is_integer():
+        return str(int(fval))
+    return f"{fval:.2f}".rstrip('0').rstrip('.')
+
+
 def read_bacnet_points_live_raw(points, timeout=4.0):
     """
     Lit une liste de points BACnet [{'key': ..., 'address': ..., 'object_id': ..., 'device_id': ...}, ...]
@@ -672,20 +686,9 @@ def read_bacnet_points_live_raw(points, timeout=4.0):
             val = r.get("value")
             err = r.get("error")
 
-            display_val = None
-            if val is not None:
-                try:
-                    fval = float(val)
-                    if fval.is_integer():
-                        display_val = str(int(fval))
-                    else:
-                        display_val = f"{fval:.2f}".rstrip('0').rstrip('.')
-                except (ValueError, TypeError):
-                    display_val = str(val)
-
             results[key] = {
                 "value": val,
-                "display": display_val if display_val is not None else "—",
+                "display": format_display(val),
                 "error": err,
                 "ts": now
             }
@@ -837,7 +840,7 @@ def read_dashboard_points_live(site_id, timeout=6.0):
             else:
                 results[pid] = {
                     "value": p.get("last_value"),
-                    "display": str(p["last_value"]) if p.get("last_value") is not None else "—",
+                    "display": format_display(p.get("last_value")),
                     "error": item.get("error") or "Non lu",
                     "retained": p.get("last_value") is not None,
                     "ts": p.get("last_read_ts") or now,

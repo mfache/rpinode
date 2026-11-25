@@ -498,7 +498,7 @@ class WebAdminHandler(BaseHTTPRequestHandler):
         « Accueil » dans le suivi. Les valeurs sont tenues à jour par le flux
         SSE existant (événement modbus_point -> élément val-<id>)."""
         from services.modbus_mgr import get_dashboard_points, is_point_writable
-        from services.bacnet_mgr import get_dashboard_points as get_bacnet_dashboard_points
+        from services.bacnet_mgr import format_display, get_dashboard_points as get_bacnet_dashboard_points
         from services.presence import get_current_site_id
 
         site_id = get_current_site_id()
@@ -536,7 +536,7 @@ class WebAdminHandler(BaseHTTPRequestHandler):
         # croiser ceux des points Modbus, mis à jour par le flux SSE.
         for p in bacnet_points:
             pid = int(p["id"])
-            value = p["last_value"] if p["last_value"] is not None else "—"
+            value = format_display(p["last_value"])
             label = p["name"] or p["object_id"]
             rows += (f"<tr id='dash-row-bac-{pid}' data-name='{escape(label)}' data-device='{escape(p['device_name'])}'>"
                      f"<td><strong>{escape(p['device_name'])}</strong></td>"
