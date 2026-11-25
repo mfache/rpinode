@@ -517,3 +517,87 @@ def contexte_page(site_id, view_id=None, motif=None, noms=None):
     else:
         ctx.update(vide, form_display="none", form_titre="Nouvelle vue")
     return ctx
+
+
+# ---------------------------------------------------------------------------
+# Aperçu du découpage (formulaire, avant enregistrement)
+# ---------------------------------------------------------------------------
+
+#: Noms affichés au plus dans l'aperçu.
+MAX_APERCU = 60
+
+
+def apercu(site_id, motifs, regex_texte, roles=None):
+    """Découpage des noms des points visés par les motifs, sans lecture des
+    valeurs (dictionnaire seulement) : sert à écrire la regex en voyant les
+    noms. Renvoie {total, reconnus, pieces, roles_trouves, lignes, erreur}."""
+    if isinstance(motifs, str):
+        motifs = motifs.splitlines()
+    motifs = [m.strip() for m in motifs if m and m.strip()]
+    res = {"total": 0, "reconnus": 0, "pieces": 0, "roles_trouves": {}, "lignes": [],
+           "erreur": None, "regex": False}
+    if not motifs:
+        res["erreur"] = "Saisissez un motif pour voir les noms des points."
+        return res
+    try:
+        rx = compiler_regex(regex_texte)
+    except ValueError as e:
+        rx, res["erreur"] = None, str(e)
+    if rx and "piece" not in rx.groupindex:
+        res["erreur"] = "La regex doit avoir un groupe (?P<piece>…)."
+    res["regex"] = bool(rx)
+    roles_vue = {(r.get("role") or "").strip() for r in (roles or [])} - {""}
+    points = points_de_la_vue({"site_id": site_id, "patterns": "\n".join(motifs)})
+    res["total"] = len(points)
+    pieces, lignes = set(), []
+    for p in points:
+        nom = p["object_name"] or p["object_id"]
+        m = rx.match(nom) if rx else None
+        g = m.groupdict() if m else {}
+        if m:
+            res["reconnus"] += 1
+            pieces.add((p["device_instance"], g.get("piece")))
+            if g.get("role") is not None:
+                res["roles_trouves"][g["role"]] = res["roles_trouves"].get(g["role"], 0) + 1
+        lignes.append({"nom": nom, "reconnu": bool(m), "piece": g.get("piece"), "role": g.get("role"),
+                       "role_dans_vue": g.get("role") in roles_vue})
+    res["pieces"] = len(pieces)
+    # Non reconnus d'abord (c'est eux qu'il faut corriger), puis tri naturel.
+    lignes.sort(key=lambda l: (l["reconnu"] if rx else True, _cle_naturelle(l["nom"])))
+    res["lignes"] = lignes[:MAX_APERCU]
+    res["roles_vue"] = sorted(roles_vue)
+    return res
+
+
+def rendre_apercu(res):
+    """HTML de l'aperçu du découpage."""
+    if res["total"] == 0 and res["erreur"] and not res["lignes"]:
+        return f'<p class="hint">{escape(res["erreur"])}</p>'
+    morceaux = [f'<strong>{res["total"]}</strong> point(s) trouvé(s) par les motifs']
+    if res["regex"]:
+        classe = "badge-ok" if res["reconnus"] == res["total"] else "badge-warn"
+        morceaux.append(f'<span class="{classe}">{res["reconnus"]} reconnu(s) par la regex</span>')
+        morceaux.append(f'{res["pieces"]} pièce(s)')
+    entete = " · ".join(morceaux)
+    erreur = f'<p class="apercu-erreur">{escape(res["erreur"])}</p>' if res["erreur"] else ""
+    roles = ""
+    if res["roles_trouves"]:
+        puces = []
+        for role, n in sorted(res["roles_trouves"].items(), key=lambda x: (-x[1], _cle_naturelle(x[0]))):
+            dans = role in res.get("roles_vue", [])
+            puces.append(
+                f'<button type="button" class="apercu-role{" apercu-role-pris" if dans else ""}" '
+                f'data-role-ajout="{escape(role)}" title="{"Déjà dans la vue" if dans else "Ajouter ce rôle à la vue"}">'
+                f'{"✓ " if dans else "+ "}{escape(role)} <small>({n})</small></button>')
+        roles = '<div class="apercu-roles"><span class="hint">Rôles trouvés :</span> ' + " ".join(puces) + "</div>"
+    lignes = "".join(
+        f'<tr class="{"" if (l["reconnu"] or not res["regex"]) else "apercu-non"}">'
+        f'<td><code>{escape(l["nom"])}</code></td>'
+        f'<td>{escape(l["piece"] or ("non reconnu" if res["regex"] else "—"))}</td>'
+        f'<td>{escape(l["role"] or "—")}</td></tr>'
+        for l in res["lignes"])
+    suite = (f'<p class="hint">… {res["total"] - len(res["lignes"])} autre(s) nom(s) non affiché(s).</p>'
+             if res["total"] > len(res["lignes"]) else "")
+    table = ('<div class="apercu-table"><table class="data-table"><thead><tr><th>Nom du point</th><th>Pièce</th>'
+             f'<th>Rôle</th></tr></thead><tbody>{lignes}</tbody></table></div>') if lignes else ""
+    return f'<div class="apercu-entete">{entete}</div>{erreur}{roles}{table}{suite}'

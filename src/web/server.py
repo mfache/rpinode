@@ -362,6 +362,8 @@ class WebAdminHandler(BaseHTTPRequestHandler):
             self.handle_bacnet_vue_save()
         elif path == "/api/bacnet/vues/delete":
             self.handle_bacnet_vue_delete()
+        elif path == "/api/bacnet/vues/apercu":
+            self.handle_bacnet_vue_apercu()
         elif path == "/api/bacnet/points/track":
             self.handle_bacnet_points_track()
         elif path == "/api/bacnet/points/untrack":
@@ -2008,6 +2010,18 @@ class WebAdminHandler(BaseHTTPRequestHandler):
                                       view_id=int(data["view_id"]) if data.get("view_id") else None,
                                       roles=data.get("roles") or [], regex=data.get("name_regex"))
             self.send_json({"status": "ok", "id": view_id})
+        except ValueError as e:
+            self.send_json({"status": "error", "message": str(e)})
+
+    def handle_bacnet_vue_apercu(self):
+        """Aperçu du découpage des noms (formulaire de vue), sans lecture BACnet."""
+        from services.bacnet_vues import apercu, rendre_apercu
+        from services.presence import get_current_site_id
+        try:
+            data = json.loads(self.rfile.read(int(self.headers.get('Content-Length', 0))) or b"{}")
+            res = apercu(get_current_site_id(), data.get("patterns") or "", data.get("name_regex"),
+                         data.get("roles") or [])
+            self.send_json({"status": "ok", "html": rendre_apercu(res)})
         except ValueError as e:
             self.send_json({"status": "error", "message": str(e)})
 

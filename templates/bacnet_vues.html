@@ -38,6 +38,10 @@
             </label>
             <p class="hint">Les motifs choisissent les points ; la regex découpe leur nom : <code>piece</code> donne le repère,
             <code>role</code> le rôle d'une vue par pièce. Sans regex, le repère est deviné (mots communs retirés).</p>
+            <div class="vue-apercu">
+                <div class="vue-apercu-titre">Aperçu du découpage <span class="hint">(noms du dictionnaire, mis à jour pendant la saisie, aucune valeur lue)</span></div>
+                <div id="vue-apercu">—</div>
+            </div>
             <fieldset class="vue-roles">
                 <legend>Regrouper par pièce (facultatif)</legend>
                 <p class="hint">Une ligne par rôle : la valeur du groupe <code>role</code> de la regex (ex. <code>TmpAmb</code>), son libellé et sa plage normale.
@@ -99,6 +103,16 @@ tr.vue-hors_plage td { background: rgba(255, 184, 115, 0.08); }
 .role-ligne input { width: 100%; min-width: 0; }
 .role-entete { font-size: 0.75rem; color: var(--outline); margin-bottom: 2px; }
 .vue-cellule { text-align: right; }
+.vue-apercu { border: 1px dashed var(--outline-variant); border-radius: var(--radius-md); padding: 10px 12px; margin: 4px 0 12px; }
+.vue-apercu-titre { font-size: 0.85rem; color: var(--on-surface-variant); margin-bottom: 6px; }
+.apercu-entete { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 6px; }
+.apercu-erreur { color: var(--error); margin: 4px 0; }
+.apercu-roles { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin: 6px 0; }
+.apercu-role { background: var(--surface-container-high); color: var(--on-surface); border: 1px solid var(--outline-variant); border-radius: 999px; padding: 2px 10px; cursor: pointer; font-family: var(--font-mono); font-size: 0.8rem; }
+.apercu-role-pris { border-color: var(--secondary); color: var(--secondary); cursor: default; }
+.apercu-table { max-height: 260px; overflow: auto; }
+.apercu-table td { padding: 3px 8px; font-size: 0.85rem; }
+tr.apercu-non td { background: rgba(255, 184, 115, 0.10); }
 .vue-manque { color: var(--outline); }
 </style>
 
@@ -126,25 +140,64 @@ function afficherFormulaire(nouvelle) {
     }
     f.style.display = 'block';
     document.getElementById('vue-nom').focus();
+    majApercu();
 }
 
 function masquerFormulaire() {
     document.getElementById('vue-formulaire').style.display = 'none';
 }
 
-function ajouterRole() {
+function ajouterRole(valeur) {
     const modele = document.getElementById('role-vide').content.firstElementChild;
-    document.getElementById('vue-roles').appendChild(modele.cloneNode(true));
+    const ligne = modele.cloneNode(true);
+    if (valeur) ligne.querySelector('[data-role="role"]').value = valeur;
+    // Une ligne vide en fin de liste : on la remplit plutôt que d'en ajouter une.
+    const lignes = document.querySelectorAll('#vue-roles .role-ligne');
+    const derniere = lignes[lignes.length - 1];
+    if (valeur && derniere && !derniere.querySelector('[data-role="role"]').value) {
+        derniere.querySelector('[data-role="role"]').value = valeur;
+    } else {
+        document.getElementById('vue-roles').appendChild(ligne);
+    }
+    if (valeur) majApercu();
 }
 
-async function enregistrerVue(e) {
-    e.preventDefault();
-    const payload = Object.fromEntries(new FormData(e.target).entries());
-    payload.roles = Array.from(document.querySelectorAll('#vue-roles .role-ligne')).map(l => {
+function rolesSaisis() {
+    return Array.from(document.querySelectorAll('#vue-roles .role-ligne')).map(l => {
         const r = {};
         l.querySelectorAll('[data-role]').forEach(i => { r[i.dataset.role] = i.value; });
         return r;
     });
+}
+
+// Aperçu du découpage : le serveur renvoie le HTML (services/bacnet_vues.py),
+// à chaque saisie (après une courte pause) et à l'ouverture du formulaire.
+let apercuMinuterie = null;
+function majApercu() {
+    clearTimeout(apercuMinuterie);
+    apercuMinuterie = setTimeout(async () => {
+        const res = await fetch(VUE_BASE + '/api/bacnet/vues/apercu', {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                patterns: document.getElementById('vue-motifs').value,
+                name_regex: document.getElementById('vue-regex').value,
+                roles: rolesSaisis()
+            })
+        });
+        const data = await res.json();
+        document.getElementById('vue-apercu').innerHTML = data.status === 'ok' ? data.html : (data.message || 'Erreur');
+    }, 350);
+}
+document.getElementById('form-vue').addEventListener('input', majApercu);
+document.getElementById('vue-apercu').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-role-ajout]');
+    if (b && !b.classList.contains('apercu-role-pris')) ajouterRole(b.dataset.roleAjout);
+});
+
+async function enregistrerVue(e) {
+    e.preventDefault();
+    const payload = Object.fromEntries(new FormData(e.target).entries());
+    payload.roles = rolesSaisis();
     const res = await fetch(VUE_BASE + '/api/bacnet/vues/save', {
         method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload)
     });
@@ -191,4 +244,7 @@ function arreterFlux() {
 // Ne pas solliciter les régulateurs quand la page n'est pas visible.
 document.addEventListener('visibilitychange', () => document.hidden ? arreterFlux() : demarrerFlux());
 if (!document.hidden) demarrerFlux();
+
+// Formulaire déjà ouvert au chargement (vue proposée depuis la recherche).
+if (document.getElementById('vue-formulaire').style.display !== 'none') majApercu();
 </script>

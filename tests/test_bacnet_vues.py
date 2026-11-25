@@ -221,6 +221,23 @@ class TestVueParPiece(_BaseVues):
         self.assertEqual(res["non_reconnus"], ["IFABEL01_D201_TmpAmb"])  # autre station
         self.assertIn("1 nom(s) non reconnu(s)", bv.rendre_resume(res))
 
+    def test_apercu_du_decoupage(self):
+        res = bv.apercu(self.site, "IFABEL*_*", self.REGEX, roles=[{"role": "TmpAmb"}])
+        self.assertEqual(res["total"], 8)
+        self.assertEqual(res["reconnus"], 7)          # IFABEL01_D201_TmpAmb : autre station
+        self.assertEqual(res["pieces"], 4)            # D004, D005, D112, ZonCom1
+        self.assertEqual(res["roles_trouves"], {"TmpAmb": 4, "PcmTmpAmb": 2, "ModV2v": 1})
+        self.assertEqual(res["lignes"][0]["nom"], "IFABEL01_D201_TmpAmb")  # non reconnu en tête
+        html = bv.rendre_apercu(res)
+        self.assertIn("7 reconnu(s) par la regex", html)
+        self.assertIn('data-role-ajout="PcmTmpAmb"', html)
+        self.assertIn("✓ TmpAmb", html)               # déjà dans la vue
+        # Regex invalide : message, mais les noms restent visibles pour la corriger.
+        res = bv.apercu(self.site, "IFABEL03_*", "^(?P<piece>[")
+        self.assertIn("Regex invalide", res["erreur"])
+        self.assertEqual(len(res["lignes"]), 7)
+        self.assertIn("Saisissez un motif", bv.rendre_apercu(bv.apercu(self.site, "", "")))
+
     def test_contexte_nouvelle_vue_par_piece(self):
         ctx = bv.contexte_page(self.site, noms=["IFABEL03_D001_TmpAmb", "IFABEL03_D001_ModV2v"])
         self.assertEqual((ctx["form_display"], ctx["form_motifs"]), ("block", "IFABEL03_*"))
