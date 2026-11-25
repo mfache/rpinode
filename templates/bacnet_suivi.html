@@ -15,7 +15,8 @@
     <div class="card">
         <div class="suivi-toolbar">
             <div class="suivi-help">
-                Cochez <strong>Enregistrer</strong> pour historiser les données dans les tendances (Trends).
+                Cochez <strong>Enregistrer</strong> pour historiser les données dans les tendances (Trends),
+                et <strong>Accueil</strong> pour afficher le point sur le tableau de bord (lecture seule).
             </div>
             <div class="suivi-bulk-actions">
                 <button type="button" class="btn-secondary btn-sm" onclick="toggleAllRecords(true)">Tout cocher</button>
@@ -31,6 +32,7 @@
                     <th>Valeur Live</th>
                     <th>Enregistrement</th>
                     <th>Cadence</th>
+                    <th>Tableau de bord</th>
                     <th>Actions</th>
                 </tr>
             </thead>
@@ -286,6 +288,23 @@ async function toggleRecord(pointId, isRecorded) {
                 is_recorded: isRecorded ? 1 : 0,
                 cadence: cadence
             })
+        });
+        const data = await res.json();
+        if (data.status !== 'ok') {
+            alert("Erreur lors de la mise à jour: " + (data.message || "Erreur inconnue"));
+        }
+    } catch (e) {
+        alert("Erreur réseau");
+    }
+}
+
+async function toggleDashboard(pointId, onDashboard) {
+    try {
+        const url = (baseUrl + '/api/bacnet/point/update').replace(/\/+/g, '/');
+        const res = await fetch(url, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ point_id: pointId, on_dashboard: onDashboard ? 1 : 0 })
         });
         const data = await res.json();
         if (data.status !== 'ok') {

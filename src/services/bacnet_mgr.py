@@ -559,8 +559,9 @@ def remove_points_from_suivi(site_id, points):
         conn.commit()
     return count
 
-def update_point_settings(point_id, is_monitored=None, is_recorded=None, cadence=None):
-    """Met à jour le statut de suivi/enregistrement et la cadence d'un point BACnet."""
+def update_point_settings(point_id, is_monitored=None, is_recorded=None, cadence=None, on_dashboard=None):
+    """Met à jour le statut de suivi/enregistrement, la cadence et la présence
+    sur le tableau de bord (on_dashboard) d'un point BACnet."""
     with get_db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("SELECT * FROM bacnet_points WHERE id = ?", (point_id,))
@@ -571,17 +572,18 @@ def update_point_settings(point_id, is_monitored=None, is_recorded=None, cadence
         cur_mon = row["is_monitored"] if is_monitored is None else (1 if is_monitored else 0)
         cur_rec = row["is_recorded"] if is_recorded is None else (1 if is_recorded else 0)
         cur_cad = row["cadence"] if cadence is None else cadence
-        
+        cur_dash = (row["on_dashboard"] or 0) if on_dashboard is None else (1 if on_dashboard else 0)
+
         if not cur_mon:
             cursor.execute("DELETE FROM bacnet_points WHERE id = ?", (point_id,))
         else:
             cursor.execute(
                 """
                 UPDATE bacnet_points
-                SET is_monitored = 1, is_recorded = ?, cadence = ?, updated_at = CURRENT_TIMESTAMP
+                SET is_monitored = 1, is_recorded = ?, cadence = ?, on_dashboard = ?, updated_at = CURRENT_TIMESTAMP
                 WHERE id = ?
                 """,
-                (cur_rec, cur_cad, point_id)
+                (cur_rec, cur_cad, cur_dash, point_id)
             )
         conn.commit()
         return True
@@ -803,6 +805,46 @@ def read_site_monitored_points_live(site_id):
         conn.commit()
 
     return results
+
+def get_dashboard_points(site_id):
+    """Points BACnet suivis du chantier choisis pour le tableau de bord."""
+    return [p for p in get_site_bacnet_points(site_id, only_monitored=True) if p.get("on_dashboard")]
+
+
+def read_dashboard_points_live(site_id, timeout=6.0):
+    """Lit en direct les seuls points BACnet du tableau de bord (pas tout le
+    suivi) et mémorise les valeurs lues. Renvoie {point_id: {value, display,
+    error, ts}} ; une lecture ratée garde la dernière valeur connue."""
+    import time
+
+    points = get_dashboard_points(site_id)
+    if not points:
+        return {}
+    raw = read_bacnet_points_live_raw(
+        [{"key": str(p["id"]), "address": p["network_address"], "object_id": p["object_id"],
+          "device_id": p["device_instance"]} for p in points],
+        timeout=timeout)
+    now = int(time.time())
+    results = {}
+    with get_db_connection() as conn:
+        for p in points:
+            pid = str(p["id"])
+            item = raw.get(pid) or {}
+            if item.get("value") is not None:
+                results[pid] = item
+                conn.execute("UPDATE bacnet_points SET last_value = ?, last_read_ts = ? WHERE id = ?",
+                             (str(item["value"]), now, p["id"]))
+            else:
+                results[pid] = {
+                    "value": p.get("last_value"),
+                    "display": str(p["last_value"]) if p.get("last_value") is not None else "—",
+                    "error": item.get("error") or "Non lu",
+                    "retained": p.get("last_value") is not None,
+                    "ts": p.get("last_read_ts") or now,
+                }
+        conn.commit()
+    return results
+
 
 def get_site_monitored_cached_values(site_id):
     """

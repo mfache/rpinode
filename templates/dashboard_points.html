@@ -1,7 +1,7 @@
 <div class="widget dashboard-points" id="widget-points">
     <div class="dash-points-header">
         <h3>Points suivis</h3>
-        <a href="${base_url}/modbus/suivi" class="btn-secondary btn-sm" title="Cocher « Accueil » sur les points à afficher">Choisir les points</a>
+        <a href="${base_url}/monitor/suivi" class="btn-secondary btn-sm" title="Cocher « Accueil » sur les points à afficher (Modbus et BACnet)">Choisir les points</a>
     </div>
     <div class="table-responsive">
         <table class="data-table dash-points-table">
@@ -89,5 +89,35 @@
             if (btn) btn.disabled = false;
         }
     };
+
+    // Points BACnet : pas de flux SSE, lecture directe toutes les 30 s
+    // (seulement s'il y en a et quand la page est visible).
+    const PERIODE_BACNET_MS = 30000;
+    async function rafraichirBacnet() {
+        if (!document.querySelector('[data-bacnet-dash]') || document.hidden) return;
+        try {
+            const res = await fetch((base + '/api/bacnet/dashboard/values').replace(/\/+/g, '/'));
+            const data = await res.json();
+            if (data.status !== 'ok') return;
+            for (const [pid, v] of Object.entries(data.values || {})) {
+                const el = document.getElementById('val-bac-' + pid);
+                if (!el) continue;
+                const avant = el.textContent;
+                el.textContent = v.display != null ? v.display : '—';
+                el.className = 'live-val ' + (v.error ? (v.retained ? 'badge-gray' : 'badge-error') : 'badge-success');
+                el.title = v.error ? ('Lecture BACnet : ' + v.error + (v.retained ? ' (dernière valeur connue)' : ''))
+                                   : ('Lu à ' + new Date(v.ts * 1000).toLocaleTimeString());
+                if (avant !== el.textContent) {
+                    el.classList.add('suivi-flash');
+                    setTimeout(() => el.classList.remove('suivi-flash'), 1000);
+                }
+            }
+        } catch (e) { /* réseau : on retente au prochain tour */ }
+    }
+    if (document.querySelector('[data-bacnet-dash]')) {
+        rafraichirBacnet();
+        setInterval(rafraichirBacnet, PERIODE_BACNET_MS);
+        document.addEventListener('visibilitychange', () => { if (!document.hidden) rafraichirBacnet(); });
+    }
 })();
 </script>

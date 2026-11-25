@@ -266,3 +266,80 @@ class TestBacnetPoints(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class TestBacnetDashboardPoints(unittest.TestCase):
+    """Points BACnet affichés (lecture seule) sur le tableau de bord (on_dashboard)."""
+
+    def setUp(self):
+        self.fleet_patcher = patch("services.fleet.fleet.sync_bacnet_templates")
+        self.fleet_patcher.start().return_value = True
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.original_db = paths.DATABASE_FILE
+        paths.DATABASE_FILE = Path(self.temp_dir.name) / "test_rpinode_bacnet_dash.db"
+        init_db()
+        with get_db_connection() as conn:
+            conn.execute("INSERT OR IGNORE INTO sites (name, external_id) VALUES ('TEST_SITE_BAC_DASH', '8887')")
+            conn.commit()
+            self.site_id = conn.execute("SELECT id FROM sites WHERE name = 'TEST_SITE_BAC_DASH'").fetchone()["id"]
+        tpl_id = save_template("Test TPL BACnet Dash", "Test", [{"obj": "binaryOutput:38", "name": "Etat"}])
+        self.device_id = add_device_to_site(self.site_id, tpl_id, "GPE1", 80856, "192.168.1.1")
+        save_device_points_selection(self.device_id, self.site_id, [
+            {"object_id": "binaryOutput:38", "name": "Etat", "is_monitored": True},
+            {"object_id": "binaryOutput:27", "name": "Défaut", "is_monitored": True},
+        ])
+        self.pts = {p["object_id"]: p for p in get_site_bacnet_points(self.site_id)}
+
+    def tearDown(self):
+        self.fleet_patcher.stop()
+        paths.DATABASE_FILE = self.original_db
+        self.temp_dir.cleanup()
+
+    def test_choix_des_points_du_tableau_de_bord(self):
+        from services.bacnet_mgr import get_dashboard_points
+        pid = self.pts["binaryOutput:38"]["id"]
+        self.assertEqual(get_dashboard_points(self.site_id), [])
+
+        update_point_settings(pid, on_dashboard=True)
+        dash = get_dashboard_points(self.site_id)
+        self.assertEqual([p["id"] for p in dash], [pid])
+        self.assertEqual(dash[0]["device_name"], "GPE1")
+
+        # Un autre réglage (enregistrement, cadence) ne retire pas le point du tableau de bord
+        update_point_settings(pid, is_recorded=True, cadence="30s")
+        self.assertEqual(len(get_dashboard_points(self.site_id)), 1)
+
+        update_point_settings(pid, on_dashboard=False)
+        self.assertEqual(get_dashboard_points(self.site_id), [])
+
+    def test_ajout_au_suivi_conserve_le_choix(self):
+        from services.bacnet_mgr import get_dashboard_points
+        pid = self.pts["binaryOutput:38"]["id"]
+        update_point_settings(pid, on_dashboard=True)
+        add_points_to_suivi(self.site_id, [{"network_address": "192.168.1.1", "device_instance": 80856,
+                                            "object_id": "binaryOutput:38", "name": "Etat"}])
+        self.assertEqual([p["id"] for p in get_dashboard_points(self.site_id)], [pid])
+
+    def test_lecture_des_seuls_points_du_tableau_de_bord(self):
+        from services.bacnet_mgr import read_dashboard_points_live
+        etat, defaut = self.pts["binaryOutput:38"]["id"], self.pts["binaryOutput:27"]["id"]
+        update_point_settings(etat, on_dashboard=True)
+        update_point_settings(defaut, on_dashboard=True)
+        lus = []
+
+        def faux_lecteur(points, timeout=4.0):
+            lus.extend(points)
+            return {str(etat): {"value": 1, "display": "1", "error": None, "ts": 1},
+                    str(defaut): {"value": None, "display": "—", "error": "Timeout", "ts": 1}}
+
+        with patch("services.bacnet_mgr.read_bacnet_points_live_raw", side_effect=faux_lecteur):
+            res = read_dashboard_points_live(self.site_id)
+        self.assertEqual(sorted(p["object_id"] for p in lus), ["binaryOutput:27", "binaryOutput:38"])
+        self.assertEqual(res[str(etat)]["display"], "1")
+        self.assertEqual(res[str(defaut)]["error"], "Timeout")
+        # La valeur lue est mémorisée ; l'échec ne l'efface pas au tour suivant
+        with patch("services.bacnet_mgr.read_bacnet_points_live_raw",
+                   return_value={str(etat): {"value": None, "display": "—", "error": "Timeout", "ts": 2}}):
+            res = read_dashboard_points_live(self.site_id)
+        self.assertEqual(res[str(etat)]["display"], "1")
+        self.assertTrue(res[str(etat)]["retained"])

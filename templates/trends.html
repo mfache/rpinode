@@ -594,9 +594,10 @@ async function recordVisible() {
     await setRowsRecording(rows, true);
 }
 
-async function toggleDashboard(pointId, onDashboard) {
+async function toggleDashboard(pointId, onDashboard, proto = 'modbus') {
     try {
-        const url = (baseUrl + '/api/modbus/point/update').replace(/\/+/g, '/');
+        const endpoint = proto === 'bacnet' ? '/api/bacnet/point/update' : '/api/modbus/point/update';
+        const url = (baseUrl + endpoint).replace(/\/+/g, '/');
         const res = await fetch(url, {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},

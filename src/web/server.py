@@ -227,6 +227,8 @@ class WebAdminHandler(BaseHTTPRequestHandler):
             return self.serve_modbus_tools(query)
         elif path == "/api/modbus/suivi/values":
             return self.serve_modbus_suivi_values()
+        elif path == "/api/bacnet/dashboard/values":
+            return self.serve_bacnet_dashboard_values()
         elif path == "/api/bacnet/suivi/values":
             return self.serve_bacnet_suivi_values()
         elif path == "/api/monitor/suivi/values":
@@ -496,10 +498,12 @@ class WebAdminHandler(BaseHTTPRequestHandler):
         « Accueil » dans le suivi. Les valeurs sont tenues à jour par le flux
         SSE existant (événement modbus_point -> élément val-<id>)."""
         from services.modbus_mgr import get_dashboard_points, is_point_writable
+        from services.bacnet_mgr import get_dashboard_points as get_bacnet_dashboard_points
         from services.presence import get_current_site_id
 
         site_id = get_current_site_id()
         points = get_dashboard_points(site_id) if site_id else []
+        bacnet_points = get_bacnet_dashboard_points(site_id) if site_id else []
 
         rows = ""
         for p in points:
@@ -527,9 +531,22 @@ class WebAdminHandler(BaseHTTPRequestHandler):
                      f"<td><b class='live-val badge-gray' id='val-{pid}'>{escape(value)}</b></td>"
                      f"<td><div class='dash-write'>{field}</div></td></tr>")
 
+        # Points BACnet : lecture seule, valeurs rafraîchies par le bloc lui-même
+        # (/api/bacnet/dashboard/values) ; identifiants « bac- » pour ne pas
+        # croiser ceux des points Modbus, mis à jour par le flux SSE.
+        for p in bacnet_points:
+            pid = int(p["id"])
+            value = p["last_value"] if p["last_value"] is not None else "—"
+            label = p["name"] or p["object_id"]
+            rows += (f"<tr id='dash-row-bac-{pid}' data-name='{escape(label)}' data-device='{escape(p['device_name'])}'>"
+                     f"<td><strong>{escape(p['device_name'])}</strong></td>"
+                     f"<td>{escape(label)}<br><small class='dash-reg'>BACnet {escape(p['object_id'])}</small></td>"
+                     f"<td><b class='live-val badge-gray' id='val-bac-{pid}' data-bacnet-dash='{pid}'>{escape(value)}</b></td>"
+                     f"<td><div class='dash-write'><span class='dash-readonly'>lecture seule</span></div></td></tr>")
+
         if not rows:
             rows = ("<tr><td colspan='4' class='dash-empty'>Aucun point choisi. Cochez « Accueil » sur la page "
-                    f"<a href='{base_url}/modbus/suivi'>Suivi Modbus</a>.</td></tr>")
+                    f"<a href='{base_url}/monitor/suivi'>Suivi des points</a>.</td></tr>")
 
         return render("dashboard_points.html", rows=rows, base_url=base_url)
 
@@ -1619,13 +1636,19 @@ class WebAdminHandler(BaseHTTPRequestHandler):
                         </select>
                     </td>
                     <td>
+                        <label style="cursor:pointer; display:inline-flex; align-items:center; gap:5px;" title="Afficher sur le tableau de bord (lecture seule)">
+                            <input type="checkbox" class="cb-dashboard" {'checked' if p.get('on_dashboard') else ''} onchange="toggleDashboard({pid}, this.checked)">
+                            <span>Accueil</span>
+                        </label>
+                    </td>
+                    <td>
                         <button class="btn-icon-del" onclick="removePoint({pid})" title="Retirer du suivi">🗑️</button>
                     </td>
                 </tr>
             """
 
         if not points:
-            rows_html = "<tr><td colspan='7' style='text-align:center; padding:30px; color:#888;'>Aucun point BACnet sélectionné pour le suivi sur ce chantier.<br><a href='" + base_url + "/bacnet/devices' class='btn-secondary btn-sm' style='margin-top:10px; display:inline-block;'>Sélectionner des points sur un appareil</a></td></tr>"
+            rows_html = "<tr><td colspan='8' style='text-align:center; padding:30px; color:#888;'>Aucun point BACnet sélectionné pour le suivi sur ce chantier.<br><a href='" + base_url + "/bacnet/devices' class='btn-secondary btn-sm' style='margin-top:10px; display:inline-block;'>Sélectionner des points sur un appareil</a></td></tr>"
 
         content = render("bacnet_suivi.html", site_name=site_name, suivi_rows_html=rows_html, base_url=base_url)
         nav_html = render("nav.html", base_url=base_url)
@@ -1652,6 +1675,16 @@ class WebAdminHandler(BaseHTTPRequestHandler):
 
         values = read_site_monitored_points_live(site_id)
         self.send_json({"status": "ok", "values": values})
+
+    def serve_bacnet_dashboard_values(self):
+        """Valeurs des points BACnet du tableau de bord (lues en direct)."""
+        from services.bacnet_mgr import read_dashboard_points_live
+        from services.presence import get_current_site_id
+
+        site_id = get_current_site_id()
+        if not site_id:
+            return self.send_json({"status": "error", "message": "Aucun chantier actif", "values": {}})
+        self.send_json({"status": "ok", "values": read_dashboard_points_live(site_id)})
 
     def serve_bacnet_device_view(self, query):
         device_id = query.get("id", [""])[0]
@@ -1774,9 +1807,11 @@ class WebAdminHandler(BaseHTTPRequestHandler):
             is_monitored = data.get("is_monitored")
             is_recorded = data.get("is_recorded")
             cadence = data.get("cadence")
+            on_dashboard = data.get("on_dashboard")
 
             from services.bacnet_mgr import update_point_settings
-            success = update_point_settings(point_id, is_monitored=is_monitored, is_recorded=is_recorded, cadence=cadence)
+            success = update_point_settings(point_id, is_monitored=is_monitored, is_recorded=is_recorded,
+                                            cadence=cadence, on_dashboard=on_dashboard)
             if success:
                 self.send_json({"status": "ok"})
             else:
@@ -2484,7 +2519,12 @@ class WebAdminHandler(BaseHTTPRequestHandler):
                             {cad_options}
                         </select>
                     </td>
-                    <td><span style="color:#777;" title="Seuls les points Modbus peuvent aller sur le tableau de bord pour l'instant">—</span></td>
+                    <td>
+                        <label style="cursor:pointer; display:inline-flex; align-items:center; gap:5px;" title="Afficher sur le tableau de bord (lecture seule)">
+                            <input type="checkbox" class="cb-dashboard" {'checked' if p.get('on_dashboard') else ''} onchange="toggleDashboard({pid}, this.checked, 'bacnet')">
+                            <span>Accueil</span>
+                        </label>
+                    </td>
                     <td>
                         <button class="btn-icon-del" onclick="removePoint({pid}, 'bacnet')" title="Retirer du suivi">🗑️</button>
                     </td>
