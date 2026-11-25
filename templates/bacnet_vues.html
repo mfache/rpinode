@@ -33,6 +33,16 @@
                 <textarea name="patterns" id="vue-motifs" rows="3" placeholder="IFABEL*_*_TmpAmb" required>${form_motifs}</textarea>
             </label>
             <p class="hint">Un même motif peut viser plusieurs régulateurs ; un point visé par deux motifs n'apparaît qu'une fois.</p>
+            <fieldset class="vue-roles">
+                <legend>Regrouper par pièce (facultatif)</legend>
+                <p class="hint">Une ligne par rôle : la fin du nom des points (ex. <code>_TmpAmb</code>), son libellé et sa plage normale.
+                Avec des rôles, le motif ci-dessus délimite le périmètre (ex. <code>IFABEL03_*</code>), le tableau montre une ligne par pièce
+                et la plage normale de la vue est remplacée par celle de chaque rôle.</p>
+                <div class="role-ligne role-entete"><span>Fin du nom</span><span>Libellé</span><span>min</span><span>max</span><span></span></div>
+                <div id="vue-roles">${roles_html}</div>
+                <button type="button" class="btn-secondary btn-sm" onclick="ajouterRole()">+ Rôle</button>
+                <template id="role-vide">${roles_vides_html}</template>
+            </fieldset>
             <div style="display: flex; gap: 10px;">
                 <button type="submit" class="btn-primary">Enregistrer la vue</button>
                 <button type="button" class="btn-secondary" onclick="masquerFormulaire()">Annuler</button>
@@ -48,16 +58,10 @@
         <div class="table-container">
             <table class="data-table">
                 <thead>
-                    <tr>
-                        <th>État</th>
-                        <th>Appareil</th>
-                        <th>Repère</th>
-                        <th>Valeur</th>
-                        <th>Objet</th>
-                    </tr>
+                    ${entete_html}
                 </thead>
                 <tbody id="vue-lignes">
-                    <tr><td colspan="5" class="vue-vide">Lecture des points en cours…</td></tr>
+                    <tr><td colspan="20" class="vue-vide">Lecture des points en cours…</td></tr>
                 </tbody>
             </table>
         </div>
@@ -85,6 +89,13 @@
 .vue-vide { text-align: center; padding: 24px; color: var(--outline); }
 tr.vue-sans_reponse td, tr.vue-defaut_capteur td { background: rgba(147, 0, 10, 0.12); }
 tr.vue-hors_plage td { background: rgba(255, 184, 115, 0.08); }
+.vue-roles { border: 1px solid var(--outline-variant); border-radius: var(--radius-md); padding: 10px 12px; margin: 6px 0 12px; }
+.vue-roles legend { padding: 0 6px; color: var(--on-surface-variant); font-size: 0.85rem; }
+.role-ligne { display: grid; grid-template-columns: 1.2fr 2fr 0.6fr 0.6fr auto; gap: 6px; margin-bottom: 6px; align-items: center; }
+.role-ligne input { width: 100%; min-width: 0; }
+.role-entete { font-size: 0.75rem; color: var(--outline); margin-bottom: 2px; }
+.vue-cellule { text-align: right; }
+.vue-manque { color: var(--outline); }
 </style>
 
 <script>
@@ -105,6 +116,8 @@ function afficherFormulaire(nouvelle) {
         document.getElementById('vue-min').value = '';
         document.getElementById('vue-max').value = '';
         document.getElementById('vue-motifs').value = '';
+        document.getElementById('vue-roles').innerHTML = '';
+        ajouterRole();
     }
     f.style.display = 'block';
     document.getElementById('vue-nom').focus();
@@ -114,9 +127,19 @@ function masquerFormulaire() {
     document.getElementById('vue-formulaire').style.display = 'none';
 }
 
+function ajouterRole() {
+    const modele = document.getElementById('role-vide').content.firstElementChild;
+    document.getElementById('vue-roles').appendChild(modele.cloneNode(true));
+}
+
 async function enregistrerVue(e) {
     e.preventDefault();
     const payload = Object.fromEntries(new FormData(e.target).entries());
+    payload.roles = Array.from(document.querySelectorAll('#vue-roles .role-ligne')).map(l => {
+        const r = {};
+        l.querySelectorAll('[data-role]').forEach(i => { r[i.dataset.role] = i.value; });
+        return r;
+    });
     const res = await fetch(VUE_BASE + '/api/bacnet/vues/save', {
         method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload)
     });

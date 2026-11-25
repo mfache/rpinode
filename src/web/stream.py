@@ -516,7 +516,7 @@ def handle_bacnet_vue_stream(handler, query=None):
                 envoyer({"erreur": "Vue introuvable sur le chantier courant."})
                 break
             resultat = lire_vue_en_direct(vue)
-            envoyer({"resume_html": rendre_resume(resultat), "lignes_html": rendre_lignes(resultat),
+            envoyer({"resume_html": rendre_resume(resultat), "lignes_html": rendre_lignes(resultat, vue),
                      "heure": time.strftime("%H:%M:%S")})
             for _ in range(PERIODE_LECTURE):
                 time.sleep(1.0)

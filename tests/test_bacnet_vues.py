@@ -11,7 +11,8 @@ from services.bacnet_catalog import upsert_device_points
 from services import bacnet_vues as bv
 
 
-class TestBacnetVues(unittest.TestCase):
+class _BaseVues(unittest.TestCase):
+    """Base temporaire, dictionnaire de test sur deux régulateurs et deux chantiers."""
 
     def setUp(self):
         self.temp_dir = tempfile.TemporaryDirectory()
@@ -29,6 +30,9 @@ class TestBacnetVues(unittest.TestCase):
             {"object_id": "analog-input:5", "name": "IFABEL03_D005_TmpAmb"},
             {"object_id": "analog-input:60", "name": "IFABEL03_ZonCom1_TmpAmb"},
             {"object_id": "analog-output:3", "name": "IFABEL03_D004_PcmTmpAmb"},
+            {"object_id": "analog-input:3", "name": "IFABEL03_D004_TmpAmb"},
+            {"object_id": "analog-output:13", "name": "IFABEL03_D004_ModV2v"},
+            {"object_id": "analog-output:8", "name": "IFABEL03_D005_PcmTmpAmb"},
         ])
         upsert_device_points(self.site, "192.168.1.201", 5001, [
             {"object_id": "analog-input:1", "name": "IFABEL01_D201_TmpAmb"},
@@ -40,6 +44,9 @@ class TestBacnetVues(unittest.TestCase):
     def tearDown(self):
         paths.DATABASE_FILE = self.original_db
         self.temp_dir.cleanup()
+
+
+class TestBacnetVues(_BaseVues):
 
     def test_enregistrer_modifier_supprimer(self):
         vid = bv.enregistrer_vue(self.site, "Thermostats", "IFABEL*_*_TmpAmb\n\n", "15", "28,5")
@@ -68,7 +75,7 @@ class TestBacnetVues(unittest.TestCase):
         cles = sorted((p["device_instance"], p["object_id"]) for p in points)
         # Les deux régulateurs, D112 une seule fois, rien de l'autre chantier,
         # et PcmTmpAmb exclu (le motif exige « _TmpAmb » en fin).
-        self.assertEqual(cles, [(5001, "analog-input:1"), (5002, "analog-input:47"),
+        self.assertEqual(cles, [(5001, "analog-input:1"), (5002, "analog-input:3"), (5002, "analog-input:47"),
                                 (5002, "analog-input:5"), (5002, "analog-input:60")])
         self.assertFalse(tronque)
 
@@ -111,9 +118,10 @@ class TestBacnetVues(unittest.TestCase):
         with patch("services.bacnet_mgr.read_bacnet_points_live_raw", side_effect=lecture):
             res = bv.lire_vue_en_direct(bv.lire_vue(vid, self.site))
         self.assertEqual([(l["repere"], l["etat"], l["affichage"]) for l in res["lignes"]],
-                         [("ZonCom1", "defaut_capteur", "inf"), ("D005", "hors_plage", "13.35"),
+                         [("D004", "sans_reponse", "Timeout"),
+                          ("ZonCom1", "defaut_capteur", "inf"), ("D005", "hors_plage", "13.35"),
                           ("D112", "hors_plage", "0")])
-        self.assertEqual(res["resume"], {"sans_reponse": 0, "defaut_capteur": 1, "hors_plage": 2,
+        self.assertEqual(res["resume"], {"sans_reponse": 1, "defaut_capteur": 1, "hors_plage": 2,
                                          "objet_absent": 0, "ok": 0})
         html = bv.rendre_lignes(res) + bv.rendre_resume(res)
         self.assertIn("Capteur en défaut", html)
@@ -131,6 +139,71 @@ class TestBacnetVues(unittest.TestCase):
         self.assertIn("Thermostats &lt;E&gt;", ctx["options_html"])
         self.assertEqual(ctx["form_motifs"], "A*\nB*")
         self.assertEqual(ctx["plage_affichee"], "15 à …")
+
+
+class TestVueParPiece(_BaseVues):
+    """Vue par pièce : rôles = fins de nom, une ligne par pièce."""
+
+    ROLES = [{"suffixe": "_TmpAmb", "libelle": "Température ambiante", "min": "15", "max": "28"},
+             {"suffixe": "PcmTmpAmb", "libelle": "Consigne"},
+             {"suffixe": "_ModV2v", "libelle": ""},
+             {"suffixe": "", "libelle": "ligne vide ignorée"}]
+
+    def test_proposition_depuis_les_points_coches(self):
+        motif, roles = bv.proposer_vue_piece(
+            ["IFABEL03_D001_TmpAmb", "IFABEL03_D001_ModV2v", "IFABEL03_D001_PcmTmpAmb"])
+        self.assertEqual(motif, "IFABEL03_*")
+        self.assertEqual([r["suffixe"] for r in roles], ["_TmpAmb", "_ModV2v", "_PcmTmpAmb"])
+        self.assertEqual(bv.proposer_vue_piece(["IFABEL03_D001_TmpAmb"])[1][0]["suffixe"], "_TmpAmb")
+        self.assertEqual(bv.proposer_vue_piece(["D001_TmpAmb", "D001_ModV2v"])[0], "*")
+
+    def test_roles_normalises_et_refus(self):
+        roles = bv.normaliser_roles(self.ROLES)
+        self.assertEqual([(r["suffixe"], r["libelle"], r["min"], r["max"]) for r in roles],
+                         [("_TmpAmb", "Température ambiante", 15.0, 28.0), ("_PcmTmpAmb", "Consigne", None, None),
+                          ("_ModV2v", "ModV2v", None, None)])
+        for mauvais in ([{"suffixe": "_A*"}], [{"suffixe": "_A"}, {"suffixe": "A"}],
+                        [{"suffixe": "_A", "min": 5, "max": 1}]):
+            with self.assertRaises(ValueError):
+                bv.normaliser_roles(mauvais)
+
+    def test_role_du_nom_suffixe_le_plus_long(self):
+        roles = bv.normaliser_roles(self.ROLES)
+        self.assertEqual(bv.role_du_nom("IFABEL03_D004_PcmTmpAmb", roles), (1, "IFABEL03_D004"))
+        self.assertEqual(bv.role_du_nom("IFABEL03_D004_TmpAmb", roles), (0, "IFABEL03_D004"))
+        self.assertEqual(bv.role_du_nom("IFABEL03_D004_Autre", roles), (None, None))
+
+    def test_lecture_par_piece(self):
+        vid = bv.enregistrer_vue(self.site, "Pièces", "IFABEL03_*", roles=self.ROLES)
+        vue = bv.lire_vue(vid, self.site)
+        self.assertEqual(bv._motifs_de_recherche(vue),
+                         ["IFABEL03_*_TmpAmb", "IFABEL03_*_PcmTmpAmb", "IFABEL03_*_ModV2v"])
+        valeurs = {"analog-input:47": "0.0", "analog-input:5": "19.5", "analog-input:60": "21",
+                   "analog-input:3": "20", "analog-output:3": "24", "analog-output:13": "100",
+                   "analog-output:8": "22"}
+
+        def lecture(points, timeout):
+            return {p["key"]: {"value": valeurs.get(p["object_id"]), "error": None} for p in points}
+
+        with patch("services.bacnet_mgr.read_bacnet_points_live_raw", side_effect=lecture):
+            res = bv.lire_vue_en_direct(vue)
+        self.assertEqual(res["mode"], "pieces")
+        lignes = {l["repere"]: l for l in res["lignes"]}
+        self.assertEqual(sorted(lignes), ["D004", "D005", "D112", "ZonCom1"])
+        self.assertEqual(res["lignes"][0]["repere"], "D112")  # 0 °C : hors plage, en tête
+        self.assertEqual({i: c["affichage"] for i, c in lignes["D004"]["cellules"].items()},
+                         {0: "20", 1: "24", 2: "100"})
+        self.assertEqual(lignes["D005"]["etat"], "ok")
+        self.assertEqual(res["resume"]["hors_plage"], 1)
+        html = bv.rendre_lignes(res, vue)
+        self.assertIn("vue-manque", html)  # D112 n'a ni consigne ni vanne
+        self.assertIn("<th>Température ambiante<br>", bv.rendre_entete(vue))
+        self.assertIn("pièce(s)", bv.rendre_resume(res))
+
+    def test_contexte_nouvelle_vue_par_piece(self):
+        ctx = bv.contexte_page(self.site, noms=["IFABEL03_D001_TmpAmb", "IFABEL03_D001_ModV2v"])
+        self.assertEqual((ctx["form_display"], ctx["form_motifs"]), ("block", "IFABEL03_*"))
+        self.assertIn('value="_ModV2v"', ctx["roles_html"])
 
 
 if __name__ == "__main__":

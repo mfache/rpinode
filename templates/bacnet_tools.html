@@ -146,6 +146,9 @@
                         <button type="button" class="btn-secondary btn-sm" id="btn-catalog-unmark-suivi" onclick="unmarkSelectedCatalogAsSuivi()" disabled style="background: #fff5f5; color: #b91c1c; border-color: #fca5a5; display: inline-flex; align-items: center; gap: 4px; height: 30px;">
                             <span>❌</span> Retirer le suivi (<span id="catalog-selected-count-unmark">0</span>)
                         </button>
+                        <button type="button" class="btn-secondary btn-sm" id="btn-catalog-vue-piece" onclick="creerVuePiece()" disabled title="Les points cochés sont ceux d'une pièce : créer une vue qui montre toutes les pièces semblables" style="display: inline-flex; align-items: center; gap: 4px; height: 30px;">
+                            <span>🏠</span> Créer une vue par pièce
+                        </button>
                     </div>
                     <div style="display: flex; align-items: center; gap: 10px;">
                         <label class="catalog-auto-refresh" style="display: flex; align-items: center; gap: 6px; font-size: 0.85em; cursor: pointer; background: white; padding: 4px 10px; border-radius: 6px; border: 1px solid #cbd5e1; color: #334155;">
@@ -1127,6 +1130,17 @@ function updateCatalogSelectionCount() {
     document.getElementById('catalog-selected-count-unmark').textContent = checked;
     document.getElementById('btn-catalog-mark-suivi').disabled = (checked === 0);
     document.getElementById('btn-catalog-unmark-suivi').disabled = (checked === 0);
+    document.getElementById('btn-catalog-vue-piece').disabled = (checked === 0);
+}
+
+// Les points cochés sont ceux d'une pièce : leurs noms partent vers la page des
+// vues, qui propose le périmètre et les rôles (services/bacnet_vues.py).
+function creerVuePiece() {
+    const noms = Array.from(document.querySelectorAll('.cb-catalog-select:checked'))
+        .map(cb => cb.dataset.objectName).filter(n => n);
+    if (noms.length === 0) return;
+    const qs = noms.map(n => 'nom=' + encodeURIComponent(n)).join('&');
+    window.location.href = (baseUrl + '/bacnet/vues').replace(/\/+/g, '/') + '?' + qs;
 }
 
 async function markSelectedCatalogAsSuivi() {

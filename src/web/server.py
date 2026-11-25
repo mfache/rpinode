@@ -1983,7 +1983,8 @@ class WebAdminHandler(BaseHTTPRequestHandler):
         except ValueError:
             view_id = None
         motif = (query.get("motif", [""])[0] or "").strip() or None
-        ctx = contexte_page(get_current_site_id(), view_id, motif)
+        noms = [n for n in query.get("nom", []) if n.strip()] or None
+        ctx = contexte_page(get_current_site_id(), view_id, motif, noms)
         content = render("bacnet_vues.html", base_url=base_url, **ctx)
         nav_html = render("nav.html", base_url=base_url)
         final_html = render("layout.html", user_name=escape(self._user_name()), title="Vues de points BACnet",
@@ -2004,7 +2005,8 @@ class WebAdminHandler(BaseHTTPRequestHandler):
                 raise ValueError("Aucun chantier courant")
             view_id = enregistrer_vue(site_id, data.get("name"), data.get("patterns") or "",
                                       data.get("range_min"), data.get("range_max"),
-                                      view_id=int(data["view_id"]) if data.get("view_id") else None)
+                                      view_id=int(data["view_id"]) if data.get("view_id") else None,
+                                      roles=data.get("roles") or [])
             self.send_json({"status": "ok", "id": view_id})
         except ValueError as e:
             self.send_json({"status": "error", "message": str(e)})

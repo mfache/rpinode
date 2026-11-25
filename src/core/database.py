@@ -191,6 +191,16 @@ def init_db():
         except Exception as e:
             logger.warning(f"Erreur lors de la migration des colonnes modbus_points : {e}")
 
+        # Migration des colonnes de bacnet_views (vues par pièce)
+        try:
+            cursor.execute("PRAGMA table_info(bacnet_views)")
+            vcols = [r["name"] for r in cursor.fetchall()]
+            if vcols and "roles_json" not in vcols:
+                cursor.execute("ALTER TABLE bacnet_views ADD COLUMN roles_json TEXT")
+                conn.commit()
+        except Exception as e:
+            logger.warning(f"Erreur lors de la migration des colonnes bacnet_views : {e}")
+
         # Migration des colonnes de bacnet_points (choix des points du tableau de bord)
         try:
             cursor.execute("PRAGMA table_info(bacnet_points)")

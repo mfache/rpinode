@@ -270,6 +270,7 @@ CREATE TABLE IF NOT EXISTS bacnet_views (
     patterns TEXT NOT NULL,             -- motifs GLOB, un par ligne
     range_min REAL,                     -- plage normale (facultative)
     range_max REAL,
+    roles_json TEXT,                    -- vue par pièce : [{suffixe, libelle, min, max}], NULL = un point par ligne
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (site_id) REFERENCES sites(id) ON DELETE CASCADE
