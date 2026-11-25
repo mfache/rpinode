@@ -373,6 +373,27 @@ class FleetClient:
         except Exception as e:
             logger.debug(f"Erreur collecte des raccourcis : {e}")
 
+        # Libellés BACnet du chantier courant (nom des appareils et des points
+        # suivis), envoyés seulement quand ils ont changé depuis le dernier
+        # envoi réussi : voir bacnet_mgr.fleet_labels_payload.
+        bacnet_labels = None
+        try:
+            from services.shortcuts import _current_site
+            from services.bacnet_mgr import fleet_labels_payload
+            site = _current_site()
+            if site and site.get("external_id"):
+                bacnet_labels = fleet_labels_payload(site["id"], site["external_id"])
+                if bacnet_labels == getattr(self, "_bacnet_labels_pushed", None):
+                    bacnet_labels = None
+                else:
+                    payload["annotations"] = dirty_annotations + [
+                        {"kind": "bacnet_device", "key": a["device_instance"],
+                         "field": "alias", "value": a["name"]}
+                        for a in bacnet_labels["aliases"]]
+        except Exception as e:
+            logger.debug(f"Erreur collecte des libellés BACnet : {e}")
+            bacnet_labels = None
+
         try:
             response = requests.post(url, json=payload, headers=self._headers(), timeout=10)
             data = response.json()
@@ -397,6 +418,9 @@ class FleetClient:
 
                 if "shortcuts" in payload:
                     self._shortcuts_pushed = payload["shortcuts"]
+
+                if bacnet_labels is not None and self._send_points_config(bacnet_labels["points"]):
+                    self._bacnet_labels_pushed = bacnet_labels
                 
                 # 3. Marquer les locales comme synchronisées
                 if dirty_annotations:
@@ -743,6 +767,19 @@ class FleetClient:
         except Exception as e:
             logger.debug(f"Erreur récupération logs: {e}")
             return None
+
+    def _send_points_config(self, points):
+        """Libellés des points pour docs (/points-config). Vrai si rien à
+        envoyer ou si docs a accepté."""
+        if not points:
+            return True
+        try:
+            resp = requests.post(f"{self.base_url}/points-config", json={"points": points},
+                                 headers=self._headers(), timeout=10)
+            return bool(resp.json().get("ok"))
+        except Exception as e:
+            logger.debug(f"Erreur envoi des libellés de points : {e}")
+            return False
 
     def send_trends(self, trends):
         """Envoie les relevés historiques au serveur maître."""

@@ -295,6 +295,19 @@ class TestBacnetDashboardPoints(unittest.TestCase):
         paths.DATABASE_FILE = self.original_db
         self.temp_dir.cleanup()
 
+    def test_libelles_pour_docs(self):
+        from services.bacnet_mgr import fleet_labels_payload
+        out = fleet_labels_payload(self.site_id, "8887")
+        self.assertEqual(out["aliases"], [{"device_instance": "80856", "name": "GPE1"}])
+        self.assertEqual(out["points"], [
+            {"s": "8887", "p": "bacnet", "d": "80856", "o": "binaryOutput:27", "label": "Défaut"},
+            {"s": "8887", "p": "bacnet", "d": "80856", "o": "binaryOutput:38", "label": "Etat"},
+        ])
+        # Un point ni suivi ni enregistré n'est pas envoyé
+        update_point_settings(self.pts["binaryOutput:27"]["id"], is_monitored=False, is_recorded=False)
+        self.assertEqual([p["o"] for p in fleet_labels_payload(self.site_id, "8887")["points"]],
+                         ["binaryOutput:38"])
+
     def test_choix_des_points_du_tableau_de_bord(self):
         from services.bacnet_mgr import get_dashboard_points
         pid = self.pts["binaryOutput:38"]["id"]

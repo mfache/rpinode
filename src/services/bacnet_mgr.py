@@ -849,6 +849,27 @@ def read_dashboard_points_live(site_id, timeout=6.0):
     return results
 
 
+def fleet_labels_payload(site_id, external_id):
+    """Libellés BACnet du chantier pour docs : nom des appareils (alias,
+    affiché à la place du numéro d'instance) et nom des points suivis ou
+    enregistrés (colonne « Description » et légende des courbes). Les points
+    Modbus ont leur libellé par le template partagé ; les points BACnet
+    découverts n'en ont souvent pas, d'où cet envoi direct."""
+    aliases, points = {}, []
+    for p in get_site_bacnet_points(site_id):
+        if not (p.get("is_monitored") or p.get("is_recorded")) or p.get("device_instance") is None:
+            continue
+        inst = str(p["device_instance"])
+        nom_app = (p.get("device_name") or "").strip()
+        if nom_app and nom_app != "Appareil BACnet":
+            aliases[inst] = nom_app
+        if (p.get("name") or "").strip():
+            points.append({"s": str(external_id), "p": "bacnet", "d": inst,
+                           "o": p["object_id"], "label": p["name"].strip()[:255]})
+    return {"aliases": [{"device_instance": k, "name": v} for k, v in sorted(aliases.items())],
+            "points": sorted(points, key=lambda x: (x["d"], x["o"]))}
+
+
 def get_site_monitored_cached_values(site_id):
     """
     Renvoie les dernières valeurs connues des points BACnet suivis depuis la base locale.
