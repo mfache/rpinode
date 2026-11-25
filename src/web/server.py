@@ -192,6 +192,9 @@ class WebAdminHandler(BaseHTTPRequestHandler):
         elif path == "/api/bacnet/mstp/stream":
             from web.stream import handle_bacnet_mstp_stream
             return handle_bacnet_mstp_stream(self)
+        elif path == "/api/bacnet/vues/stream":
+            from web.stream import handle_bacnet_vue_stream
+            return handle_bacnet_vue_stream(self, query)
         if path == "/api/monitor/logs":
             return self.handle_logs_api(query)
         elif path == "/api/monitor/logs/download":
@@ -243,6 +246,8 @@ class WebAdminHandler(BaseHTTPRequestHandler):
             return self.serve_bacnet_templates()
         elif path == "/bacnet/tools":
             return self.serve_bacnet_tools(query)
+        elif path == "/bacnet/vues":
+            return self.serve_bacnet_vues(query)
         elif path == "/monitor/suivi":
             return self.serve_trends_view()
         elif path == "/monitor/system":
@@ -352,6 +357,10 @@ class WebAdminHandler(BaseHTTPRequestHandler):
             self.handle_bacnet_catalog_search()
         elif path == "/api/bacnet/catalog/values":
             self.handle_bacnet_catalog_values()
+        elif path == "/api/bacnet/vues/save":
+            self.handle_bacnet_vue_save()
+        elif path == "/api/bacnet/vues/delete":
+            self.handle_bacnet_vue_delete()
         elif path == "/api/bacnet/points/track":
             self.handle_bacnet_points_track()
         elif path == "/api/bacnet/points/untrack":
@@ -1970,6 +1979,54 @@ class WebAdminHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.end_headers()
         self.wfile.write(final_html.encode("utf-8"))
+
+    def serve_bacnet_vues(self, query=None):
+        """Vues de points BACnet (services/bacnet_vues.py), lues en direct par SSE."""
+        from services.bacnet_vues import contexte_page
+        from services.presence import get_current_site_id
+        config = load_config()
+        base_url = self._base_url(config)
+        query = query or {}
+        try:
+            view_id = int(query.get("id", [""])[0] or 0) or None
+        except ValueError:
+            view_id = None
+        motif = (query.get("motif", [""])[0] or "").strip() or None
+        ctx = contexte_page(get_current_site_id(), view_id, motif)
+        content = render("bacnet_vues.html", base_url=base_url, **ctx)
+        nav_html = render("nav.html", base_url=base_url)
+        final_html = render("layout.html", user_name=escape(self._user_name()), title="Vues de points BACnet",
+                            hostname=escape(socket.gethostname()), base_url=escape(base_url),
+                            version=str(int(time.time())), nav=nav_html, content=content)
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.end_headers()
+        self.wfile.write(final_html.encode("utf-8"))
+
+    def handle_bacnet_vue_save(self):
+        from services.bacnet_vues import enregistrer_vue
+        from services.presence import get_current_site_id
+        try:
+            data = json.loads(self.rfile.read(int(self.headers.get('Content-Length', 0))) or b"{}")
+            site_id = get_current_site_id()
+            if not site_id:
+                raise ValueError("Aucun chantier courant")
+            view_id = enregistrer_vue(site_id, data.get("name"), data.get("patterns") or "",
+                                      data.get("range_min"), data.get("range_max"),
+                                      view_id=int(data["view_id"]) if data.get("view_id") else None)
+            self.send_json({"status": "ok", "id": view_id})
+        except ValueError as e:
+            self.send_json({"status": "error", "message": str(e)})
+
+    def handle_bacnet_vue_delete(self):
+        from services.bacnet_vues import supprimer_vue
+        from services.presence import get_current_site_id
+        try:
+            data = json.loads(self.rfile.read(int(self.headers.get('Content-Length', 0))) or b"{}")
+            supprimer_vue(int(data.get("view_id")), get_current_site_id())
+            self.send_json({"status": "ok"})
+        except (ValueError, TypeError) as e:
+            self.send_json({"status": "error", "message": str(e)})
 
     def serve_bacnet_tools(self, query=None):
         config = load_config()

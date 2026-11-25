@@ -1,0 +1,166 @@
+<section class="bacnet-vues">
+    <div class="header-with-actions" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 10px;">
+        <div>
+            <h2>Vues de points BACnet</h2>
+            <p class="hint">Chantier : <strong>${site_name}</strong> · valeurs lues en direct, rien n'est enregistré.</p>
+        </div>
+        <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+            <select id="vue-choix" class="vue-choix" onchange="ouvrirVue(this.value)">
+                ${options_html}
+            </select>
+            <button type="button" class="btn-primary" onclick="afficherFormulaire(true)">+ Nouvelle vue</button>
+            <button type="button" class="btn-secondary" onclick="afficherFormulaire(false)" ${vue_actions_disabled}>Modifier</button>
+            <button type="button" class="btn-danger" onclick="supprimerVue()" ${vue_actions_disabled}>Supprimer</button>
+        </div>
+    </div>
+
+    <div class="card vue-formulaire" id="vue-formulaire" style="display: ${form_display};">
+        <h3 id="vue-form-titre" style="margin-top: 0;">${form_titre}</h3>
+        <form id="form-vue" onsubmit="enregistrerVue(event)">
+            <input type="hidden" name="view_id" id="vue-id" value="${form_id}">
+            <div class="vue-champs">
+                <label>Nom de la vue
+                    <input type="text" name="name" id="vue-nom" value="${form_nom}" placeholder="Ex : Thermostats bloc E" required>
+                </label>
+                <label>Plage normale : min
+                    <input type="text" name="range_min" id="vue-min" value="${form_min}" placeholder="facultatif" inputmode="decimal">
+                </label>
+                <label>max
+                    <input type="text" name="range_max" id="vue-max" value="${form_max}" placeholder="facultatif" inputmode="decimal">
+                </label>
+            </div>
+            <label class="vue-motifs">Motifs (un par ligne, jokers <code>*</code> et <code>?</code>, sur le nom des points du dictionnaire)
+                <textarea name="patterns" id="vue-motifs" rows="3" placeholder="IFABEL*_*_TmpAmb" required>${form_motifs}</textarea>
+            </label>
+            <p class="hint">Un même motif peut viser plusieurs régulateurs ; un point visé par deux motifs n'apparaît qu'une fois.</p>
+            <div style="display: flex; gap: 10px;">
+                <button type="submit" class="btn-primary">Enregistrer la vue</button>
+                <button type="button" class="btn-secondary" onclick="masquerFormulaire()">Annuler</button>
+            </div>
+        </form>
+    </div>
+
+    <div class="card" style="display: ${table_display};">
+        <div class="vue-entete">
+            <div id="vue-resume" class="vue-resume">Lecture en cours…</div>
+            <div class="hint" id="vue-maj">—</div>
+        </div>
+        <div class="table-container">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>État</th>
+                        <th>Appareil</th>
+                        <th>Repère</th>
+                        <th>Valeur</th>
+                        <th>Objet</th>
+                    </tr>
+                </thead>
+                <tbody id="vue-lignes">
+                    <tr><td colspan="5" class="vue-vide">Lecture des points en cours…</td></tr>
+                </tbody>
+            </table>
+        </div>
+        <p class="hint">Motifs : ${motifs_affiches} · plage normale : ${plage_affichee} · relecture toutes les ${periode} s tant que la page est ouverte.</p>
+    </div>
+
+    <div class="card" style="display: ${vide_display};">
+        <p>Aucune vue sur ce chantier. Une vue rassemble des points du dictionnaire par motif, par exemple
+        <code>IFABEL*_*_TmpAmb</code> pour toutes les températures ambiantes, sur un ou plusieurs régulateurs.</p>
+        <button type="button" class="btn-primary" onclick="afficherFormulaire(true)">+ Créer une vue</button>
+    </div>
+</section>
+
+<style>
+.vue-choix { min-width: 220px; height: 38px; }
+.vue-champs { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
+.vue-champs label, .vue-motifs { display: flex; flex-direction: column; gap: 4px; font-size: 0.85rem; color: var(--on-surface-variant); }
+.vue-champs label:first-child { flex: 1; min-width: 220px; }
+.vue-champs input { width: 100%; }
+.vue-motifs { margin-bottom: 6px; }
+.vue-motifs textarea { width: 100%; font-family: var(--font-mono); }
+.vue-entete { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+.vue-resume { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.vue-valeur { font-family: var(--font-mono); font-weight: 700; }
+.vue-vide { text-align: center; padding: 24px; color: var(--outline); }
+tr.vue-sans_reponse td, tr.vue-defaut_capteur td { background: rgba(147, 0, 10, 0.12); }
+tr.vue-hors_plage td { background: rgba(255, 184, 115, 0.08); }
+</style>
+
+<script>
+const VUE_BASE = "${base_url}";
+const VUE_ID = "${vue_id}";
+let vueFlux = null;
+
+function ouvrirVue(id) {
+    window.location.href = VUE_BASE + '/bacnet/vues' + (id ? '?id=' + encodeURIComponent(id) : '');
+}
+
+function afficherFormulaire(nouvelle) {
+    const f = document.getElementById('vue-formulaire');
+    if (nouvelle) {
+        document.getElementById('vue-form-titre').textContent = 'Nouvelle vue';
+        document.getElementById('vue-id').value = '';
+        document.getElementById('vue-nom').value = '';
+        document.getElementById('vue-min').value = '';
+        document.getElementById('vue-max').value = '';
+        document.getElementById('vue-motifs').value = '';
+    }
+    f.style.display = 'block';
+    document.getElementById('vue-nom').focus();
+}
+
+function masquerFormulaire() {
+    document.getElementById('vue-formulaire').style.display = 'none';
+}
+
+async function enregistrerVue(e) {
+    e.preventDefault();
+    const payload = Object.fromEntries(new FormData(e.target).entries());
+    const res = await fetch(VUE_BASE + '/api/bacnet/vues/save', {
+        method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (data.status === 'ok') {
+        ouvrirVue(data.id);
+    } else {
+        alert('Vue non enregistrée : ' + (data.message || 'erreur'));
+    }
+}
+
+async function supprimerVue() {
+    if (!VUE_ID) return;
+    const nom = document.getElementById('vue-choix').selectedOptions[0].textContent;
+    if (!confirm('Supprimer la vue « ' + nom + ' » ? Les points eux-mêmes ne sont pas touchés.')) return;
+    const res = await fetch(VUE_BASE + '/api/bacnet/vues/delete', {
+        method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({view_id: VUE_ID})
+    });
+    const data = await res.json();
+    if (data.status === 'ok') ouvrirVue('');
+    else alert('Suppression impossible : ' + (data.message || 'erreur'));
+}
+
+function demarrerFlux() {
+    if (!VUE_ID || vueFlux) return;
+    vueFlux = new EventSource(VUE_BASE + '/api/bacnet/vues/stream?id=' + encodeURIComponent(VUE_ID));
+    vueFlux.onmessage = (ev) => {
+        const d = JSON.parse(ev.data);
+        if (d.erreur) {
+            document.getElementById('vue-resume').textContent = d.erreur;
+            return;
+        }
+        document.getElementById('vue-resume').innerHTML = d.resume_html;
+        document.getElementById('vue-lignes').innerHTML = d.lignes_html;
+        document.getElementById('vue-maj').textContent = 'Lu à ' + d.heure;
+    };
+    vueFlux.onerror = () => { document.getElementById('vue-maj').textContent = 'Connexion interrompue, reprise…'; };
+}
+
+function arreterFlux() {
+    if (vueFlux) { vueFlux.close(); vueFlux = null; }
+}
+
+// Ne pas solliciter les régulateurs quand la page n'est pas visible.
+document.addEventListener('visibilitychange', () => document.hidden ? arreterFlux() : demarrerFlux());
+if (!document.hidden) demarrerFlux();
+</script>

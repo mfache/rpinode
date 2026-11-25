@@ -114,7 +114,17 @@
                 <div>
                     <button type="button" class="btn-secondary" id="btn-catalog-search-suivi" style="height: 38px; background: #16a085; color: white; border-color: #138d75;" onclick="runCatalogSearch(1, true)">⭐ Points suivis uniquement</button>
                 </div>
+                <div>
+                    <button type="button" class="btn-secondary" style="height: 38px;" title="Créer une vue de points (lecture en direct) à partir de ce motif" onclick="enregistrerCommeVue()">📋 Enregistrer comme vue</button>
+                </div>
             </form>
+            <script>
+            function enregistrerCommeVue() {
+                const motif = document.getElementById('catalog_pattern').value.trim();
+                if (!motif) { alert('Saisissez d\'abord un motif.'); return; }
+                window.location.href = (baseUrl + '/bacnet/vues?motif=' + encodeURIComponent(motif)).replace(/\/+/g, '/');
+            }
+            </script>
         </div>
 
         <div id="catalog-loading" style="display: none; padding: 20px; text-align: center; color: #16a085; font-weight: bold;">

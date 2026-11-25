@@ -261,6 +261,20 @@ CREATE TABLE IF NOT EXISTS bacnet_points_catalog (
     UNIQUE(site_id, device_instance, object_id)
 );
 
+-- Vues de points BACnet (services/bacnet_vues.py) : motifs avec jokers sur le
+-- dictionnaire du chantier (un par ligne), lus en direct, plage normale facultative.
+CREATE TABLE IF NOT EXISTS bacnet_views (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    site_id INTEGER NOT NULL,
+    name TEXT NOT NULL,
+    patterns TEXT NOT NULL,             -- motifs GLOB, un par ligne
+    range_min REAL,                     -- plage normale (facultative)
+    range_max REAL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (site_id) REFERENCES sites(id) ON DELETE CASCADE
+);
+
 -- État de la construction du dictionnaire BACnet (ligne unique)
 CREATE TABLE IF NOT EXISTS bacnet_catalog_status (
     id INTEGER PRIMARY KEY CHECK (id = 1),

@@ -433,6 +433,60 @@ def handle_bacnet_mstp_stream(handler):
         sse_hub.unregister_client("/api/bacnet/mstp/stream", client_id)
 
 
+def handle_bacnet_vue_stream(handler, query=None):
+    """
+    Flux SSE d'une vue de points BACnet (services/bacnet_vues.py) : lit les
+    points en direct tant que la page est ouverte et envoie le résumé et les
+    lignes déjà mis en forme. La vue est relue à chaque tour (modifiée ou
+    supprimée entre-temps).
+    """
+    from services.bacnet_vues import (PERIODE_LECTURE, lire_vue, lire_vue_en_direct,
+                                      rendre_lignes, rendre_resume)
+    from services.presence import get_current_site_id
+
+    try:
+        view_id = int((query or {}).get("id", [""])[0])
+    except (ValueError, TypeError):
+        view_id = None
+
+    handler.send_response(200)
+    handler.send_header('Content-type', 'text/event-stream')
+    handler.send_header('Cache-Control', 'no-cache')
+    handler.send_header('Connection', 'keep-alive')
+    handler.end_headers()
+
+    stream_path = "/api/bacnet/vues/stream"
+    client_id = f"vue_{uuid.uuid4().hex[:6]}"
+    client_ip = _extract_client_ip(handler)
+    sse_hub.register_client(stream_path, client_id, client_ip)
+    logger.info(f"Nouveau client SSE vue BACnet {view_id} connecté [{client_id}].")
+
+    def envoyer(payload):
+        handler.wfile.write(f"data: {json.dumps(payload)}\n\n".encode("utf-8"))
+        handler.wfile.flush()
+        sse_hub.record_event(stream_path, event_type="message", data=payload, client_ip=client_ip)
+
+    try:
+        while True:
+            vue = lire_vue(view_id, get_current_site_id()) if view_id else None
+            if not vue:
+                envoyer({"erreur": "Vue introuvable sur le chantier courant."})
+                break
+            resultat = lire_vue_en_direct(vue)
+            envoyer({"resume_html": rendre_resume(resultat), "lignes_html": rendre_lignes(resultat),
+                     "heure": time.strftime("%H:%M:%S")})
+            for _ in range(PERIODE_LECTURE):
+                time.sleep(1.0)
+            handler.wfile.write(b": heartbeat\n\n")
+            handler.wfile.flush()
+    except (ConnectionAbortedError, BrokenPipeError, ConnectionResetError):
+        logger.info(f"Client SSE vue BACnet déconnecté [{client_id}].")
+    except Exception as e:
+        logger.error(f"Erreur flux SSE vue BACnet: {e}")
+    finally:
+        sse_hub.unregister_client(stream_path, client_id)
+
+
 def handle_devices_stream(handler):
     """
     Gère une connexion SSE dédiée pour la page /devices.
