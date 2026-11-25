@@ -833,9 +833,9 @@ function renderObjectsTable(objects) {
         const tr = document.createElement('tr');
         tr.innerHTML = `
             <td style="text-align: center;"><input type="checkbox" class="obj-select" data-index="${idx}" onchange="updateGenerateButton()"></td>
-            <td><code>${obj.obj || ''}</code></td>
+            <td><code>${obj.object_id || ''}</code></td>
             <td><strong>${obj.name || ''}</strong></td>
-            <td><span class="badge-success">${obj.val !== undefined ? obj.val : '—'}</span></td>
+            <td><span class="badge-success">${obj.value !== undefined && obj.value !== null ? obj.value : '—'}</span></td>
         `;
         tbody.appendChild(tr);
     });
@@ -877,10 +877,13 @@ function generateTemplate() {
     
     const manufacturer = prompt("Fabricant (ex: Siemens, Honeywell...) :", "Générique BACnet") || "Inconnu";
     
+    // Même format que l'éditeur de templates (/api/bacnet/template/save) :
+    // listes parallèles obj_id[] / obj_name[].
     const payload = {
         name: tplName,
         manufacturer: manufacturer,
-        objects: selected
+        'obj_id[]': selected.map(o => o.object_id),
+        'obj_name[]': selected.map(o => o.name || o.object_id)
     };
     
     const url = (baseUrl + '/api/bacnet/template/save').replace(/\/+/g, '/');
